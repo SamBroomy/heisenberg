@@ -1,0 +1,39 @@
+CREATE
+OR REPLACE TABLE country AS
+SELECT
+    allCountries.geonameId,
+    allCountries.name,
+    allCountries.asciiname,
+    allCountries.alternatenames,
+    allCountries.latitude,
+    allCountries.longitude,
+    allCountries.feature_class,
+    allCountries.feature_code,
+    allCountries.cc2,
+    allCountries.elevation,
+    allCountries.dem,
+    allCountries.timezone,
+    countryInfo.ISO,
+    countryInfo.ISO3,
+    countryInfo.ISO_Numeric,
+    countryInfo.fips,
+    countryInfo.Country,
+    countryInfo.Capital,
+    countryInfo.Area,
+    countryInfo.Population,
+    countryInfo.Continent,
+    countryInfo.tld,
+    countryInfo.CurrencyCode,
+    countryInfo.CurrencyName,
+    countryInfo.Phone,
+    countryInfo.Postal_Code_Format,
+    countryInfo.Postal_Code_Regex,
+    countryInfo.Languages,
+    countryInfo.neighbours,
+FROM
+    countryInfo
+    INNER JOIN allCountries ON countryInfo.geonameId = allCountries.geonameId
+ORDER BY
+    allCountries.geonameId;
+
+CREATE INDEX country_geonameId ON country (geonameId);

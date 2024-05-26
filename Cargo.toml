@@ -1,0 +1,11 @@
+[package]
+name = "hbergv4"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+polars = {version = "*", features = ["lazy", "fmt"]}
+reqwest = "*"
+tempfile = "3"
+zip = "1"
