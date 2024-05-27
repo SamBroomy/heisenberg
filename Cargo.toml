@@ -3,9 +3,27 @@ name = "hbergv4"
 version = "0.1.0"
 edition = "2021"
 
+[workspace.lints.rust]
+unsafe_code = "forbid"
+unused = "allow" # For experimental dev.
+
+[lints]
+workspace = true
+
 [dependencies]
+twitter-v2 = "0.1"
 tokio = { version = "1", features = ["full"] }
 polars = {version = "*", features = ["lazy", "fmt"]}
+anyhow = "1"
+dotenv = "0.15"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 reqwest = "*"
 tempfile = "3"
-zip = "1"
+zip = "2.1.0"
+
+[dev-dependencies]
+axum = "0.7"
+tracing-subscriber = {version="0.3", features=["std", "env-filter"]}
+tracing = "0.1"
+tower-http = {version="0.5", features=["trace"]}
