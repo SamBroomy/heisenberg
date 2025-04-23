@@ -1,0 +1,28 @@
+[project]
+name = "hbergv4"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "duckdb>=1.2.2",
+    "geocoder>=1.38.1",
+    "kuzu==0.8.2",
+    "networkx>=3.4.2",
+    "numpy>=2.2.5",
+    "polars>=1.27.1",
+    "polars-st>=0.1.0a28",
+    "pyarrow>=19.0.1",
+    "result>=0.17.0",
+    "sentence-transformers>=4.1.0",
+    "tantivy>=0.22.2",
+    "usearch>=2.17.7",
+]
+
+[dependency-groups]
+dev = [
+    "ipykernel>=6.29.5",
+    "ipywidgets>=8.1.6",
+    "nbconvert>=7.16.6",
+    "yfiles-jupyter-graphs-for-kuzu>=0.0.4",
+]
