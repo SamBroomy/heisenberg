@@ -1,7 +1,5 @@
-CREATE
-OR REPLACE TABLE country AS
-SELECT
-    allCountries.geonameId,
+CREATE OR REPLACE TABLE admin0 AS
+SELECT allCountries.geonameId,
     allCountries.name,
     allCountries.asciiname,
     allCountries.alternatenames,
@@ -13,6 +11,7 @@ SELECT
     allCountries.elevation,
     allCountries.dem,
     allCountries.timezone,
+    allCountries.admin0_code,
     countryInfo.ISO,
     countryInfo.ISO3,
     countryInfo.ISO_Numeric,
@@ -30,10 +29,7 @@ SELECT
     countryInfo.Postal_Code_Regex,
     countryInfo.Languages,
     countryInfo.neighbours,
-FROM
-    countryInfo
+    FROM countryInfo
     INNER JOIN allCountries ON countryInfo.geonameId = allCountries.geonameId
-ORDER BY
-    allCountries.geonameId;
-
-CREATE INDEX country_geonameId ON country (geonameId);
+ORDER BY allCountries.geonameId;
+CREATE INDEX country_geonameId ON admin0 (geonameId);
