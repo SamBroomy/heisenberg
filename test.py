@@ -34,10 +34,13 @@ duck_db_path.parent.mkdir(parents=True, exist_ok=True)
 con = duckdb.connect(database=duck_db_path.as_posix())
 
 con.execute("SET enable_progress_bar = false;")
-con.install_extension("nanoarrow", repository="community")
-con.load_extension("nanoarrow")
 con.install_extension("spatial")
 con.load_extension("spatial")
+
+# Set DuckDB optimizations
+con.execute("PRAGMA memory_limit='16GB'")  # Adjust based on your system
+con.execute("PRAGMA threads=8")  # Adjust based on your CPU cores
+con.execute("PRAGMA enable_object_cache=true")  # Improve query caching
 
 
 # In[3]:
@@ -85,9 +88,11 @@ def table_exists(con: DuckDBPyConnection, table_name: str) -> bool:
 # Read and load 'allCountries.txt'
 # Function to read and load other files with different schemas
 def load_file(
+    # con: DuckDBPyConnection,
     file_path: str,
     schema: dict[str, Type[pl.DataType]],
     table_name: str,
+    table_definition: str | None = None,
     pipe: Callable[[pl.LazyFrame], pl.LazyFrame] | None = None,
     has_header: bool = False,
     skip_rows: int = 0,
@@ -99,8 +104,8 @@ def load_file(
         if not overwrite:
             return
         print(f"Overwriting table '{table_name}'")
-        con.execute(f"DROP TABLE {table_name}")
-
+        con.execute(f"DROP TABLE {table_name} CASCADE")
+        print(f"Table '{table_name}' dropped")
     time_start = time()
     load = con.begin()
     try:
@@ -114,12 +119,11 @@ def load_file(
             schema=schema,
             skip_rows=skip_rows,
         )
-        if extra_expr is not None:
-            q = q.with_columns(extra_expr)
-
         q = q.with_columns(
             pl.col(pl.Utf8).str.strip_chars().str.strip_chars("\"':").str.strip_chars()
         )
+        if extra_expr is not None:
+            q = q.with_columns(extra_expr)
         if pipe is not None:
             q = q.pipe(pipe)
         if GID in schema:
@@ -142,17 +146,24 @@ def load_file(
 
         # Time create
         time_create = time()
-        load.from_arrow(df.to_arrow()).create(table_name)
+        # Create table with predefined schema if provided
+        time_create = time()
+        if table_definition:
+            # Create the table with specified schema
+            load.execute(table_definition)
+            load.from_arrow(df.to_arrow()).insert_into(table_name)
+        else:
+            # Use automatic schema derivation (your current approach)
+            load.from_arrow(df.to_arrow()).create(table_name)
+
         print(f"Create time: {time() - time_create:.6f}s")
-        # load.execute(f"CREATE TABLE IF NOT EXISTS {table_name} AS SELECT * FROM df")
-        # Time commit
-        if GID in schema:
-            time_index = time()
-            load.execute(f"CREATE INDEX {table_name}_gid ON {table_name} ({GID})")
-            print(f"Index time: {time() - time_index:.6f}s")
-        load.commit()
+
         time_commit = time()
+        load.commit()
         print(f"Commit time: {time() - time_commit:.6f}s")
+        analyze_time = time()
+        con.execute("VACUUM ANALYZE;")
+        print(f"Analyze time: {time() - analyze_time:.6f}s")
     except Exception as e:
         print(f"Error loading '{file_path}'")
         print(e.with_traceback(None))
@@ -163,10 +174,11 @@ def load_file(
         raise e
     finally:
         print(f"Total time: {time() - time_start:.6f}s")
+    return df
 
 
 def drop_duplicates(df: pl.LazyFrame) -> pl.LazyFrame:
-    col = [
+    cols = [
         "name",
         "asciiname",
         "feature_class",
@@ -180,8 +192,8 @@ def drop_duplicates(df: pl.LazyFrame) -> pl.LazyFrame:
     ]
     return (
         df.sort("modification_date", descending=True)
-        .unique(col, keep="first")
-        .filter(~pl.all_horizontal(pl.col(col).is_null()))
+        .unique(cols, keep="first")
+        .filter(~pl.all_horizontal(pl.col(cols).is_null()))
         .sort("geonameId")
     )
 
@@ -213,6 +225,7 @@ load_file(
     "./data/raw/geonames/allCountries.txt",
     schema_all_countries,
     "allCountries",
+    table_definition=sql_file("create_table_allCountries.sql"),
     pipe=drop_duplicates,
 )
 
@@ -247,6 +260,7 @@ load_file(
         GID: pl.UInt32,
     },
     "admin1CodesASCII",
+    table_definition=sql_file("create_table_admin1CodesASCII.sql"),
 )
 
 load_file(
@@ -258,7 +272,14 @@ load_file(
         GID: pl.UInt32,
     },
     "admin2Codes",
+    table_definition=sql_file("create_table_admin2Codes.sql"),
 )
+
+
+def drop_invalid_gids(df: pl.LazyFrame, con: DuckDBPyConnection) -> pl.LazyFrame:
+    ids = con.execute("SELECT geonameId FROM allCountries").pl().unique().to_series()
+    return df.filter(pl.col(GID).is_in(ids))
+
 
 load_file(
     "./data/raw/geonames/adminCode5.txt",
@@ -267,6 +288,8 @@ load_file(
         "adm5code": pl.Utf8,
     },
     "adminCode5",
+    table_definition=sql_file("create_table_adminCode5.sql"),
+    pipe=partial(drop_invalid_gids, con=con),
 )
 
 
@@ -285,9 +308,11 @@ load_file(
         "to": pl.Utf8,
     },
     "alternateNamesV2",
+    table_definition=sql_file("create_table_alternateNamesV2.sql"),
     extra_expr=cs.by_dtype(pl.Int8).cast(pl.Boolean).fill_null(False),
+    pipe=partial(drop_invalid_gids, con=con),
 )
-# ISO	ISO3	ISO-Numeric	fips	Country	Capital	Area(in sq km)	Population	Continent	tld	CurrencyCode	CurrencyName	Phone	Postal Code Format	Postal Code Regex	Languages	geonameid	neighbours	EquivalentFipsCode
+
 load_file(
     "./data/raw/geonames/countryInfo.txt",
     {
@@ -312,9 +337,9 @@ load_file(
         "EquivalentFipsCode": pl.Utf8,
     },
     "countryInfo",
+    table_definition=sql_file("create_table_countryInfo.sql"),
     skip_rows=51,
 )
-
 
 load_file(
     "./data/raw/geonames/featureCodes_en.txt",
@@ -324,12 +349,21 @@ load_file(
         "description": pl.Utf8,
     },
     "featureCodes",
+    table_definition=sql_file("create_table_featureCodes.sql"),
 )
 
 
 def remove_old_ids(df: pl.LazyFrame, con: DuckDBPyConnection) -> pl.LazyFrame:
     ids = con.execute("SELECT geonameId FROM allCountries").pl().unique().to_series()
-    return df.filter(pl.col("parentId").is_in(ids) & pl.col("childId").is_in(ids))
+    return (
+        df.filter(pl.col("parentId").is_in(ids) & pl.col("childId").is_in(ids))
+        .with_columns(
+            pl.when(pl.col("type").str.contains("adm", literal=True))
+            .then(pl.col("type").str.to_uppercase())
+            .otherwise(pl.col("type"))
+        )
+        .unique(["parentId", "childId"])
+    )
 
 
 load_file(
@@ -340,6 +374,7 @@ load_file(
         "type": pl.Utf8,
     },
     "hierarchy",
+    table_definition=sql_file("create_table_hierarchy.sql"),
     pipe=partial(remove_old_ids, con=con),
 )
 con.execute(sql_file("create_table_unique_ids.sql"))
@@ -353,6 +388,7 @@ load_file(
         "Language_Name": pl.Utf8,
     },
     "iso_languagecodes",
+    table_definition=sql_file("create_table_iso_languagecodes.sql"),
 )
 
 
@@ -366,68 +402,64 @@ load_file(
         "rawOffset": pl.Float32,
     },
     "timeZones",
+    table_definition=sql_file("create_table_timeZones.sql"),
     skip_rows=1,
 )
 # # Ignore loading the geo data for now
-# if not table_exists(con, "shapes"):
-#     con.execute(sql_file("create_table_shapes.sql"))
-#     print("Table 'shapes' created")
+if not table_exists(con, "shapes"):
+    con.execute(sql_file("create_table_shapes.sql"))
+    print("Table 'shapes' created")
 
 # # File is corupted atm
 # load_file(
 #     "./data/raw/geonames/userTags.txt",
 #     {
-#         gid: pl.Int32,
+#         GID: pl.Int32,
 #         "tag": pl.Utf8,
 #     },
 #     "userTags",
 # )
-con.execute("""CREATE OR REPLACE TABLE equivalent AS
-SELECT
-    A.geonameId AS geonameId_a,
-    P.geonameId AS geonameId_p
-FROM
-    (SELECT * FROM allCountries WHERE feature_class = 'A') AS A
-INNER JOIN
-    (SELECT * FROM allCountries WHERE feature_class = 'P') AS P
-ON
-    COALESCE(A.name, 'N/A') = COALESCE(P.name, 'N/A') AND
-    COALESCE(A.asciiname, 'N/A') = COALESCE(P.asciiname, 'N/A') AND
-    COALESCE(A.admin0_code, 'N/A') = COALESCE(P.admin0_code, 'N/A') AND
-    COALESCE(A.admin1_code, 'N/A') = COALESCE(P.admin1_code, 'N/A') AND
-    COALESCE(A.admin2_code, 'N/A') = COALESCE(P.admin2_code, 'N/A') AND
-    COALESCE(A.admin3_code, 'N/A') = COALESCE(P.admin3_code, 'N/A') AND
-    COALESCE(A.admin4_code, 'N/A') = COALESCE(P.admin4_code, 'N/A') AND
-    COALESCE(A.timezone, 'N/A') = COALESCE(P.timezone, 'N/A')
-ORDER BY
-    geonameId_a,
-    geonameId_p;""").pl()
+con.execute(sql_file("create_table_equivalent.sql"))
+con.execute(sql_file("create_view_cities.sql"))
+con.execute(sql_file("create_view_locations_full.sql"))
+
+
+# In[6]:
+
+
+con.table("locations_full").pl()
+
+
+# In[7]:
+
+
+a = con.table("countryInfo").pl().join(con.table("allCountries").pl(), on="geonameId")
 
 
 # In[8]:
 
 
-con.table("allCountries").pl()
+a.select(pl.col("feature_code").value_counts(sort=True)).unnest("feature_code")
 
 
 # In[9]:
 
 
+a.filter(feature_code="PCLH")
+
+
+# In[10]:
+
+
 # Create country table
 con.execute(sql_file("create_table_equivalent.sql")).pl()
-
-con.sql(sql_file("create_table_admin0.sql"))
-
-con.install_extension("fts")
-con.load_extension("fts")
-con.execute("""
-PRAGMA create_fts_index(
+con.execute(sql_file("create_table_admin0.sql")).execute("""PRAGMA create_fts_index(
     admin0,
     geonameId,
     name,
     asciiname,
+    official_name,
     alternatenames,
-    Country,
     admin0_code,
     ISO3,
     ISO_Numeric,
@@ -443,7 +475,7 @@ con.execute(sql_file("create_view_*_NODES.sql", table="admin0"))
 con.execute(sql_file("create_view_*_FTS.sql", table="admin0"))
 
 
-# In[10]:
+# In[11]:
 
 
 # if (path := Path("./data/processed/latlon.index")).exists():
@@ -901,13 +933,511 @@ country_index.fts_search("An Danmhairg").unwrap().join(
 )
 
 
-# In[11]:
-
-
-con.table("admin0").pl().rows_by_key("geonameId", named=True)
-
-
 # In[12]:
+
+
+# 1. PREPARE THE BASE DATA
+# Start with a comprehensive temporary table containing all admin entities
+con.execute("""
+    CREATE OR REPLACE TEMP TABLE admin_entities AS
+    SELECT
+        a.geonameId,
+        a.name,
+        a.asciiname,
+        a.alternatenames,
+        a.latitude,
+        a.longitude,
+        a.feature_class,
+        a.feature_code,
+        a.admin0_code,
+        a.admin1_code,
+        a.admin2_code,
+        a.admin3_code,
+        a.admin4_code,
+        CASE
+            WHEN a.feature_code IN ('PCLI', 'PCLD', 'PCLF', 'PCLS', 'PCL', 'TERR') THEN 0
+            WHEN a.feature_code LIKE 'ADM1%' THEN 1
+            WHEN a.feature_code LIKE 'ADM2%' THEN 2
+            WHEN a.feature_code LIKE 'ADM3%' THEN 3
+            WHEN a.feature_code LIKE 'ADM4%' THEN 4
+            ELSE NULL
+        END AS admin_level,
+        h.parentId
+    FROM
+        allCountries a
+    LEFT JOIN
+        hierarchy h ON a.geonameId = h.childId AND h.type = 'ADM'
+    WHERE
+        a.feature_class = 'A' AND
+        (a.feature_code IN ('PCLI', 'PCLD', 'PCLF', 'PCLS', 'PCL', 'TERR') OR
+         a.feature_code LIKE 'ADM%')
+    """)
+con.table("admin_entities").pl()
+
+
+# In[13]:
+
+
+# 2. BUILD THE HIERARCHY USING RECURSIVE CTE
+# This is a key optimization - using a recursive CTE to build the full hierarchy
+# in a single SQL operation instead of multiple database calls
+con.execute("""
+CREATE OR REPLACE TABLE admin_hierarchy_full AS
+WITH RECURSIVE hierarchy_path(geonameId, name, admin_level, id_path, name_path, depth) AS (
+    -- Base case: Start with top-level entities (countries)
+    SELECT
+        geonameId,
+        name,
+        admin_level,
+        [geonameId]::INTEGER[], -- Start with array containing just this ID
+        [name]::VARCHAR[],      -- Start with array containing just this name
+        0                        -- Depth starts at 0
+    FROM
+        admin_entities
+    WHERE
+        admin_level = 0
+
+    UNION ALL
+
+    -- Recursive case: Add children to the path
+    SELECT
+        c.geonameId,
+        c.name,
+        c.admin_level,
+        p.id_path || [c.geonameId]::INTEGER[],
+        p.name_path || [c.name]::VARCHAR[], -- Append child name to name array
+        p.depth + 1                 -- Increment depth
+    FROM
+        admin_entities c
+    JOIN
+        hierarchy_path p ON c.parentId = p.geonameId
+    WHERE
+        c.admin_level > 0 AND p.depth < 5 -- Prevent infinite recursion
+)
+SELECT
+    geonameId,
+    name,
+    admin_level,
+    id_path,
+    name_path,
+    depth,
+    -- Parent ID is the second-to-last element in the path array
+    CASE
+        WHEN array_length(id_path) > 1 THEN
+            id_path[array_length(id_path) - 1]
+        ELSE NULL
+    END AS parent_id,
+    -- Root ID is always the first element in the path array
+    id_path[1] AS root_id,
+    -- Create a simple string representation for display
+    array_to_string(list_reverse(name_path), ', ') AS path_display
+FROM
+    hierarchy_path
+ORDER BY
+    id_path, admin_level;
+
+    """)
+con.table("admin_hierarchy_full").pl()
+
+
+# In[14]:
+
+
+# 3. HANDLE ORPHANED ENTITIES (Those without proper hierarchy linkage)
+con.execute("""
+    CREATE OR REPLACE TEMP TABLE orphaned_entities AS
+    SELECT a.*
+    FROM admin_entities a
+    LEFT JOIN admin_hierarchy_full h ON a.geonameId = h.geonameId
+    WHERE h.geonameId IS NULL
+    """)
+con.execute("ANALYZE admin_hierarchy_full")
+con.execute("ANALYZE orphaned_entities")
+con.table("orphaned_entities").pl()
+
+
+# In[15]:
+
+
+con.execute("""
+CREATE OR REPLACE TEMP TABLE fixed_orphans AS
+
+-- Level 1 orphans (join with countries)
+SELECT
+    o.geonameId,
+    o.name,
+    o.admin_level,
+    h.geonameId AS parent_id
+FROM
+    orphaned_entities o
+JOIN
+    admin_entities c ON o.admin0_code = c.admin0_code
+JOIN
+    admin_hierarchy_full h ON c.geonameId = h.geonameId AND h.admin_level = 0
+WHERE
+    o.admin_level = 1
+
+UNION ALL
+
+-- Level 2 orphans (join with admin1)
+SELECT
+    o.geonameId,
+    o.name,
+    o.admin_level,
+    h.geonameId AS parent_id
+FROM
+    orphaned_entities o
+JOIN
+    admin_entities a1 ON o.admin0_code = a1.admin0_code
+                      AND o.admin1_code = a1.admin1_code
+JOIN
+    admin_hierarchy_full h ON a1.geonameId = h.geonameId AND h.admin_level = 1
+WHERE
+    o.admin_level = 2
+
+UNION ALL
+
+-- Level 3 orphans (join with admin2)
+SELECT
+    o.geonameId,
+    o.name,
+    o.admin_level,
+    h.geonameId AS parent_id
+FROM
+    orphaned_entities o
+JOIN
+    admin_entities a2 ON o.admin0_code = a2.admin0_code
+                      AND o.admin1_code = a2.admin1_code
+                      AND o.admin2_code = a2.admin2_code
+JOIN
+    admin_hierarchy_full h ON a2.geonameId = h.geonameId AND h.admin_level = 2
+WHERE
+    o.admin_level = 3
+
+UNION ALL
+
+-- Level 4 orphans (join with admin3)
+SELECT
+    o.geonameId,
+    o.name,
+    o.admin_level,
+    h.geonameId AS parent_id
+FROM
+    orphaned_entities o
+JOIN
+    admin_entities a3 ON o.admin0_code = a3.admin0_code
+                      AND o.admin1_code = a3.admin1_code
+                      AND o.admin2_code = a3.admin2_code
+                      AND o.admin3_code = a3.admin3_code
+JOIN
+    admin_hierarchy_full h ON a3.geonameId = h.geonameId AND h.admin_level = 3
+WHERE
+    o.admin_level = 4;
+    """)
+con.table("fixed_orphans").pl()
+
+
+# In[16]:
+
+
+# 4. CREATE ADMIN TABLES WITH UNIFIED APPROACH
+# Now create each admin level table with consistent structure
+admin_levels = range(0, 5)  # levels 0-4
+overwrite = True
+
+for level in admin_levels:
+    table_name = f"admin{level}"
+    if table_exists(con, table_name) and not overwrite:
+        print(f"Table {table_name} exists, skipping (use overwrite=True to replace)")
+        continue
+
+    print(f"Creating {table_name} table...")
+
+    # Create the base table with rich information
+    if level == 0:  # Special case for admin0 (countries)
+        con.execute(f"""
+    CREATE OR REPLACE TABLE {table_name} AS
+    SELECT
+        a.geonameId,
+        a.name,
+        a.asciiname,
+        a.admin0_code,
+        a.cc2,
+        c.ISO,
+        c.ISO3,
+        c.ISO_Numeric,
+        c.Country AS official_name,
+        c.fips,
+        c.Population,
+        c.Area,
+        a.alternatenames,
+        a.feature_class,
+        a.feature_code,
+        -- Simple reference to root ID (same as own ID for countries)
+        a.geonameId AS root_id,
+        -- We don't need full path arrays for countries
+        NULL AS parent_id
+    FROM
+        admin_hierarchy_full h
+    JOIN
+        allCountries a ON h.geonameId = a.geonameId
+    JOIN
+        countryInfo c ON a.geonameId = c.geonameId
+    WHERE
+        h.admin_level = 0
+    ORDER BY
+        a.geonameId
+    """)
+    else:
+        # For admin levels 1-4
+        parent_level = level - 1
+        con.execute(f"""
+    CREATE OR REPLACE TABLE {table_name} AS
+    SELECT
+        a.geonameId,
+        a.name,
+        a.asciiname,
+        -- Admin codes (only include what's needed)
+        a.admin0_code,
+        a.admin1_code
+        {', a.admin2_code' if level >= 2 else ', NULL AS admin2_code'}
+        {', a.admin3_code' if level >= 3 else ', NULL AS admin3_code'}
+        {', a.admin4_code' if level >= 4 else ', NULL AS admin4_code'},
+        -- Feature classification
+        a.feature_class,
+        a.feature_code,
+        a.population,
+        -- Hierarchy references (just the essential IDs, not full arrays)
+        h.root_id AS country_id,
+        h.parent_id,
+        -- Names for display and search
+        r.name AS country_name,
+        p.name AS parent_name,
+        a.alternatenames
+    FROM
+        admin_hierarchy_full h
+    JOIN
+        allCountries a ON h.geonameId = a.geonameId
+    LEFT JOIN
+        allCountries p ON h.parent_id = p.geonameId
+    JOIN
+        allCountries r ON h.root_id = r.geonameId
+    WHERE
+        h.admin_level = {level}
+
+    UNION ALL
+
+    -- Add any fixed orphans with slim structure
+    SELECT
+        a.geonameId,
+        a.name,
+        a.asciiname,
+        -- Admin codes
+        a.admin0_code,
+        a.admin1_code
+        {', a.admin2_code' if level >= 2 else ', NULL AS admin2_code'}
+        {', a.admin3_code' if level >= 3 else ', NULL AS admin3_code'}
+        {', a.admin4_code' if level >= 4 else ', NULL AS admin4_code'},
+        -- Feature classification
+        a.feature_class,
+        a.feature_code,
+        p.population,
+        -- Links to country
+        (SELECT geonameId FROM allCountries
+         WHERE admin0_code = a.admin0_code AND feature_code = 'PCLI' LIMIT 1) AS country_id,
+        f.parent_id,
+        -- Names for display and search
+        c.name AS country_name,
+        p.name AS parent_name,
+        a.alternatenames
+    FROM
+        fixed_orphans f
+    JOIN
+        admin_entities a ON f.geonameId = a.geonameId
+    LEFT JOIN
+        allCountries p ON f.parent_id = p.geonameId
+    JOIN
+        allCountries c ON a.admin0_code = c.admin0_code AND c.feature_code LIKE 'PCL%'
+    WHERE
+        a.admin_level = {level}
+    ORDER BY
+        geonameId
+    """)
+    # Create primary key and other indexes
+    con.execute(f"CREATE INDEX idx_{table_name}_gid ON {table_name} (geonameId)")
+
+    if level > 0:
+        # Create indexes for parent relationships
+        con.execute(f"CREATE INDEX idx_{table_name}_parent ON {table_name} (parent_id)")
+        con.execute(f"CREATE INDEX idx_{table_name}_admin0_code ON {table_name} (admin0_code)")
+
+        # Create admin code index specific to this level
+        con.execute(f"CREATE INDEX idx_{table_name}_code ON {table_name} (admin{level}_code)")
+
+    # Create FTS index with optimized fields for search
+    create_fts_fields = "geonameId, name, asciiname, alternatenames"
+    if level == 0:
+        create_fts_fields += ", official_name, ISO, ISO3, fips"
+
+
+    con.execute(f"""
+    PRAGMA create_fts_index(
+        {table_name},
+        {create_fts_fields},
+        stemmer = 'none',
+        stopwords = 'none',
+        ignore = '(\\.|[^a-z0-9])+',
+        overwrite = 1
+    )
+    """)
+
+    # Report count
+    count = con.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+    print(f"Created {table_name} with {count} entities")
+
+
+# In[17]:
+
+
+print("Creating unified admin search view...")
+con.execute("""
+CREATE OR REPLACE VIEW admin_search AS
+
+-- Countries (admin0)
+SELECT
+    geonameId,
+    name,
+    asciiname,
+    0 AS admin_level,
+    admin0_code,
+    NULL AS admin1_code,
+    NULL AS admin2_code,
+    NULL AS admin3_code,
+    NULL AS admin4_code,
+    NULL AS parent_name,  -- Add NULL placeholder for admin0
+    parent_id,
+    feature_class,
+    feature_code,
+    population,
+    alternatenames,
+    'admin0' AS source_table
+FROM
+    admin0
+
+
+    UNION ALL
+
+    -- Admin1 entities (states/provinces)
+SELECT
+    geonameId,
+    name,
+    asciiname,
+    1 AS admin_level,
+    admin0_code,
+    admin1_code,
+    NULL AS admin2_code,
+    NULL AS admin3_code,
+    NULL AS admin4_code,
+    parent_name,
+    parent_id,
+    feature_class,
+    feature_code,
+    population,
+    alternatenames,
+    'admin1' AS source_table
+FROM
+    admin1
+
+    UNION ALL
+
+    -- Admin2 entities (counties/districts)
+
+SELECT
+    geonameId,
+    name,
+    asciiname,
+    2 AS admin_level,
+    admin0_code,
+    admin1_code,
+    admin2_code,
+    NULL AS admin3_code,
+    NULL AS admin4_code,
+    parent_name,
+    parent_id,
+    feature_class,
+    feature_code,
+    population,
+    alternatenames,
+    'admin2' AS source_table
+FROM
+    admin2
+
+
+    UNION ALL
+
+    -- Admin3 entities (municipalities)
+
+SELECT
+    geonameId,
+    name,
+    asciiname,
+    3 AS admin_level,
+    admin0_code,
+    admin1_code,
+    admin2_code,
+    admin3_code,
+    NULL AS admin4_code,
+    parent_name,
+    parent_id,
+    feature_class,
+    feature_code,
+    population,
+    alternatenames,
+    'admin3' AS source_table
+FROM
+    admin3
+
+    UNION ALL
+
+    -- Admin4 entities (neighborhoods/villages)
+SELECT
+    geonameId,
+    name,
+    asciiname,
+    4 AS admin_level,
+    admin0_code,
+    admin1_code,
+    admin2_code,
+    admin3_code,
+    admin4_code,
+    parent_name,
+    parent_id,
+    feature_class,
+    feature_code,
+    population,
+    alternatenames,
+    'admin4' AS source_table
+FROM
+    admin4
+
+    """)
+
+    # Clean up temporary tables
+
+
+print("Admin hierarchy construction complete!")
+
+
+# In[18]:
+
+
+con.execute("DROP TABLE IF EXISTS admin_entities")
+con.execute("DROP TABLE IF EXISTS admin_hierarchy_full")
+con.execute("DROP TABLE IF EXISTS orphaned_entities")
+con.execute("DROP TABLE IF EXISTS fixed_orphans")
+
+
+# In[19]:
 
 
 entities_df = con.execute(f"""
@@ -970,7 +1500,7 @@ if not are_edges:
     print("Loaded IsIn")
 
 
-# In[13]:
+# In[49]:
 
 
 def get_children_query(geoname_id: int) -> str:
@@ -1018,6 +1548,423 @@ conn.execute(get_children_querys([49518, 51537])).get_as_pl()
 conn.execute(get_parents_querys([49518, 51537])).get_as_pl()
 
 
+# In[24]:
+
+
+def handle_orphaned_admin_entities(con, conn):
+    """Fix orphaned admin entities using both admin codes and graph traversal."""
+
+    # Find entities with admin level feature codes that aren't in any admin table
+    orphans_query = """
+    SELECT a.geonameId, a.name, a.feature_code, a.admin0_code, a.admin1_code, a.admin2_code, a.admin3_code
+    FROM allCountries a
+    WHERE a.feature_code LIKE 'ADM%'
+    AND a.geonameId NOT IN (
+        SELECT geonameId FROM admin0
+        UNION ALL SELECT geonameId FROM admin1
+        UNION ALL SELECT geonameId FROM admin2
+        UNION ALL SELECT geonameId FROM admin3
+        UNION ALL SELECT geonameId FROM admin4
+    )
+    """
+
+    orphans_df = con.execute(orphans_query).pl()
+    if len(orphans_df) == 0:
+        print("No orphaned admin entities found!")
+        return
+
+    print(f"Found {len(orphans_df)} orphaned admin entities.")
+
+    # Try to find parents using graph database first
+    orphan_ids = orphans_df["geonameId"].to_list()
+    parents_query = f"""
+    MATCH (c:Entity)<-[:IsIn]-(p:Entity)
+    WHERE c.geonameId IN CAST({orphan_ids}, "UINT32[]")
+    RETURN c.geonameId AS geonameId, p.geonameId AS parent_id
+    """
+
+    parent_links = conn.execute(parents_query).get_as_pl()
+
+    # For remaining orphans without graph parents, try to infer level and parent using admin codes
+    code_linked = 0
+    for orphan in orphans_df.filter(~pl.col("geonameId").is_in(parent_links["geonameId"])).iter_rows(named=True):
+        level = None
+        if "ADM1" in orphan["feature_code"]:
+            level = 1
+        elif "ADM2" in orphan["feature_code"]:
+            level = 2
+        elif "ADM3" in orphan["feature_code"]:
+            level = 3
+        elif "ADM4" in orphan["feature_code"]:
+            level = 4
+
+        if level:
+            # Based on level, try to add to appropriate admin table using code-based parent
+            con.execute(f"""
+            INSERT INTO admin{level} (
+                SELECT
+                    a.geonameId,
+                    a.name,
+                    a.asciiname,
+                    a.admin0_code,
+                    {"a.admin1_code" if level >= 1 else "NULL AS admin1_code"},
+                    {"a.admin2_code" if level >= 2 else "NULL AS admin2_code"},
+                    {"a.admin3_code" if level >= 3 else "NULL AS admin3_code"},
+                    {"a.admin4_code" if level >= 4 else "NULL AS admin4_code"},
+                    a.feature_class,
+                    a.feature_code,
+                    a.population,
+                    -- Try to find parent ID from previous level
+                    (
+                        SELECT parent.geonameId FROM admin{level-1} parent
+                        WHERE parent.admin0_code = a.admin0_code
+                        {"AND parent.admin1_code = a.admin1_code" if level >= 2 else ""}
+                        {"AND parent.admin2_code = a.admin2_code" if level >= 3 else ""}
+                        {"AND parent.admin3_code = a.admin3_code" if level >= 4 else ""}
+                        LIMIT 1
+                    ) AS parent_id,
+                    c.name AS country_name,
+                    parent.name AS parent_name,
+                    a.alternatenames
+                FROM
+                    allCountries a
+                LEFT JOIN
+                    admin0 c ON a.admin0_code = c.admin0_code
+                LEFT JOIN
+                    admin{level-1} parent ON
+                        parent.admin0_code = a.admin0_code
+                        {"AND parent.admin1_code = a.admin1_code" if level >= 2 else ""}
+                        {"AND parent.admin2_code = a.admin2_code" if level >= 3 else ""}
+                        {"AND parent.admin3_code = a.admin3_code" if level >= 4 else ""}
+                WHERE
+                    a.geonameId = {orphan["geonameId"]}
+            )
+            """)
+            code_linked += 1
+
+
+    print(f"Fixed {len(parent_links)} orphans using graph relationships and {code_linked} using admin codes")
+
+def create_admin_search_view(con):
+    """Create a unified view for searching across all admin levels."""
+
+    print("Creating unified admin search view...")
+    con.execute("""
+    CREATE OR REPLACE VIEW admin_search AS
+
+    -- Countries (admin0)
+    SELECT
+        geonameId,
+        name,
+        asciiname,
+        0 AS admin_level,
+        admin0_code,
+        NULL AS admin1_code,
+        NULL AS admin2_code,
+        NULL AS admin3_code,
+        NULL AS admin4_code,
+        NULL AS parent_name,
+        NULL AS parent_id,
+        feature_class,
+        feature_code,
+        Population AS population,
+        alternatenames,
+        'admin0' AS source_table
+    FROM
+        admin0
+
+    UNION ALL
+
+    -- Admin1 entities
+    SELECT
+        geonameId,
+        name,
+        asciiname,
+        1 AS admin_level,
+        admin0_code,
+        admin1_code,
+        NULL AS admin2_code,
+        NULL AS admin3_code,
+        NULL AS admin4_code,
+        parent_name,
+        parent_id,
+        feature_class,
+        feature_code,
+        population,
+        alternatenames,
+        'admin1' AS source_table
+    FROM
+        admin1
+
+    UNION ALL
+
+    -- Admin2 entities
+    SELECT
+        geonameId,
+        name,
+        asciiname,
+        2 AS admin_level,
+        admin0_code,
+        admin1_code,
+        admin2_code,
+        NULL AS admin3_code,
+        NULL AS admin4_code,
+        parent_name,
+        parent_id,
+        feature_class,
+        feature_code,
+        population,
+        alternatenames,
+        'admin2' AS source_table
+    FROM
+        admin2
+
+    UNION ALL
+
+    -- Admin3 entities
+    SELECT
+        geonameId,
+        name,
+        asciiname,
+        3 AS admin_level,
+        admin0_code,
+        admin1_code,
+        admin2_code,
+        admin3_code,
+        NULL AS admin4_code,
+        parent_name,
+        parent_id,
+        feature_class,
+        feature_code,
+        population,
+        alternatenames,
+        'admin3' AS source_table
+    FROM
+        admin3
+
+    UNION ALL
+
+    -- Admin4 entities
+    SELECT
+        geonameId,
+        name,
+        asciiname,
+        4 AS admin_level,
+        admin0_code,
+        admin1_code,
+        admin2_code,
+        admin3_code,
+        admin4_code,
+        parent_name,
+        parent_id,
+        feature_class,
+        feature_code,
+        population,
+        alternatenames,
+        'admin4' AS source_table
+    FROM
+        admin4
+    """)
+
+    print("Admin search view created!")
+
+
+# In[25]:
+
+
+def build_admin_tables_hybrid(con, conn, overwrite=True):
+    """Build admin tables using graph database for relationships and DuckDB for storage."""
+
+    print("Starting hybrid admin table construction...")
+
+    # Define admin level feature code patterns
+    level_codes = {
+        0: ["PCL", "PCLI", "PCLD", "PCLF", "PCLS", "TERR"],
+        1: ["ADM1", "ADM1H"],
+        2: ["ADM2", "ADM2H"],
+        3: ["ADM3", "ADM3H"],
+        4: ["ADM4", "ADM4H"]
+    }
+
+    # Track entities at each admin level
+    admin_entities = {}
+
+    # Build admin tables one by one
+    for level in range(0, 5):
+        table_name = f"admin{level}"
+
+        if table_exists(con, table_name) and not overwrite:
+            print(f"Table {table_name} already exists. Skipping.")
+            continue
+
+        print(f"Building {table_name} table...")
+
+        # Step 1: Identify entities of this admin level by feature code
+        feature_patterns = "', '".join([code for code in level_codes[level]])
+        base_entities_query = f"""
+            SELECT geonameId
+            FROM allCountries
+            WHERE feature_code IN ('{feature_patterns}')
+            OR feature_code LIKE '{level_codes[level][0]}%'
+        """
+
+        level_entities = set(con.execute(base_entities_query).pl()["geonameId"])
+        print(f"Found {len(level_entities)} initial entities for level {level}")
+
+        # Step 2: For levels 1-4, use graph DB to validate hierarchical placement
+        # This ensures entities are correctly placed in the admin hierarchy
+        if level > 0 and level-1 in admin_entities:
+            # Find all direct children of the previous level's entities
+            previous_level_ids = list(admin_entities[level-1])
+
+            # Use graph DB to get valid children
+            children_query = f"""
+            MATCH (p:Entity)-[:IsIn]->(c:Entity)
+            WHERE p.geonameId IN CAST({previous_level_ids}, "UINT32[]")
+            RETURN DISTINCT c.geonameId AS geonameId
+            """
+
+            valid_children = set(conn.execute(children_query).get_as_pl()["geonameId"])
+            print(f"Found {len(valid_children)} valid children from graph relationships")
+
+            # Combine feature-based and relationship-based entities
+            level_entities = level_entities.union(valid_children)
+
+        admin_entities[level] = level_entities
+
+        # Step 3: Create the admin table with appropriate fields
+        if level == 0:  # Special case for countries
+            create_query = f"""
+            CREATE OR REPLACE TABLE {table_name} AS
+            SELECT
+                a.geonameId,
+                a.name,
+                a.asciiname,
+                a.admin0_code,
+                a.feature_class,
+                a.feature_code,
+                c.ISO,
+                c.ISO3,
+                c.ISO_Numeric,
+                c.Country AS official_name,
+                c.fips,
+                c.Population,
+                c.Area,
+                a.alternatenames,
+                NULL AS parent_id  -- No parent for countries
+            FROM
+                allCountries a
+            LEFT JOIN
+                countryInfo c ON a.geonameId = c.geonameId
+            WHERE
+                a.geonameId IN ({','.join(map(str, level_entities))})
+            ORDER BY
+                a.geonameId
+            """
+        else:
+            # For admin levels 1-4, include parent relationship
+            create_query = f"""
+            CREATE OR REPLACE TABLE {table_name} AS
+            WITH parent_links AS (
+                SELECT
+                    childId AS geonameId,
+                    parentId AS parent_id
+                FROM
+                    hierarchy
+                WHERE
+                    type = 'ADM' AND
+                    childId IN ({','.join(map(str, level_entities))})
+            )
+            SELECT
+                a.geonameId,
+                a.name,
+                a.asciiname,
+                a.admin0_code
+                {", a.admin1_code" if level >= 1 else ", NULL AS admin1_code"}
+                {", a.admin2_code" if level >= 2 else ", NULL AS admin2_code"}
+                {", a.admin3_code" if level >= 3 else ", NULL AS admin3_code"}
+                {", a.admin4_code" if level >= 4 else ", NULL AS admin4_code"},
+                a.feature_class,
+                a.feature_code,
+                a.population,
+                p.parent_id,
+                c.name AS country_name,
+                CASE
+                    WHEN p.parent_id IS NOT NULL THEN parent.name
+                    ELSE NULL
+                END AS parent_name,
+                a.alternatenames
+            FROM
+                allCountries a
+            LEFT JOIN
+                parent_links p ON a.geonameId = p.geonameId
+            LEFT JOIN
+                allCountries parent ON p.parent_id = parent.geonameId
+            LEFT JOIN
+                admin0 c ON a.admin0_code = c.admin0_code
+            WHERE
+                a.geonameId IN ({','.join(map(str, level_entities))})
+            ORDER BY
+                a.geonameId
+            """
+
+        # Execute the query to create the table
+        con.execute(create_query)
+
+        # Step 4: Add indexes and FTS
+        con.execute(f"CREATE INDEX idx_{table_name}_gid ON {table_name} (geonameId)")
+
+        if level > 0:
+            # Create indexes for parent relationships
+            con.execute(f"CREATE INDEX idx_{table_name}_parent ON {table_name} (parent_id)")
+            con.execute(f"CREATE INDEX idx_{table_name}_admin0 ON {table_name} (admin0_code)")
+
+            # Create admin code index specific to this level
+            if level <= 4:
+                con.execute(f"CREATE INDEX idx_{table_name}_code ON {table_name} (admin{level}_code)")
+
+        # Create FTS index for searching
+        fts_fields = "geonameId, name, asciiname, alternatenames"
+        if level == 0:
+            fts_fields += ", official_name, ISO, ISO3"
+
+        con.execute(f"""
+        PRAGMA create_fts_index(
+            {table_name},
+            {fts_fields},
+            stemmer = 'none',
+            stopwords = 'none',
+            ignore = '(\\.|[^a-z0-9])+',
+            overwrite = 1
+        )
+        """)
+
+        # Report count
+        count = con.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+        print(f"Created {table_name} with {count} entities")
+
+    # Step 5: Handle orphaned entities
+    print("\nChecking for orphaned administrative entities...")
+    handle_orphaned_admin_entities(con, conn)
+
+    # Step 6: Create a unified admin search view
+    create_admin_search_view(con)
+
+    print("Hybrid admin table construction complete!")
+
+
+# In[26]:
+
+
+build_admin_tables_hybrid(con, conn, overwrite=True)
+
+
+# In[29]:
+
+
+con.table("admin1").pl()
+
+
 # In[ ]:
 
 
@@ -1032,7 +1979,6 @@ def build_clean_admin_hierarchy(create_views=False, create_fts=True, overwrite=F
 
     # Define the distinct feature codes for each level
     level_codes = {
-        # Current + historical codes for each level
         1: ["ADM1", "ADM1H"],
         2: ["ADM2", "ADM2H"],
         3: ["ADM3", "ADM3H"],
@@ -1196,150 +2142,11 @@ def create_admin_indexes(con: DuckDBPyConnection):
     print("Created composite indexes on admin code columns")
 
 
-build_clean_admin_hierarchy(overwrite=True)
+#build_clean_admin_hierarchy(overwrite=True)
 create_admin_indexes(con)
 
-# Old hierarchy
-# admin1: 4501 entities
-# admin2: 47553 entities
-# admin3: 178449 entities
-# admin4: 224229 entities
-# def build_admin_hierarchy(create_views=False, create_fts=True, overwrite=False):
-#     """Build the complete administrative hierarchy from admin1 to admin4."""
-#     print("Building administrative hierarchy...")
 
-#     # Check if country table exists
-#     if not table_exists(con, "country"):
-#         print("Error: Country table must exist first")
-#         return
-
-#     # Define the hierarchy building process
-#     def build_level(level: int, parent_table: str, exclude_tables: list[str]):
-#         print(f"\n=== Building admin{level} table ===")
-
-#         # Skip if exists and not overwriting
-#         if table_exists(con, f"admin{level}") and not overwrite:
-#             print(f"Table admin{level} already exists. Skipping.")
-#             return
-
-#         # 1. Get parent IDs
-#         parent_ids = con.execute(f"SELECT geonameId FROM {parent_table}").pl()
-
-#         # 2. Get direct children from graph database
-#         print(
-#             f"Fetching children of {len(parent_ids)} {parent_table} entities from graph database..."
-#         )
-#         children_df = conn.execute(
-#             get_children_querys(parent_ids["geonameId"].to_list())
-#         ).get_as_pl()
-#         print(f"Found {len(children_df)} children in graph database")
-
-#         # 3. Register as temporary table
-#         temp_table = f"temp_children_{level}"
-#         con.register(temp_table, children_df)
-
-#         # 4. Build exclusion clause
-#         exclusion_clause = " AND ".join(
-#             [f"a.geonameId NOT IN (SELECT geonameId FROM {t})" for t in exclude_tables]
-#         )
-
-#         # 5. Create the table with SQL
-#         print(f"Creating admin{level} table...")
-#         con.execute(f"""
-#         CREATE OR REPLACE TABLE admin{level} AS
-#         SELECT a.*
-#         FROM allCountries a
-#         WHERE (
-#             -- Direct children from graph DB
-#             a.geonameId IN (SELECT geonameId FROM {temp_table})
-#             -- Feature code pattern matching
-#             OR a.feature_code LIKE 'ADM{level}%'
-#         )
-#         -- Exclude higher admin levels
-#         AND {exclusion_clause}
-#         ORDER BY a.geonameId
-#         """)
-
-#         # 6. Create indexes
-#         print(f"Creating index on admin{level}...")
-#         con.execute(
-#             f"CREATE INDEX IF NOT EXISTS admin{level}_gid ON admin{level} (geonameId)"
-#         )
-
-#         # 7. Create views if requested
-#         if create_views:
-#             print(f"Creating NODES and FTS views for admin{level}...")
-#             con.execute(sql_file("create_view_*_NODES.sql", table=f"admin{level}"))
-#             con.execute(sql_file("create_view_*_FTS.sql", table=f"admin{level}"))
-
-#         # 8. Create FTS index if requested
-#         if create_fts:
-#             print(f"Creating FTS index for admin{level}...")
-#             con.execute(f"""
-#             PRAGMA create_fts_index(
-#                 admin{level},
-#                 geonameId, name, asciiname, alternatenames, admin{level}_code, stemmer='none', stopwords='none', ignore='(\\.|[^a-z0-9])+', overwrite=1
-#             )
-#             """)
-
-#         # 9. Report results
-#         count = con.execute(f"SELECT COUNT(*) FROM admin{level}").fetchone()[0]  # type: ignore
-#         print(f"Completed admin{level} table with {count} entities")
-
-#         return f"admin{level}"
-
-#     # Build each level in sequence
-#     admin1 = build_level(1, "country", ["country"])
-#     admin2 = build_level(2, "admin1", ["country", "admin1"])
-#     admin3 = build_level(3, "admin2", ["country", "admin1", "admin2"])
-#     admin4 = build_level(4, "admin3", ["country", "admin1", "admin2", "admin3"])
-
-#     print("\nAdministrative hierarchy successfully built!")
-
-#     # Return counts for all tables
-#     for table in ["country", "admin1", "admin2", "admin3", "admin4"]:
-#         if table_exists(con, table):
-#             count = con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-#             print(f"{table}: {count} entities")
-
-
-# # Execute the hierarchy building
-# build_admin_hierarchy()
-
-
-# In[18]:
-
-
-output_df = (
-    conn.execute(
-        get_parents_querys(
-            con.execute("SELECT geonameId FROM admin0").pl().to_series().to_list(),
-            True,
-        )
-    )
-    .get_as_pl()
-    .lazy()
-    .unique("geonameId")
-    .select("geonameId")
-    .collect()
-    .to_series()
-)
-
-id_set = set(output_df) - set(
-    con.execute("SELECT geonameId FROM admin0").pl().to_series()
-)
-query = f"""
-CREATE OR REPLACE TABLE area AS
-SELECT * FROM allCountries WHERE geonameId IN ({",".join(map(str, id_set))})
-ORDER BY geonameId;
-
-CREATE INDEX area_geonameId ON area (geonameId);
-"""
-print(query)
-con.execute(query).pl()
-
-
-# In[ ]:
+# In[64]:
 
 
 def country_score(df: pl.LazyFrame) -> pl.LazyFrame:
@@ -1570,13 +2377,6 @@ def search_admin_level(
                 print(
                     f"Filtering by parent level {parent_level} using {parent_code_col} (no scores)"
                 )
-                query = f"""
-                SELECT a.*
-                FROM ({base_query}) a
-                WHERE a.{parent_code_col} IN (SELECT {parent_code_col} FROM {temp_table})
-                ORDER BY a.score DESC
-                LIMIT $limit
-                """
                 # No parent scores available, but we can still filter by parent
                 query = f"""
                 SELECT a.*
@@ -1714,7 +2514,7 @@ if "admin4" in results:
     print("Admin4 results:", results["admin4"])
 
 
-# In[106]:
+# In[ ]:
 
 
 def backfill_hierarchy(row: dict, con: DuckDBPyConnection) -> dict:
@@ -1742,34 +2542,40 @@ def backfill_hierarchy(row: dict, con: DuckDBPyConnection) -> dict:
     hierarchy = {}
     codes = []
 
+
+
     for i in range(5):
         code = row.get(f"admin{i}_code")
         codes.append(code)
         if code is not None:
-
             df = con.execute(f"""
-                SELECT * FROM admin{i}
+                SELECT geonameId, name FROM admin{i}
                 {get_where_clause(codes)}
                 LIMIT 1
             """).pl()
             if not df.is_empty():
-                hierarchy[f"admin{i}"] = df.select("geonameId", "name").row(
-                    0, named=True
-                )
+                hierarchy[f"admin{i}"] = df.to_dicts()[0]
 
     return hierarchy
 
 
-# In[107]:
+# In[79]:
+
+
+from pprint import pprint
+
 
 
 results = hierarchical_search(
     search_terms=["FR", None, None, None, "Le Lavandou"], con=con
 )
-results["admin4"].select("geonameId", "name").row(0, named=True)
+row = results["admin4"].row(0, named=True)
+pprint(row)
+
+pprint(backfill_hierarchy(row, con))
 
 
-# In[108]:
+# In[80]:
 
 
 results = hierarchical_search(
@@ -1777,25 +2583,16 @@ results = hierarchical_search(
 )
 row = results["admin3"].row(0, named=True)
 from pprint import pprint
+
 pprint(row)
 
 pprint(backfill_hierarchy(row, con))
 
 
-# In[72]:
+# In[68]:
 
 
 con.table("admin2").pl().filter(pl.col("admin2_code") == "105")
-
-
-# In[ ]:
-
-
-con.table("admin2").pl().filter(
-    (pl.col("admin0_code") == "US")
-    & (pl.col("admin1_code") == "FL")
-    & (pl.col("admin2_code") == "105")
-)
 
 
 # In[ ]:
@@ -1898,7 +2695,7 @@ con.table("admin1").pl().filter(pl.col("admin0_code") == "US").filter(
 con.table("admin0").pl().filter(pl.col("admin0_code") == "US")
 
 
-# In[61]:
+# In[ ]:
 
 
 # Search through the admin hierarchy
@@ -2278,7 +3075,7 @@ e = search(SEARCH_TERM[4], con, 4, d)
 e
 
 
-# In[40]:
+# In[ ]:
 
 
 d = search(SEARCH_TERM[3], con, 3, c)
@@ -2287,19 +3084,19 @@ e = search(SEARCH_TERM[4], con, 4, d)
 e
 
 
-# In[210]:
+# In[ ]:
 
 
 conn.execute(get_parents_query(8354456)).get_as_pl()
 
 
-# In[209]:
+# In[ ]:
 
 
 con.table("allCountries").pl().filter(pl.col("geonameId") == 8354456)
 
 
-# In[206]:
+# In[ ]:
 
 
 conn.execute(get_children_querys([8378478])).get_as_pl()
@@ -2313,7 +3110,7 @@ con.table("country").pl().select(pl.col("feature_class").value_counts()).unnest(
 )
 
 
-# In[22]:
+# In[ ]:
 
 
 con.execute("SELECT geonameId FROM country").pl()
@@ -2329,25 +3126,25 @@ CREATE OR REPLACE TABLE
 """
 
 
-# In[64]:
+# In[ ]:
 
 
 df = con.table("allCountries").pl()
 
 
-# In[20]:
+# In[ ]:
 
 
 con.table("area").pl()
 
 
-# In[27]:
+# In[ ]:
 
 
 df
 
 
-# In[36]:
+# In[ ]:
 
 
 df.sample(10)
@@ -2367,7 +3164,7 @@ df.filter(pl.col("country_code") == "US").filter(pl.col("admin1_code") == "GA").
 df.filter(pl.col(GID) == 4225563)
 
 
-# In[41]:
+# In[ ]:
 
 
 (
@@ -2389,7 +3186,7 @@ df.filter(pl.col(GID) == 4225563)
 )
 
 
-# In[25]:
+# In[ ]:
 
 
 con.table("allCountries").pl().filter(pl.col("geonameId") == 3038832)
@@ -2403,25 +3200,25 @@ df.filter((pl.col("admin4_code").is_not_null())).sample(10).filter(
 )
 
 
-# In[102]:
+# In[ ]:
 
 
 df.filter(pl.col("admin3_code") == "77152")
 
 
-# In[1]:
+# In[ ]:
 
 
 conn.execute(get_parents_querys([6556042], traverse=False)).get_as_pl()
 
 
-# In[71]:
+# In[ ]:
 
 
 conn.execute(get_parents_querys([6255148], traverse=False)).get_as_pl()
 
 
-# In[83]:
+# In[ ]:
 
 
 con.table("area").pl()
@@ -2433,7 +3230,7 @@ con.table("area").pl()
 
 
 
-# In[17]:
+# In[ ]:
 
 
 country_ids = con.execute("SELECT geonameId FROM country").pl().to_series()
@@ -2472,7 +3269,7 @@ con.table("country").pl().select(pl.col("feature_code").value_counts()).unnest(
 )
 
 
-# In[19]:
+# In[ ]:
 
 
 admin1_ids = con.execute("select geonameid from admin1").pl().to_series()
@@ -2504,13 +3301,13 @@ con.execute(
 con.table("admin2").pl()
 
 
-# In[20]:
+# In[ ]:
 
 
 con.table("admin2").pl()
 
 
-# In[21]:
+# In[ ]:
 
 
 admin2_ids = con.execute("select geonameid from admin2").pl().to_series()
@@ -2543,13 +3340,13 @@ con.execute(
 con.table("admin3").pl()
 
 
-# In[23]:
+# In[ ]:
 
 
 con.table("admin3").pl()
 
 
-# In[24]:
+# In[ ]:
 
 
 admin3_ids = con.execute("select geonameid from admin3").pl().to_series()
@@ -2582,13 +3379,13 @@ con.execute(
 )
 
 
-# In[29]:
+# In[ ]:
 
 
 con.table("admin4").pl()
 
 
-# In[30]:
+# In[ ]:
 
 
 admin4_ids = con.execute("select geonameid from admin4").pl().to_series()
@@ -2622,7 +3419,7 @@ con.execute(
 )
 
 
-# In[31]:
+# In[ ]:
 
 
 con.table("admin5").pl()
@@ -2645,25 +3442,25 @@ con.table("admin5").pl()
 # - Get all states (ADM1) (historic filter?) and then get all sub regions of countries? (potential country duplicate? If found in country table, when orchestrating change state found to country?)
 # 
 
-# In[32]:
+# In[ ]:
 
 
 df = con.table("allCountries").pl().lazy()
 
 
-# In[33]:
+# In[ ]:
 
 
 df.collect()
 
 
-# In[34]:
+# In[ ]:
 
 
 df.sort("modification_date", descending=True).collect()
 
 
-# In[36]:
+# In[ ]:
 
 
 # Write a query to find gids where (gid.a & gid.b) where, name, asciiname, country_code, admin1_code, admin2_code, admin3_code, admin4_code, timezone timezone are the same but feature class are A and P respectively
@@ -2692,7 +3489,7 @@ q = (
 ab = q.collect()
 
 
-# In[37]:
+# In[ ]:
 
 
 # LEFT JOIN P Equivalents to A tables
@@ -2700,25 +3497,25 @@ ab = q.collect()
 df.filter(pl.col("feature_class") == "P").collect()
 
 
-# In[38]:
+# In[ ]:
 
 
 con.table("equivalent").pl()
 
 
-# In[39]:
+# In[ ]:
 
 
 my_coordinates = np.array(geocoder.ip("me").latlng, dtype=np.float32)
 
 
-# In[40]:
+# In[ ]:
 
 
 df = con.table("allCountries").pl()
 
 
-# In[41]:
+# In[ ]:
 
 
 data = (
@@ -2733,7 +3530,7 @@ data = (
 )
 
 
-# In[42]:
+# In[ ]:
 
 
 my_coordinates1 = np.array([51.549902, -0.121696], dtype=np.float32)
@@ -2742,13 +3539,13 @@ my_coordinates2 = np.array([37.77493, -122.41942], dtype=np.float32)
 vidx = VectorIndex("latlon", data, metric="haversine")
 
 
-# In[43]:
+# In[ ]:
 
 
 vidx.vector_search(my_coordinates1).unwrap().join(df, "geonameId", "left")
 
 
-# In[50]:
+# In[ ]:
 
 
 if (path := Path("./data/processed/latlon.index")).exists():
@@ -2765,7 +3562,7 @@ else:
     index.save(path)
 
 
-# In[54]:
+# In[ ]:
 
 
 # Example function to search and return results with distances
@@ -2801,13 +3598,13 @@ def search_with_distances(
     return sorted_results_df.collect()
 
 
-# In[55]:
+# In[ ]:
 
 
 search_with_distances(index, my_coordinates2, df.lazy())
 
 
-# In[57]:
+# In[ ]:
 
 
 output: Matches = index.search(vectors=my_coordinates1, count=10, log=True)
@@ -2816,20 +3613,20 @@ print(f"{output.visited_members=}")
 df.filter(pl.col("geonameId").is_in(output.keys))
 
 
-# In[59]:
+# In[ ]:
 
 
 output: Matches = index.search(vectors=my_coordinates1, count=10, log=True)
 df.filter(pl.col("geonameId").is_in(output.keys))
 
 
-# In[60]:
+# In[ ]:
 
 
 output.distances
 
 
-# In[61]:
+# In[ ]:
 
 
 df.filter(pl.col("feature_code") == "LTER")
@@ -2842,13 +3639,13 @@ df.filter(pl.col("feature_code") == "LTER")
 # #
 # 
 
-# In[63]:
+# In[ ]:
 
 
 df.filter(pl.col("geonameId") == 15904)
 
 
-# In[64]:
+# In[ ]:
 
 
 hi_q = pl.scan_csv(
@@ -2863,13 +3660,13 @@ hi_q = pl.scan_csv(
 )
 
 
-# In[67]:
+# In[ ]:
 
 
 hi_df = hi_q.head(500).collect()
 
 
-# In[66]:
+# In[ ]:
 
 
 hi_df

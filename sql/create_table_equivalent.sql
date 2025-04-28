@@ -20,28 +20,5 @@ FROM (
     AND COALESCE(A.timezone, 'N/A') = COALESCE(P.timezone, 'N/A')
 ORDER BY geonameId_a,
     geonameId_p;
-/*
- q = (
- df.filter(pl.col("feature_class") == "A")
- .join(
- df.filter(pl.col("feature_class") == "P"),
- on=[
- "name",
- "asciiname",
- "country_code",
- "admin1_code",
- "admin2_code",
- "admin3_code",
- "admin4_code",
- "timezone",
- ],
- how="inner",
- suffix="_p",
- join_nulls=True,
- )
- .rename({"geonameId": "geonameId_a"})
- .select("geonameId_a", "geonameId_p")
- .sort("geonameId_a", "geonameId_p")
- )
- ab = q.collect()
- */
+CREATE INDEX idx_equivalent_a ON equivalent (geonameId_a);
+CREATE INDEX idx_equivalent_p ON equivalent (geonameId_p);
