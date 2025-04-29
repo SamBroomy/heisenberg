@@ -8,6 +8,7 @@ dependencies = [
     "duckdb>=1.2.2",
     "geocoder>=1.38.1",
     "kuzu>=0.9.0",
+    "loguru>=0.7.3",
     "networkx>=3.4.2",
     "numpy>=2.2.5",
     "polars>=1.27.1",
