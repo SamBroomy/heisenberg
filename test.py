@@ -425,7 +425,7 @@ con.execute(sql_file("create_view_cities.sql"))
 con.execute(sql_file("create_view_locations_full.sql"))
 
 
-# In[8]:
+# In[6]:
 
 
 # Create country table
@@ -452,466 +452,465 @@ con.execute(sql_file("create_view_locations_full.sql"))
 # con.execute(sql_file("create_view_*_FTS.sql", table="admin0"))
 
 
-# In[9]:
-
-
-get_ipython().run_line_magic('skip', '')
-# if (path := Path("./data/processed/latlon.index")).exists():
-#     logger.debug("Loading index...")
-#     index = Index.restore(path, view=True) or raise ValueError("Failed to load index")
-# else:
-#     logger.debug("Creating index...")
-#     coordinates = df.select(["latitude", "longitude"]).to_numpy(order="c")
-#     labels = df["geonameid"].to_numpy()
-#     index: Index = Index(ndim=2, metric="haversine", dtype="f32")
-#     index.add(keys=labels, vectors=coordinates, log=True)
-#     index.save(path)
-
-
-class VectorIndex:
-    default_index_path = Path("./data/indexes/vector")
-
-    def __init__(
-        self,
-        index_name: str,
-        data: pl.DataFrame | None = None,
-        id_column: str = "geonameId",
-        main_column: str = "vectors",
-        metric: str = "L2",
-        embedder: SentenceTransformer | None = None,
-    ):
-        self._index_path = self.default_index_path / f"{index_name}.index"
-        self._id_column = id_column
-        self._main_column = main_column
-        self._metric = metric
-        index = self.get_or_build_index(data, metric)
-        if isinstance(index, Err):
-            logger.debug(
-                f"Index does not exist at '{self.index_path}', build index with 'build_index' method."
-            )
-            self._index = None  # type: ignore
-        else:
-            self._index: Index = index.ok_value
-
-    @property
-    def index(self) -> Index:
-        return self._index
-
-    @property
-    def id_column(self) -> str:
-        return self._id_column
-
-    @property
-    def main_column(self) -> str:
-        return self._main_column
-
-    @property
-    def index_path(self) -> Path:
-        return self._index_path
-
-    @property
-    def ndims(self) -> int:
-        return self._ndims
-
-    @property
-    def metric(self) -> str:
-        return self._metric
-
-    def _build_index(
-        self,
-        df: pl.DataFrame,
-        metric: str = "L2",  # TODO: Metric like
-    ) -> Result[Index, str]:
-        """Data passed should be an Id and a vector."""
-        logger.debug("Creating index...")
-        vectors = df[self.main_column].to_numpy()
-        labels = df[self.id_column].to_numpy()
-        ndims = vectors.shape[1]  # Find n dims
-        index: Index = Index(ndim=ndims, metric=metric, dtype="f32")
-        index.add(keys=labels, vectors=vectors, log=True)
-        index.save(self.index_path)
-        return Ok(index)
-
-    def get_index(self) -> Result[Index, str]:
-        if (path := self.index_path).exists():
-            logger.debug(f"Opening index at '{self.index_path}'")
-            index = Index.restore(path, view=True)
-            if index is not None:
-                return Ok(index)
-        return Err(f"Index does not exist at '{self.index_path}'")
-
-    def get_or_build_index(
-        self,
-        df: pl.DataFrame | None = None,
-        metric: str = "L2",  # TODO: as above
-    ) -> Result[Index, str]:
-        self.index_path.parent.mkdir(parents=True, exist_ok=True)
-
-        if not self.index_path.exists():
-            if df is None:
-                return Err(
-                    "Index does not exist. DataFrame is required to create index"
-                )
-            match self._build_index(df, metric):
-                case Ok(index):
-                    ...
-                case Err(e):
-                    return Err(e)
-        else:
-            match self.get_index():
-                case Ok(index):
-                    ...
-                case Err(e):
-                    return Err(e)
-
-        self._ndims = index.ndim
-        logger.debug("Opening index")
-        return Ok(index)
-
-    def search(
-        self,
-        query: NDArray[np.float32],
-        limit: int = 10,
-        include: list[int] | None = None,
-        exclude: list[int] | None = None,
-    ) -> Result[pl.DataFrame, str]:
-        return self.vector_search(query, limit, include, exclude)
-
-    def vector_search(
-        self,
-        query: NDArray[np.float32],
-        limit: int = 10,
-        include: list[int] | None = None,
-        exclude: list[int] | None = None,
-        exact: bool = False,
-    ) -> Result[pl.DataFrame, str]:
-        output = self.index.search(vectors=query, count=limit, log=True, exact=exact)
-
-        logger.debug(f"Visited members: {output.visited_members}")
-        logger.debug(f"Computed distances: {output.computed_distances}")
-
-        # Extract keys (geonameids) and distances
-        keys = output.keys
-        distances = output.distances
-
-        # Create a DataFrame from the search results
-        results_df = pl.LazyFrame(
-            data={self.id_column: keys, "score": distances},
-            schema={self.id_column: pl.UInt32, "score": pl.Float32},
-        )
-        if self.metric == "haversine":
-            results_df = results_df.with_columns(pl.col("score") * 6371.0)
-
-        results_df = results_df.sort(
-            "score"
-        )  # TODO: ascending descending depending on metric.
-
-        return Ok(results_df.collect())
-
-
-class FTSIndex:
-    default_index_path = Path("./data/indexes/fts")
-
-    def __init__(
-        self,
-        index_name: str,
-        data: pl.DataFrame | None = None,
-        id_column: str = "geonameId",
-        main_column: str = "name",
-    ):
-        self._index_path = self.default_index_path / index_name
-        self._column_types = {}
-        self._id_column = id_column
-        self._main_column = main_column
-        index = self.get_or_build_index(data)
-        if isinstance(index, Err):
-            logger.debug(
-                f"Index does not exist at '{self.index_path}', build index with 'build_index' method."
-            )
-            self._index = None  # type: ignore
-        else:
-            self._index: tantivy.Index = index.ok_value
-
-    @property
-    def index(self) -> tantivy.Index:
-        self._index.reload()
-        return self._index
-
-    @property
-    def column_types(self) -> dict[str, str]:
-        return self._column_types
-
-    @property
-    def id_column(self) -> str:
-        return self._id_column
-
-    @property
-    def main_column(self) -> str:
-        return self._main_column
-
-    @property
-    def index_path(self) -> Path:
-        return self._index_path
-
-    @property
-    def columns_not_id(self) -> list[str]:
-        return [col for col in self.column_types if col != self.id_column]
-
-    def _build_index(
-        self,
-        df: pl.DataFrame,
-        split_field: dict[str, list[str] | str] | None = None,
-    ) -> Result[tantivy.Index, str]:
-        """Only pass in data which you wish to build the ftx index with. split_field is a dictionary of fields to split by a delimiter. eg {",": ["field1", "field2"]} will split field1 and field2 by comma."""
-        # TODO: this programmatically into tantivy schema
-        schema_builder = tantivy.SchemaBuilder()
-
-        if self.id_column not in df.columns:
-            return Err(f"'{self.id_column}' column not found in DataFrame")
-
-        col_types = {}
-        for col in df.columns:
-            if col == self.id_column:
-                schema_builder.add_integer_field(
-                    self.id_column, stored=True, indexed=True, fast=True
-                )
-            # TODO: ADD support for other types
-            else:
-                schema_builder.add_text_field(col)
-            col_types[col] = df[col].dtype._string_repr()
-
-        self._column_types = col_types
-
-        schema = schema_builder.build()
-        logger.debug(f"Creating index with columns:\n{json.dumps(col_types, indent=2)}")
-
-        index = tantivy.Index(schema, path=self.index_path.as_posix(), reuse=False)
-        writer = index.writer()
-        for row in df.rows(named=True):
-            if split_field:
-                for splitter, fields in split_field.items():
-                    if isinstance(fields, str):
-                        fields = [fields]
-                    for field in fields:
-                        logger.debug(f"Splitting {field} by {splitter}...")
-                        row[field] = row[field].split(splitter)
-            writer.add_document(tantivy.Document(**row))
-        writer.commit()
-        writer.wait_merging_threads()
-        return Ok(index)
-
-    def get_index(self) -> Result[tantivy.Index, str]:
-        if tantivy.Index.exists(self.index_path.as_posix()):
-            logger.debug(f"Opening index at '{self.index_path}'")
-            return Ok(tantivy.Index.open(self.index_path.as_posix()))
-        return Err(f"Index does not exist at '{self.index_path}'")
-
-    def get_or_build_index(
-        self, df: pl.DataFrame | None = None
-    ) -> Result[tantivy.Index, str]:
-        if not self.index_path.exists() and df is None:
-            return Err("Index does not exist. DataFrame is required to create index")
-
-        self.index_path.mkdir(parents=True, exist_ok=True)
-
-        if not tantivy.Index.exists(self.index_path.as_posix()):
-            if df is None:
-                return Err("DataFrame is required to create index")
-            match self._build_index(df):
-                case Ok(index):
-                    ...
-                case Err(e):
-                    return Err(e)
-        else:
-            match self.get_index():
-                case Ok(index):
-                    ...
-                case Err(e):
-                    return Err(e)
-        schema = json.loads((self.index_path / "meta.json").read_text())["schema"]
-        sc = {}
-        for v in schema:
-            type_ = v["type"]
-            if type_ == "text":
-                type_ = pl.Utf8
-            elif type_ == "i64":
-                type_ = pl.UInt32
-            sc[v["name"]] = type_
-
-        self._column_types = sc
-        logger.debug("Schema Loaded")
-        logger.debug("Opening country index")
-        return Ok(index)
-
-    def convert_fts_results(
-        self, hits: tantivy.SearchResult, searcher: tantivy.Searcher
-    ) -> pl.DataFrame:
-        logger.debug(f"FTS hits from search: {hits.count}")  # type: ignore
-
-        scores, gids = zip(
-            *[
-                (score, searcher.doc(doc).get_first(self.id_column))
-                for score, doc in hits.hits
-            ]
-        )
-
-        return (
-            pl.LazyFrame(
-                {"geonameId": list(gids), "score": list(scores)},
-                schema={"geonameId": pl.UInt32, "score": pl.Float32},
-            )
-            .sort("score", descending=True, maintain_order=True)
-            .collect()
-        )
-
-    def search(
-        self,
-        query: str,
-        limit: int = 10,
-        include: list[int] | None = None,
-        exclude: list[int] | None = None,
-    ) -> Result[pl.DataFrame, str]:
-        return self.fts_search(
-            query,
-            limit=limit,
-            include=include,
-            exclude=exclude,
-        )
-
-    def fts_search(
-        self,
-        query: str,
-        limit: int = 10,
-        include: list[int] | None = None,
-        exclude: list[int] | None = None,
-        main_term_query_boost: float = 3.0,
-        fuzzy_term_query_boost: float = 2.0,
-        max_fuzzy_distance: int = 2,
-        phrase: bool = True,
-    ) -> Result[pl.DataFrame, str]:
-        # Create for list of queries (batch search)
-        if phrase:
-            query = f"'{query}'"
-        else:
-            query = query.strip("\"'")
-        query = query.strip()
-        index = self.index
-
-        searcher = index.searcher()
-
-        bool_query_list: list[tuple[tantivy.Occur, tantivy.Query]] = []
-
-        # Calculate fuzzy distance based on query length
-        fuzzy_distance = min(max(0, len(query) - 2), max_fuzzy_distance)
-
-        if self.main_column in self.columns_not_id:
-            main_term_query = tantivy.Query.term_query(
-                index.schema, self.main_column, query
-            )
-            bool_query_list.append(
-                (
-                    tantivy.Occur.Should,
-                    tantivy.Query.boost_query(main_term_query, main_term_query_boost),
-                )
-            )
-
-            if fuzzy_distance > 0:
-                main_fuzzy_query = tantivy.Query.fuzzy_term_query(
-                    index.schema, self.main_column, query, distance=fuzzy_distance
-                )
-
-                bool_query_list.append(
-                    (
-                        tantivy.Occur.Should,
-                        tantivy.Query.boost_query(
-                            main_fuzzy_query, fuzzy_term_query_boost
-                        ),
-                    )
-                )
-
-            rest_of_query = index.parse_query(
-                query, list(set(self.columns_not_id) - {self.main_column})
-            )
-            bool_query_list.append((tantivy.Occur.Should, rest_of_query))
-
-        if include:
-            bool_query_list.append(
-                (
-                    tantivy.Occur.Must,
-                    tantivy.Query.term_set_query(index.schema, self.id_column, include),
-                )
-            )
-        if exclude:
-            bool_query_list.append(
-                (
-                    tantivy.Occur.MustNot,
-                    tantivy.Query.term_set_query(index.schema, self.id_column, exclude),
-                )
-            )
-        if bool_query_list:
-            final_query = tantivy.Query.boolean_query(bool_query_list)
-
-        else:
-            final_query: tantivy.Query = index.parse_query(
-                query, default_field_names=self.columns_not_id
-            )
-
-        logger.debug(final_query)
-
-        hits: tantivy.SearchResult = searcher.search(final_query, limit=limit)
-
-        if hits.count == 0:  # type: ignore
-            if phrase:
-                logger.debug("No results found, retrying without phrase search...")
-                return self.fts_search(
-                    query,
-                    limit,
-                    include,
-                    exclude,
-                    main_term_query_boost,
-                    fuzzy_term_query_boost,
-                    max_fuzzy_distance,
-                    phrase=False,
-                )
-            return Err("No results found")
-
-        return Ok(self.convert_fts_results(hits, searcher))
-
-
-class HybridIndex:
-    def __init__(self, fts_idx: FTSIndex, vidx: VectorIndex):
-        self._fts_idx = fts_idx
-        self._vidx = vidx
-
-    @property
-    def vector_index(self) -> VectorIndex:
-        return self._vidx
-
-    @property
-    def fts_index(self) -> FTSIndex:
-        return self._fts_idx
-
-    def search(
-        self,
-        query: str,
-        limit: int = 10,
-        include: list[int] | None = None,
-        exclude: list[int] | None = None,
-        main_term_query_boost: float = 3.0,
-        fuzzy_term_query_boost: float = 2.0,
-        max_fuzzy_distance: int = 2,
-        phrase: bool = True,
-    ) -> Result[pl.DataFrame, str]:
-        v_search = self.vector_index.vector_search
-
-
-country_index = FTSIndex("admin0", con.table("admin0_FTS").pl())
-country_index.fts_search("An Danmhairg").unwrap().join(
-    con.table("admin0").pl(), "geonameId", "left"
-)
-
-
-# In[10]:
+# In[12]:
+
+
+# # if (path := Path("./data/processed/latlon.index")).exists():
+# #     logger.debug("Loading index...")
+# #     index = Index.restore(path, view=True) or raise ValueError("Failed to load index")
+# # else:
+# #     logger.debug("Creating index...")
+# #     coordinates = df.select(["latitude", "longitude"]).to_numpy(order="c")
+# #     labels = df["geonameid"].to_numpy()
+# #     index: Index = Index(ndim=2, metric="haversine", dtype="f32")
+# #     index.add(keys=labels, vectors=coordinates, log=True)
+# #     index.save(path)
+
+
+# class VectorIndex:
+#     default_index_path = Path("./data/indexes/vector")
+
+#     def __init__(
+#         self,
+#         index_name: str,
+#         data: pl.DataFrame | None = None,
+#         id_column: str = "geonameId",
+#         main_column: str = "vectors",
+#         metric: str = "L2",
+#         embedder: SentenceTransformer | None = None,
+#     ):
+#         self._index_path = self.default_index_path / f"{index_name}.index"
+#         self._id_column = id_column
+#         self._main_column = main_column
+#         self._metric = metric
+#         index = self.get_or_build_index(data, metric)
+#         if isinstance(index, Err):
+#             logger.debug(
+#                 f"Index does not exist at '{self.index_path}', build index with 'build_index' method."
+#             )
+#             self._index = None  # type: ignore
+#         else:
+#             self._index: Index = index.ok_value
+
+#     @property
+#     def index(self) -> Index:
+#         return self._index
+
+#     @property
+#     def id_column(self) -> str:
+#         return self._id_column
+
+#     @property
+#     def main_column(self) -> str:
+#         return self._main_column
+
+#     @property
+#     def index_path(self) -> Path:
+#         return self._index_path
+
+#     @property
+#     def ndims(self) -> int:
+#         return self._ndims
+
+#     @property
+#     def metric(self) -> str:
+#         return self._metric
+
+#     def _build_index(
+#         self,
+#         df: pl.DataFrame,
+#         metric: str = "L2",  # TODO: Metric like
+#     ) -> Result[Index, str]:
+#         """Data passed should be an Id and a vector."""
+#         logger.debug("Creating index...")
+#         vectors = df[self.main_column].to_numpy()
+#         labels = df[self.id_column].to_numpy()
+#         ndims = vectors.shape[1]  # Find n dims
+#         index: Index = Index(ndim=ndims, metric=metric, dtype="f32")
+#         index.add(keys=labels, vectors=vectors, log=True)
+#         index.save(self.index_path)
+#         return Ok(index)
+
+#     def get_index(self) -> Result[Index, str]:
+#         if (path := self.index_path).exists():
+#             logger.debug(f"Opening index at '{self.index_path}'")
+#             index = Index.restore(path, view=True)
+#             if index is not None:
+#                 return Ok(index)
+#         return Err(f"Index does not exist at '{self.index_path}'")
+
+#     def get_or_build_index(
+#         self,
+#         df: pl.DataFrame | None = None,
+#         metric: str = "L2",  # TODO: as above
+#     ) -> Result[Index, str]:
+#         self.index_path.parent.mkdir(parents=True, exist_ok=True)
+
+#         if not self.index_path.exists():
+#             if df is None:
+#                 return Err(
+#                     "Index does not exist. DataFrame is required to create index"
+#                 )
+#             match self._build_index(df, metric):
+#                 case Ok(index):
+#                     ...
+#                 case Err(e):
+#                     return Err(e)
+#         else:
+#             match self.get_index():
+#                 case Ok(index):
+#                     ...
+#                 case Err(e):
+#                     return Err(e)
+
+#         self._ndims = index.ndim
+#         logger.debug("Opening index")
+#         return Ok(index)
+
+#     def search(
+#         self,
+#         query: NDArray[np.float32],
+#         limit: int = 10,
+#         include: list[int] | None = None,
+#         exclude: list[int] | None = None,
+#     ) -> Result[pl.DataFrame, str]:
+#         return self.vector_search(query, limit, include, exclude)
+
+#     def vector_search(
+#         self,
+#         query: NDArray[np.float32],
+#         limit: int = 10,
+#         include: list[int] | None = None,
+#         exclude: list[int] | None = None,
+#         exact: bool = False,
+#     ) -> Result[pl.DataFrame, str]:
+#         output = self.index.search(vectors=query, count=limit, log=True, exact=exact)
+
+#         logger.debug(f"Visited members: {output.visited_members}")
+#         logger.debug(f"Computed distances: {output.computed_distances}")
+
+#         # Extract keys (geonameids) and distances
+#         keys = output.keys
+#         distances = output.distances
+
+#         # Create a DataFrame from the search results
+#         results_df = pl.LazyFrame(
+#             data={self.id_column: keys, "score": distances},
+#             schema={self.id_column: pl.UInt32, "score": pl.Float32},
+#         )
+#         if self.metric == "haversine":
+#             results_df = results_df.with_columns(pl.col("score") * 6371.0)
+
+#         results_df = results_df.sort(
+#             "score"
+#         )  # TODO: ascending descending depending on metric.
+
+#         return Ok(results_df.collect())
+
+
+# class FTSIndex:
+#     default_index_path = Path("./data/indexes/fts")
+
+#     def __init__(
+#         self,
+#         index_name: str,
+#         data: pl.DataFrame | None = None,
+#         id_column: str = "geonameId",
+#         main_column: str = "name",
+#     ):
+#         self._index_path = self.default_index_path / index_name
+#         self._column_types = {}
+#         self._id_column = id_column
+#         self._main_column = main_column
+#         index = self.get_or_build_index(data)
+#         if isinstance(index, Err):
+#             logger.debug(
+#                 f"Index does not exist at '{self.index_path}', build index with 'build_index' method."
+#             )
+#             self._index = None  # type: ignore
+#         else:
+#             self._index: tantivy.Index = index.ok_value
+
+#     @property
+#     def index(self) -> tantivy.Index:
+#         self._index.reload()
+#         return self._index
+
+#     @property
+#     def column_types(self) -> dict[str, str]:
+#         return self._column_types
+
+#     @property
+#     def id_column(self) -> str:
+#         return self._id_column
+
+#     @property
+#     def main_column(self) -> str:
+#         return self._main_column
+
+#     @property
+#     def index_path(self) -> Path:
+#         return self._index_path
+
+#     @property
+#     def columns_not_id(self) -> list[str]:
+#         return [col for col in self.column_types if col != self.id_column]
+
+#     def _build_index(
+#         self,
+#         df: pl.DataFrame,
+#         split_field: dict[str, list[str] | str] | None = None,
+#     ) -> Result[tantivy.Index, str]:
+#         """Only pass in data which you wish to build the ftx index with. split_field is a dictionary of fields to split by a delimiter. eg {",": ["field1", "field2"]} will split field1 and field2 by comma."""
+#         # TODO: this programmatically into tantivy schema
+#         schema_builder = tantivy.SchemaBuilder()
+
+#         if self.id_column not in df.columns:
+#             return Err(f"'{self.id_column}' column not found in DataFrame")
+
+#         col_types = {}
+#         for col in df.columns:
+#             if col == self.id_column:
+#                 schema_builder.add_integer_field(
+#                     self.id_column, stored=True, indexed=True, fast=True
+#                 )
+#             # TODO: ADD support for other types
+#             else:
+#                 schema_builder.add_text_field(col)
+#             col_types[col] = df[col].dtype._string_repr()
+
+#         self._column_types = col_types
+
+#         schema = schema_builder.build()
+#         logger.debug(f"Creating index with columns:\n{json.dumps(col_types, indent=2)}")
+
+#         index = tantivy.Index(schema, path=self.index_path.as_posix(), reuse=False)
+#         writer = index.writer()
+#         for row in df.rows(named=True):
+#             if split_field:
+#                 for splitter, fields in split_field.items():
+#                     if isinstance(fields, str):
+#                         fields = [fields]
+#                     for field in fields:
+#                         logger.debug(f"Splitting {field} by {splitter}...")
+#                         row[field] = row[field].split(splitter)
+#             writer.add_document(tantivy.Document(**row))
+#         writer.commit()
+#         writer.wait_merging_threads()
+#         return Ok(index)
+
+#     def get_index(self) -> Result[tantivy.Index, str]:
+#         if tantivy.Index.exists(self.index_path.as_posix()):
+#             logger.debug(f"Opening index at '{self.index_path}'")
+#             return Ok(tantivy.Index.open(self.index_path.as_posix()))
+#         return Err(f"Index does not exist at '{self.index_path}'")
+
+#     def get_or_build_index(
+#         self, df: pl.DataFrame | None = None
+#     ) -> Result[tantivy.Index, str]:
+#         if not self.index_path.exists() and df is None:
+#             return Err("Index does not exist. DataFrame is required to create index")
+
+#         self.index_path.mkdir(parents=True, exist_ok=True)
+
+#         if not tantivy.Index.exists(self.index_path.as_posix()):
+#             if df is None:
+#                 return Err("DataFrame is required to create index")
+#             match self._build_index(df):
+#                 case Ok(index):
+#                     ...
+#                 case Err(e):
+#                     return Err(e)
+#         else:
+#             match self.get_index():
+#                 case Ok(index):
+#                     ...
+#                 case Err(e):
+#                     return Err(e)
+#         schema = json.loads((self.index_path / "meta.json").read_text())["schema"]
+#         sc = {}
+#         for v in schema:
+#             type_ = v["type"]
+#             if type_ == "text":
+#                 type_ = pl.Utf8
+#             elif type_ == "i64":
+#                 type_ = pl.UInt32
+#             sc[v["name"]] = type_
+
+#         self._column_types = sc
+#         logger.debug("Schema Loaded")
+#         logger.debug("Opening country index")
+#         return Ok(index)
+
+#     def convert_fts_results(
+#         self, hits: tantivy.SearchResult, searcher: tantivy.Searcher
+#     ) -> pl.DataFrame:
+#         logger.debug(f"FTS hits from search: {hits.count}")  # type: ignore
+
+#         scores, gids = zip(
+#             *[
+#                 (score, searcher.doc(doc).get_first(self.id_column))
+#                 for score, doc in hits.hits
+#             ]
+#         )
+
+#         return (
+#             pl.LazyFrame(
+#                 {"geonameId": list(gids), "score": list(scores)},
+#                 schema={"geonameId": pl.UInt32, "score": pl.Float32},
+#             )
+#             .sort("score", descending=True, maintain_order=True)
+#             .collect()
+#         )
+
+#     def search(
+#         self,
+#         query: str,
+#         limit: int = 10,
+#         include: list[int] | None = None,
+#         exclude: list[int] | None = None,
+#     ) -> Result[pl.DataFrame, str]:
+#         return self.fts_search(
+#             query,
+#             limit=limit,
+#             include=include,
+#             exclude=exclude,
+#         )
+
+#     def fts_search(
+#         self,
+#         query: str,
+#         limit: int = 10,
+#         include: list[int] | None = None,
+#         exclude: list[int] | None = None,
+#         main_term_query_boost: float = 3.0,
+#         fuzzy_term_query_boost: float = 2.0,
+#         max_fuzzy_distance: int = 2,
+#         phrase: bool = True,
+#     ) -> Result[pl.DataFrame, str]:
+#         # Create for list of queries (batch search)
+#         if phrase:
+#             query = f"'{query}'"
+#         else:
+#             query = query.strip("\"'")
+#         query = query.strip()
+#         index = self.index
+
+#         searcher = index.searcher()
+
+#         bool_query_list: list[tuple[tantivy.Occur, tantivy.Query]] = []
+
+#         # Calculate fuzzy distance based on query length
+#         fuzzy_distance = min(max(0, len(query) - 2), max_fuzzy_distance)
+
+#         if self.main_column in self.columns_not_id:
+#             main_term_query = tantivy.Query.term_query(
+#                 index.schema, self.main_column, query
+#             )
+#             bool_query_list.append(
+#                 (
+#                     tantivy.Occur.Should,
+#                     tantivy.Query.boost_query(main_term_query, main_term_query_boost),
+#                 )
+#             )
+
+#             if fuzzy_distance > 0:
+#                 main_fuzzy_query = tantivy.Query.fuzzy_term_query(
+#                     index.schema, self.main_column, query, distance=fuzzy_distance
+#                 )
+
+#                 bool_query_list.append(
+#                     (
+#                         tantivy.Occur.Should,
+#                         tantivy.Query.boost_query(
+#                             main_fuzzy_query, fuzzy_term_query_boost
+#                         ),
+#                     )
+#                 )
+
+#             rest_of_query = index.parse_query(
+#                 query, list(set(self.columns_not_id) - {self.main_column})
+#             )
+#             bool_query_list.append((tantivy.Occur.Should, rest_of_query))
+
+#         if include:
+#             bool_query_list.append(
+#                 (
+#                     tantivy.Occur.Must,
+#                     tantivy.Query.term_set_query(index.schema, self.id_column, include),
+#                 )
+#             )
+#         if exclude:
+#             bool_query_list.append(
+#                 (
+#                     tantivy.Occur.MustNot,
+#                     tantivy.Query.term_set_query(index.schema, self.id_column, exclude),
+#                 )
+#             )
+#         if bool_query_list:
+#             final_query = tantivy.Query.boolean_query(bool_query_list)
+
+#         else:
+#             final_query: tantivy.Query = index.parse_query(
+#                 query, default_field_names=self.columns_not_id
+#             )
+
+#         logger.debug(final_query)
+
+#         hits: tantivy.SearchResult = searcher.search(final_query, limit=limit)
+
+#         if hits.count == 0:  # type: ignore
+#             if phrase:
+#                 logger.debug("No results found, retrying without phrase search...")
+#                 return self.fts_search(
+#                     query,
+#                     limit,
+#                     include,
+#                     exclude,
+#                     main_term_query_boost,
+#                     fuzzy_term_query_boost,
+#                     max_fuzzy_distance,
+#                     phrase=False,
+#                 )
+#             return Err("No results found")
+
+#         return Ok(self.convert_fts_results(hits, searcher))
+
+
+# class HybridIndex:
+#     def __init__(self, fts_idx: FTSIndex, vidx: VectorIndex):
+#         self._fts_idx = fts_idx
+#         self._vidx = vidx
+
+#     @property
+#     def vector_index(self) -> VectorIndex:
+#         return self._vidx
+
+#     @property
+#     def fts_index(self) -> FTSIndex:
+#         return self._fts_idx
+
+#     def search(
+#         self,
+#         query: str,
+#         limit: int = 10,
+#         include: list[int] | None = None,
+#         exclude: list[int] | None = None,
+#         main_term_query_boost: float = 3.0,
+#         fuzzy_term_query_boost: float = 2.0,
+#         max_fuzzy_distance: int = 2,
+#         phrase: bool = True,
+#     ) -> Result[pl.DataFrame, str]:
+#         v_search = self.vector_index.vector_search
+
+
+# country_index = FTSIndex("admin0", con.table("admin0_FTS").pl())
+# country_index.fts_search("An Danmhairg").unwrap().join(
+#     con.table("admin0").pl(), "geonameId", "left"
+# )
+
+
+# In[13]:
 
 
 entities_df = con.execute(f"""
@@ -973,7 +972,7 @@ if not are_edges:
     logger.debug("Loaded IsIn")
 
 
-# In[11]:
+# In[14]:
 
 
 def get_children_query(geoname_id: int) -> str:
@@ -1021,7 +1020,7 @@ conn.execute(get_children_querys([49518, 51537])).get_as_pl()
 conn.execute(get_parents_querys([49518, 51537])).get_as_pl()
 
 
-# In[12]:
+# In[ ]:
 
 
 def handle_orphaned_admin_entities(con, conn):
@@ -1043,10 +1042,10 @@ def handle_orphaned_admin_entities(con, conn):
 
     orphans_df = con.execute(orphans_query).pl()
     if len(orphans_df) == 0:
-        logger.debug("No orphaned admin entities found!")
+        print("No orphaned admin entities found!")
         return
 
-    logger.debug(f"Found {len(orphans_df)} orphaned admin entities.")
+    print(f"Found {len(orphans_df)} orphaned admin entities.")
 
     # Try to find parents using graph database first
     orphan_ids = orphans_df["geonameId"].to_list()
@@ -1060,9 +1059,7 @@ def handle_orphaned_admin_entities(con, conn):
 
     # For remaining orphans without graph parents, try to infer level and parent using admin codes
     code_linked = 0
-    for orphan in orphans_df.filter(
-        ~pl.col("geonameId").is_in(parent_links["geonameId"])
-    ).iter_rows(named=True):
+    for orphan in orphans_df.filter(~pl.col("geonameId").is_in(parent_links["geonameId"].implode())).iter_rows(named=True):
         level = None
         if "ADM1" in orphan["feature_code"]:
             level = 1
@@ -1091,7 +1088,7 @@ def handle_orphaned_admin_entities(con, conn):
                     a.population,
                     -- Try to find parent ID from previous level
                     (
-                        SELECT parent.geonameId FROM admin{level - 1} parent
+                        SELECT parent.geonameId FROM admin{level-1} parent
                         WHERE parent.admin0_code = a.admin0_code
                         {"AND parent.admin1_code = a.admin1_code" if level >= 2 else ""}
                         {"AND parent.admin2_code = a.admin2_code" if level >= 3 else ""}
@@ -1106,7 +1103,7 @@ def handle_orphaned_admin_entities(con, conn):
                 LEFT JOIN
                     admin0 c ON a.admin0_code = c.admin0_code
                 LEFT JOIN
-                    admin{level - 1} parent ON
+                    admin{level-1} parent ON
                         parent.admin0_code = a.admin0_code
                         {"AND parent.admin1_code = a.admin1_code" if level >= 2 else ""}
                         {"AND parent.admin2_code = a.admin2_code" if level >= 3 else ""}
@@ -1117,136 +1114,273 @@ def handle_orphaned_admin_entities(con, conn):
             """)
             code_linked += 1
 
-    logger.debug(
-        f"Fixed {len(parent_links)} orphans using graph relationships and {code_linked} using admin codes"
-    )
 
+    print(f"Fixed {len(parent_links)} orphans using graph relationships and {code_linked} using admin codes")
 
 def create_admin_search_view(con):
     """Create a unified view for searching across all admin levels."""
 
-    logger.debug("Creating unified admin search view...")
+    print("Creating unified admin search view...")
+    con.execute(sql_file("create_admin_search_table.sql"))
     con.execute("""
-    CREATE OR REPLACE VIEW admin_search AS
+CREATE OR REPLACE TABLE admin_search AS
+SELECT
+    geonameId,
+    name,
+    asciiname,
+    admin0_code,
+    NULL::VARCHAR AS admin1_code,
+    NULL::VARCHAR AS admin2_code,
+    NULL::VARCHAR AS admin3_code,
+    NULL::VARCHAR AS admin4_code,
+    feature_class,
+    feature_code,
+    ISO,
+    ISO3,
+    ISO_Numeric,
+    official_name,
+    fips,
+    population,
+    area,
+    alternatenames,
+    NULL::INTEGER AS parent_id,
+    NULL::VARCHAR AS country_name,
+    NULL::VARCHAR AS parent_name,
+    'admin0' AS source_table
+FROM admin0
 
-    -- Countries (admin0)
-    SELECT
-        geonameId,
-        name,
-        asciiname,
-        0 AS admin_level,
-        admin0_code,
-        NULL AS admin1_code,
-        NULL AS admin2_code,
-        NULL AS admin3_code,
-        NULL AS admin4_code,
-        NULL AS parent_name,
-        NULL AS parent_id,
-        feature_class,
-        feature_code,
-        Population AS population,
-        alternatenames,
-        'admin0' AS source_table
-    FROM
-        admin0
+UNION ALL
 
-    UNION ALL
+-- Admin1
+SELECT
+    geonameId,
+    name,
+    asciiname,
+    admin0_code,
+    admin1_code,
+    NULL::VARCHAR AS admin2_code,
+    NULL::VARCHAR AS admin3_code,
+    NULL::VARCHAR AS admin4_code,
+    feature_class,
+    feature_code,
+    NULL::VARCHAR AS ISO,
+    NULL::VARCHAR AS ISO3,
+    NULL::INTEGER AS ISO_Numeric,
+    NULL::VARCHAR AS official_name,
+    NULL::VARCHAR AS fips,
+    population,
+    NULL::FLOAT AS area,
+    alternatenames,
+    parent_id,
+    country_name,
+    parent_name,
+    'admin1' AS source_table
+FROM admin1
 
-    -- Admin1 entities
-    SELECT
-        geonameId,
-        name,
-        asciiname,
-        1 AS admin_level,
-        admin0_code,
-        admin1_code,
-        NULL AS admin2_code,
-        NULL AS admin3_code,
-        NULL AS admin4_code,
-        parent_name,
-        parent_id,
-        feature_class,
-        feature_code,
-        population,
-        alternatenames,
-        'admin1' AS source_table
-    FROM
-        admin1
+UNION ALL
 
-    UNION ALL
-
-    -- Admin2 entities
-    SELECT
-        geonameId,
-        name,
-        asciiname,
-        2 AS admin_level,
-        admin0_code,
-        admin1_code,
-        admin2_code,
-        NULL AS admin3_code,
-        NULL AS admin4_code,
-        parent_name,
-        parent_id,
-        feature_class,
-        feature_code,
-        population,
-        alternatenames,
-        'admin2' AS source_table
-    FROM
-        admin2
-
-    UNION ALL
-
-    -- Admin3 entities
-    SELECT
-        geonameId,
-        name,
-        asciiname,
-        3 AS admin_level,
-        admin0_code,
-        admin1_code,
-        admin2_code,
-        admin3_code,
-        NULL AS admin4_code,
-        parent_name,
-        parent_id,
-        feature_class,
-        feature_code,
-        population,
-        alternatenames,
-        'admin3' AS source_table
-    FROM
-        admin3
-
-    UNION ALL
-
-    -- Admin4 entities
-    SELECT
-        geonameId,
-        name,
-        asciiname,
-        4 AS admin_level,
-        admin0_code,
-        admin1_code,
-        admin2_code,
-        admin3_code,
-        admin4_code,
-        parent_name,
-        parent_id,
-        feature_class,
-        feature_code,
-        population,
-        alternatenames,
-        'admin4' AS source_table
-    FROM
-        admin4
-    """)
-
-    logger.debug("Admin search view created!")
+-- Admin2
+SELECT
+    geonameId,
+    name,
+    asciiname,
+    admin0_code,
+    admin1_code,
+    admin2_code,
+    NULL::VARCHAR AS admin3_code,
+    NULL::VARCHAR AS admin4_code,
+    feature_class,
+    feature_code,
+    NULL::VARCHAR AS ISO,
+    NULL::VARCHAR AS ISO3,
+    NULL::INTEGER AS ISO_Numeric,
+    NULL::VARCHAR AS official_name,
+    NULL::VARCHAR AS fips,
+    population,
+    NULL::FLOAT AS area,
+    alternatenames,
+    parent_id,
+    country_name,
+    parent_name,
+    'admin2' AS source_table
+FROM admin2
+UNION ALL
+-- Admin3
+SELECT
+    geonameId,
+    name,
+    asciiname,
+    admin0_code,
+    admin1_code,
+    admin2_code,
+    admin3_code,
+    NULL::VARCHAR AS admin4_code,
+    feature_class,
+    feature_code,
+    NULL::VARCHAR AS ISO,
+    NULL::VARCHAR AS ISO3,
+    NULL::INTEGER AS ISO_Numeric,
+    NULL::VARCHAR AS official_name,
+    NULL::VARCHAR AS fips,
+    population,
+    NULL::FLOAT AS area,
+    alternatenames,
+    parent_id,
+    country_name,
+    parent_name,
+    'admin3' AS source_table
+FROM admin3
+UNION ALL
+-- Admin4
+SELECT
+    geonameId,
+    name,
+    asciiname,
+    admin0_code,
+    admin1_code,
+    admin2_code,
+    admin3_code,
+    admin4_code,
+    feature_class,
+    feature_code,
+    NULL::VARCHAR AS ISO,
+    NULL::VARCHAR AS ISO3,
+    NULL::INTEGER AS ISO_Numeric,
+    NULL::VARCHAR AS official_name,
+    NULL::VARCHAR AS fips,
+    population,
+    NULL::FLOAT AS area,
+    alternatenames,
+    parent_id,
+    country_name,
+    parent_name,
+    'admin4' AS source_table
+FROM admin4
 
 
-# In[13]:
+
+""")
+    # con.execute("""
+    # CREATE OR REPLACE VIEW admin_search1 AS
+
+    # -- Countries (admin0)
+    # SELECT
+    #     geonameId,
+    #     name,
+    #     asciiname,
+    #     0 AS admin_level,
+    #     admin0_code,
+    #     NULL AS admin1_code,
+    #     NULL AS admin2_code,
+    #     NULL AS admin3_code,
+    #     NULL AS admin4_code,
+    #     NULL AS parent_name,
+    #     NULL AS parent_id,
+    #     feature_class,
+    #     feature_code,
+    #     population,
+    #     alternatenames,
+    #     'admin0' AS source_table
+    # FROM
+    #     admin0
+
+    # UNION ALL
+
+    # -- Admin1 entities
+    # SELECT
+    #     geonameId,
+    #     name,
+    #     asciiname,
+    #     1 AS admin_level,
+    #     admin0_code,
+    #     admin1_code,
+    #     NULL AS admin2_code,
+    #     NULL AS admin3_code,
+    #     NULL AS admin4_code,
+    #     parent_name,
+    #     parent_id,
+    #     feature_class,
+    #     feature_code,
+    #     population,
+    #     alternatenames,
+    #     'admin1' AS source_table
+    # FROM
+    #     admin1
+
+    # UNION ALL
+
+    # -- Admin2 entities
+    # SELECT
+    #     geonameId,
+    #     name,
+    #     asciiname,
+    #     2 AS admin_level,
+    #     admin0_code,
+    #     admin1_code,
+    #     admin2_code,
+    #     NULL AS admin3_code,
+    #     NULL AS admin4_code,
+    #     parent_name,
+    #     parent_id,
+    #     feature_class,
+    #     feature_code,
+    #     population,
+    #     alternatenames,
+    #     'admin2' AS source_table
+    # FROM
+    #     admin2
+
+    # UNION ALL
+
+    # -- Admin3 entities
+    # SELECT
+    #     geonameId,
+    #     name,
+    #     asciiname,
+    #     3 AS admin_level,
+    #     admin0_code,
+    #     admin1_code,
+    #     admin2_code,
+    #     admin3_code,
+    #     NULL AS admin4_code,
+    #     parent_name,
+    #     parent_id,
+    #     feature_class,
+    #     feature_code,
+    #     population,
+    #     alternatenames,
+    #     'admin3' AS source_table
+    # FROM
+    #     admin3
+
+    # UNION ALL
+
+    # -- Admin4 entities
+    # SELECT
+    #     geonameId,
+    #     name,
+    #     asciiname,
+    #     4 AS admin_level,
+    #     admin0_code,
+    #     admin1_code,
+    #     admin2_code,
+    #     admin3_code,
+    #     admin4_code,
+    #     parent_name,
+    #     parent_id,
+    #     feature_class,
+    #     feature_code,
+    #     population,
+    #     alternatenames,
+    #     'admin4' AS source_table
+    # FROM
+    #     admin4
+    # """)
+
+    print("Admin search view created!")
+
+
+# In[47]:
 
 
 def build_admin_tables_hybrid(con, conn, overwrite=True):
@@ -1327,8 +1461,8 @@ def build_admin_tables_hybrid(con, conn, overwrite=True):
                 c.ISO_Numeric,
                 c.Country AS official_name,
                 c.fips,
-                c.Population,
-                c.Area,
+                c.population,
+                c.area,
                 a.alternatenames,
                 NULL AS parent_id  -- No parent for countries
             FROM
@@ -1359,10 +1493,10 @@ def build_admin_tables_hybrid(con, conn, overwrite=True):
                 a.name,
                 a.asciiname,
                 a.admin0_code
-                {", a.admin1_code" if level >= 1 else ", NULL AS admin1_code"}
-                {", a.admin2_code" if level >= 2 else ", NULL AS admin2_code"}
-                {", a.admin3_code" if level >= 3 else ", NULL AS admin3_code"}
-                {", a.admin4_code" if level >= 4 else ", NULL AS admin4_code"},
+                {", a.admin1_code" if level >= 1 else ", NULL::VARCHAR AS admin1_code"}
+                {", a.admin2_code" if level >= 2 else ", NULL::VARCHAR AS admin2_code"}
+                {", a.admin3_code" if level >= 3 else ", NULL::VARCHAR AS admin3_code"}
+                {", a.admin4_code" if level >= 4 else ", NULL::VARCHAR AS admin4_code"},
                 a.feature_class,
                 a.feature_code,
                 a.population,
@@ -1459,19 +1593,139 @@ def build_admin_tables_hybrid(con, conn, overwrite=True):
     logger.debug("Hybrid admin table construction complete!")
 
 
-# In[14]:
+# In[48]:
 
 
 build_admin_tables_hybrid(con, conn, overwrite=True)
 
 
-# In[17]:
+# In[ ]:
 
 
-con.table("admin1").pl()
+pl.concat([con.table("admin0").pl(), con.table("admin1").pl(), con.table("admin2").pl(), con.table("admin3").pl(), con.table("admin4").pl()], how="diagonal", )
+
+
+# In[50]:
+
+
+con.table("admin0").limit(5)
+
+
+# In[44]:
+
+
+con.table("admin1")
 
 
 # In[ ]:
+
+
+def get_latest_adjusted_score_level(columns: list[str]) -> int | None:
+    """
+    Get the latest adjusted score column based on the naming convention.
+    """
+    adjusted_score_columns = [col for col in columns if col.startswith("adjusted_score_")]
+    if not adjusted_score_columns:
+        return None
+    # Extract the level from the column name and find the maximum level
+    levels = [int(col.rsplit("_", maxsplit=1)[-1]) for col in adjusted_score_columns]
+    max_level = max(levels)
+    logger.debug(f"Latest adjusted score column found: {max_level}")
+    return max_level
+    return f"adjusted_score_{max_level}"
+
+
+def search_score(df:pl.LazyFrame,
+level: int,
+    base_weight: float = 0.6,
+    pop_weight: float = 0.15,
+    exact_weight: float = 0.15,
+    parent_weight: float = 0.1,
+    search_term: str|None = None) -> pl.LazyFrame:
+    """
+    A scoring function for geographic entities.
+
+    Parameters:
+    - df: DataFrame with search results
+    - level: Admin level (0=country, 1=admin1, etc.)
+    - base_weight: Weight for the base FTS score
+    - pop_weight: Weight for the population factor
+    - exact_weight: Weight for exact name matches
+    - parent_weight: Weight for parent entity scores
+    - search_term: Original search term (for exact match detection)
+
+    Returns:
+    - DataFrame with adjusted scores
+    """
+    assert level in [0, 1, 2, 3, 4], "Level must be between 1 and 4"
+    score_col = f"adjusted_score_{level}"
+
+    columns = df.collect_schema().names()
+
+    fts_column = "score"
+    if fts_column in columns:
+        df = df.with_columns(
+            # Calculate z-score
+            z_score=((pl.col(fts_column) - pl.col(fts_column).mean()) /
+             pl.when(pl.col(fts_column).std() > 0)
+               .then(pl.col("score").std())
+               .otherwise(1.0)
+            ).alias("z_score"),
+        ).with_columns(
+            # Apply sigmoid transformation: 1/(1+e^(-z))
+            norm_score=(1 / (1 + pl.col("z_score").mul(-2).exp())).alias("text_score")
+        )
+    else:
+        logger.warning(f"Column '{fts_column}' not found in DataFrame. Skipping Z-score normalization.")
+        df = df.with_columns(norm_score=pl.lit(0.5))
+
+    pop_col = "population"
+    if pop_col in columns:
+        df = df.with_columns(
+            # Sigmoid normalized population factor
+            pop_score=(1 / (1 + (pl.col(pop_col).add(1).log10().sub(4).mul(-0.8)).exp()))
+        )
+    else:
+        logger.warning(f"Column '{pop_col}' not found in DataFrame. Skipping population factor.")
+        df = df.with_columns(pop_score=pl.lit(0.5))
+
+    # feature_col = "feature_code"
+    # if feature_col in columns:
+    #     df = df.with_columns(
+    #                         feature_factor=pl.when((pl.col("feature_code") == "PCLI") & pl.col(feature_col))
+    #                           .then(1.0)  # Independent countries
+    #                           .when(pl.col("feature_code").str.starts_with("PCL"))
+    #                           .then(0.8)  # Other country-like entities
+    #                           .otherwise(0.6))
+    # else:
+    #     logger.warning(f"Column '{feature_col}' not found in DataFrame. Skipping feature factor.")
+    #     df = df.with_columns(feature_factor=pl.lit(0.6))
+
+    # Parent score influence (if available)
+    if (previous_level := get_latest_adjusted_score_level(columns)) is not None:
+
+        parent_score_col = f"adjusted_score_{previous_level}"
+        max_parent_score = pl.col(parent_score_col).max()
+        df = df.with_columns(
+            parent_factor=pl.when(max_parent_score > 0).then(
+                pl.col(parent_score_col) / max_parent_score
+            ).otherwise(0.7)
+        )
+    else:
+        logger.warning("No parent score column found. Skipping parent factor.")
+        df = df.with_columns(parent_factor=pl.lit(0.7))
+
+    return df.with_columns(
+        **{score_col: (
+            0.5 * pl.col("norm_score") +   # Z-score normalized FTS (50%)
+            0.3 * pl.col("pop_score") +   # Population factor (30%)
+            0.2 * pl.col("parent_factor")  # Parent score influence (20%)
+        )} #* pl.col("feature_factor")}      # Feature type as final multiplier
+    ).sort(
+        score_col, descending=True
+    )
+
+
 
 
 def country_score(df: pl.LazyFrame) -> pl.LazyFrame:
@@ -1552,7 +1806,7 @@ def admin_score(
 
 
 
-def search_country(term: str, con: DuckDBPyConnection, limit: int = 20) -> pl.DataFrame:
+def search_country(term: str, con: DuckDBPyConnection, limit: int = 500) -> pl.DataFrame:
     """Search for a country by name, ISO code, etc."""
     query = """SELECT *,
     -- High fixed score for exact matches
@@ -1586,7 +1840,7 @@ def search_country(term: str, con: DuckDBPyConnection, limit: int = 20) -> pl.Da
 
     if not results.is_empty():
         # Apply country-specific scoring
-        return results.lazy().pipe(country_score).collect()
+        return results.lazy().pipe(search_score, 0).collect()
 
     return results
 
@@ -1633,7 +1887,7 @@ def search_admin_level(
     level: int,
     con: DuckDBPyConnection,
     previous_results: pl.DataFrame | None = None,
-    limit: int = 20,
+    limit: int = 500,
 ) -> pl.DataFrame:
     """
     Search for a term with path-aware hierarchical filtering - simplified approach.
@@ -1738,7 +1992,9 @@ def search_admin_level(
             ORDER BY name
             LIMIT $limit
             """,
-                {"term": term, "limit": limit},
+                {"term": term,
+                 #"limit": limit
+                 },
             ).pl()
     else:
         # No previous levels searched, use basic search
@@ -1750,13 +2006,13 @@ def search_admin_level(
 
     # Apply scoring
     if not results.is_empty():
-        return results.lazy().pipe(admin_score, level).collect()
+        return results.lazy().pipe(search_score, level).collect()
 
     return results
 
 
 def hierarchical_search(
-    search_terms: list[str | None], con: DuckDBPyConnection, limit: int = 10
+    search_terms: list[str | None], con: DuckDBPyConnection, limit: int = 500
 ) -> dict[str, pl.DataFrame]:
     """
     Perform hierarchical geographic search across admin levels.
@@ -1859,7 +2115,19 @@ if "admin4" in results:
     print(results["admin4"])
 
 
-# In[32]:
+# In[ ]:
+
+
+con.table("admin1")
+
+
+# In[ ]:
+
+
+results["admin4"]
+
+
+# In[ ]:
 
 
 def backfill_hierarchy(row: dict, con: DuckDBPyConnection) -> dict:
@@ -1889,13 +2157,13 @@ def backfill_hierarchy(row: dict, con: DuckDBPyConnection) -> dict:
     return hierarchy
 
 
-# In[34]:
+# In[ ]:
 
 
 results["admin4"]
 
 
-# In[33]:
+# In[ ]:
 
 
 from pprint import pprint
@@ -1910,7 +2178,7 @@ pprint(row)
 pprint(backfill_hierarchy(row, con))
 
 
-# In[30]:
+# In[ ]:
 
 
 results = hierarchical_search(
@@ -1924,7 +2192,7 @@ pprint(row)
 pprint(backfill_hierarchy(row, con))
 
 
-# In[29]:
+# In[ ]:
 
 
 # Search through the admin hierarchy
@@ -1951,6 +2219,86 @@ if "admin3" in results:
 if "admin4" in results:
     logger.debug("Admin4 results:", results["admin4"])
 results["admin4"]
+
+
+# In[8]:
+
+
+con.table("admin0").pl()
+
+
+# In[ ]:
+
+
+con.execute("""CREATE OR REPLACE VIEW unified_admin_search AS
+-- Countries (admin0)
+SELECT
+    geonameId,
+    name,
+    asciiname,
+    0 AS admin_level,
+    admin0_code,
+    NULL AS admin1_code,
+    NULL AS admin2_code,
+    NULL AS admin3_code,
+    NULL AS admin4_code,
+    ISO,
+    ISO3,
+    fips,
+    population,
+    area,
+    0 AS level
+FROM
+    admin0
+
+UNION ALL
+
+-- Admin1 entities
+SELECT
+    geonameId,
+    name,
+    1 AS admin_level,
+    admin0_code,
+    admin1_code,
+    NULL AS admin2_code,
+    NULL AS admin3_code,
+    NULL AS admin4_code,
+    1 AS level
+FROM
+    admin1
+
+UNION ALL
+
+-- Admin2 entities
+SELECT
+    geonameId,
+    name,
+    2 AS admin_level,
+    admin0_code,
+    admin1_code,
+    admin2_code,
+    NULL AS admin3_code,
+    NULL AS admin4_code,
+    2 AS level
+FROM
+    admin2
+
+UNION ALL
+
+-- Admin3 entities
+SELECT
+    geonameId,
+    name,
+    3 AS admin_level,
+    admin0_code,
+    admin1_code,
+    admin2_code,
+    admin3_code,
+    NULL AS admin4_code,
+    3 AS level
+FROM
+
+""")
 
 
 # In[ ]:
