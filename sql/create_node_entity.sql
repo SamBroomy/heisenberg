@@ -1,5 +1,5 @@
 CREATE NODE TABLE Entity (
-    geonameId UINT32,
+    geonameId INT32,
     name STRING,
     feature_class STRING,
     feature_code STRING,
