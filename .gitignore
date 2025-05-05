@@ -1,4 +1,12 @@
+*
+!*/
+# Allow .gitignore itself
+!.gitignore
+!Cargo.toml
+!src/
+!**/*.rs
+!justfile
 /target
-/data
-.env
-.token.json
+!**/*.py
+!readme.md
+!sql/*.sql

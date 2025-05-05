@@ -1,34 +1,30 @@
-CREATE OR REPLACE TABLE admin_search AS
-WITH empty_table AS (
-    -- Empty placeholder to establish schema
-    SELECT
-        NULL::INTEGER AS geonameId,
-        NULL::VARCHAR AS name,
-        NULL::VARCHAR AS asciiname,
-        0 AS admin_level,
-        NULL::VARCHAR AS admin0_code,
-        NULL::VARCHAR AS admin1_code,
-        NULL::VARCHAR AS admin2_code,
-        NULL::VARCHAR AS admin3_code,
-        NULL::VARCHAR AS admin4_code,
-        NULL::VARCHAR AS feature_class,
-        NULL::VARCHAR AS feature_code,
-        NULL::VARCHAR AS ISO,
-        NULL::VARCHAR AS ISO3,
-        NULL::INTEGER AS ISO_Numeric,
-        NULL::VARCHAR AS official_name,
-        NULL::VARCHAR AS fips,
-        NULL::DOUBLE AS latitude,
-        NULL::DOUBLE AS longitude,
-        NULL::BIGINT AS population,
-        NULL::DOUBLE AS area,
-        NULL::TEXT AS alternatenames,
-        NULL::VARCHAR AS country_name
-    WHERE 1 = 0
-)
-SELECT * FROM empty_table;
+CREATE
+OR REPLACE TABLE admin_search (
+    geonameId UINTEGER NOT NULL,
+    name VARCHAR(175) NOT NULL,
+    asciiname VARCHAR(175),
+    admin_level UTINYINT NOT NULL,
+    admin0_code CHAR(2),
+    admin1_code VARCHAR(20),
+    admin2_code VARCHAR(75),
+    admin3_code VARCHAR(75),
+    admin4_code VARCHAR(75),
+    feature_class CHAR(1),
+    feature_code VARCHAR(5),
+    ISO CHAR(2),
+    ISO3 CHAR(3),
+    ISO_Numeric USMALLINT,
+    official_name VARCHAR(50),
+    fips CHAR(2),
+    latitude FLOAT,
+    longitude FLOAT,
+    population INTEGER,
+    area FLOAT,
+    alternatenames TEXT,
+    country_name VARCHAR(50),
+    PRIMARY KEY (geonameId),
+);
 
--- Create essential indexes upfront
 CREATE INDEX idx_admin_search_geoname ON admin_search (geonameId);
 
 CREATE INDEX idx_admin_search_level ON admin_search (admin_level);

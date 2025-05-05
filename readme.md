@@ -62,3 +62,5 @@ But this is maybe where the main issues lie. What I need to do is to search for 
 TODO:
 
 - [ ] Ordering of the where clause to be more efficient and correctly structured
+- [ ] Ensure the search tables have distinct geoname ids
+- [ ] Get the adjusted score for flexible search to follow the correct path.
