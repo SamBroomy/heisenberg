@@ -203,11 +203,11 @@ impl FTSIndex {
     pub fn search_in_subset(
         &self,
         query_str: &str,
-        doc_ids: impl AsRef<[u64]>,
+        doc_ids: &[u64],
         limit: usize,
         fuzzy_search: bool,
     ) -> Result<Vec<(String, u64, f32)>> {
-        self.search_inner(query_str, Some(doc_ids.as_ref()), limit, fuzzy_search)
+        self.search_inner(query_str, Some(doc_ids), limit, fuzzy_search)
     }
     #[instrument(skip(self, doc_ids))]
     fn search_inner(

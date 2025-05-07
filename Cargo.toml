@@ -19,6 +19,8 @@ polars = { version = "0.46", features = [
     "fmt",
     "dtype-u8",
     "dtype-u16",
+    #"performant",
+    #"cse",
 ] }
 regex = "1.11.1"
 tantivy = "0.24"
