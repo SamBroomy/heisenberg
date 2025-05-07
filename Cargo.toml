@@ -7,18 +7,23 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 itertools = "0.14"
+
 polars = { version = "0.46", features = [
     "lazy",
-    "dot_diagram",
-    "random",
     "parquet",
-    #"rows",
+    "log",
+    "strings",
+    "round_series",
+    "regex",
     "is_in",
     "fmt",
     "dtype-u8",
     "dtype-u16",
 ] }
+regex = "1.11.1"
 tantivy = "0.24"
+tracing = "0.1.41"
+tracing-subscriber = "0.3.19"
 
 
 [dev-dependencies]
