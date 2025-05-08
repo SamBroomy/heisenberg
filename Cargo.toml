@@ -7,7 +7,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 itertools = "0.14"
-
+once_cell = "1.21.3"
 polars = { version = "0.46", features = [
     "lazy",
     "parquet",
@@ -19,6 +19,7 @@ polars = { version = "0.46", features = [
     "fmt",
     "dtype-u8",
     "dtype-u16",
+    "trigonometry",
     #"performant",
     #"cse",
 ] }

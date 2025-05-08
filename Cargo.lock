@@ -764,6 +764,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "itertools",
+ "once_cell",
  "polars",
  "regex",
  "tantivy",
