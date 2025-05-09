@@ -13,7 +13,7 @@ use tantivy::{
     },
     Index, IndexWriter, TantivyDocument, Term,
 };
-use tracing::{debug, info, instrument, trace};
+use tracing::{debug, info, instrument, trace, warn};
 
 pub trait IndexDefinition: std::fmt::Debug + Send + Sync + 'static {
     /// Returns the unique name for this index, used for directory and file naming.
@@ -251,6 +251,24 @@ impl IndexDefinition for PlacesIndexDef {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct FTSIndexSearchParams {
+    /// The maximum number of results to return.
+    pub limit: usize,
+    /// Whether to enable fuzzy search, is more expensive, but can be useful for typos.
+    /// Fuzzy search is only applied to the name and asciiname fields.
+    pub fuzzy_search: bool,
+}
+
+impl Default for FTSIndexSearchParams {
+    fn default() -> Self {
+        Self {
+            limit: 20,
+            fuzzy_search: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct FTSIndex<D: IndexDefinition> {
     index: Index,
@@ -322,18 +340,17 @@ impl<D: IndexDefinition> FTSIndex<D> {
         Ok(FTSIndex { index, definition })
     }
 
-    pub fn search(&self, query: &str, limit: usize, fuzzy_search: bool) -> Result<Vec<(u64, f32)>> {
-        self.search_inner(query, None, limit, fuzzy_search)
+    pub fn search(&self, query: &str, params: &FTSIndexSearchParams) -> Result<Vec<(u64, f32)>> {
+        self.search_inner(query, None, params)
     }
 
     pub fn search_in_subset(
         &self,
         query_str: &str,
         doc_ids: &[u64],
-        limit: usize,
-        fuzzy_search: bool,
+        params: &FTSIndexSearchParams,
     ) -> Result<Vec<(u64, f32)>> {
-        self.search_inner(query_str, Some(doc_ids), limit, fuzzy_search)
+        self.search_inner(query_str, Some(doc_ids), params)
     }
 
     #[instrument(skip(self, doc_ids))]
@@ -341,21 +358,20 @@ impl<D: IndexDefinition> FTSIndex<D> {
         &self,
         query_str: &str,
         doc_ids: Option<&[u64]>,
-        limit: usize,
-        fuzzy_search: bool,
+        params: &FTSIndexSearchParams,
     ) -> Result<Vec<(u64, f32)>> {
         let query_str = query_str.trim();
         if query_str.is_empty() {
             return Err(anyhow::anyhow!("Query string cannot be empty."));
         }
-        if limit == 0 {
+        if params.limit == 0 {
             return Err(anyhow::anyhow!("Search limit must be greater than zero."));
         }
         debug!(
             "Searching index '{}' for: '{}', limit: {}",
             self.definition.name(),
             query_str,
-            limit
+            params.limit
         );
 
         let reader = self.index.reader()?;
@@ -392,7 +408,7 @@ impl<D: IndexDefinition> FTSIndex<D> {
         let is_single_short_token =
             !query_str.contains(char::is_whitespace) && query_str.len() <= 3;
 
-        if fuzzy_search && !is_single_short_token {
+        if params.fuzzy_search && !is_single_short_token {
             let query_terms: Vec<&str> = query_str.split_whitespace().collect();
             for term_str in query_terms {
                 if term_str.len() > 2 {
@@ -450,7 +466,7 @@ impl<D: IndexDefinition> FTSIndex<D> {
         };
 
         trace!("Executing Tantivy query: {:?}", final_query);
-        let top_docs = searcher.search(&*final_query, &TopDocs::with_limit(limit))?;
+        let top_docs = searcher.search(&*final_query, &TopDocs::with_limit(params.limit))?;
 
         debug!(
             "Found {} results for query '{}' in index '{}'",

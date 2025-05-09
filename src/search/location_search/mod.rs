@@ -1,5 +1,7 @@
 mod admin_search;
+mod enrichment;
 mod place_search;
+mod smart_flexible_search;
 
 use anyhow::{Context, Result};
 use polars::prelude::*;
@@ -7,9 +9,13 @@ use std::ops::Mul;
 use std::rc::Rc;
 use tracing::{debug, instrument, warn};
 
-pub use admin_search::{admin_search, get_admin_df};
-pub use place_search::{get_places_df, place_search};
-
+pub use admin_search::{admin_search, get_admin_df, AdminSearchParams, SearchScoreAdminParams};
+pub use enrichment::{
+    backfill_hierarchy_from_codes, AdminHierarchyLevelDetail, FullAdminHierarchy,
+    TargetLocationAdminCodes,
+};
+pub use place_search::{get_places_df, place_search, PlaceSearchParams, SearchScorePlaceParams};
+pub use smart_flexible_search::{smart_flexible_search, SmartFlexibleSearchConfig};
 fn text_relevance_score(lf: LazyFrame, search_term: &str) -> LazyFrame {
     lf.with_column(
         ((col("fts_score") - col("fts_score").mean())
@@ -111,10 +117,7 @@ fn get_join_keys(previous_result: &LazyFrame) -> Result<Vec<Expr>> {
 
 fn get_join_expr_from_previous_result(previous_result: Option<&LazyFrame>) -> Result<Vec<Expr>> {
     match previous_result {
-        Some(prev_lf) => {
-            //let prev_lf = dbg!(prev_lf.collect()?).lazy();
-            get_join_keys(prev_lf)
-        }
+        Some(prev_lf) => get_join_keys(prev_lf),
         None => Ok(vec![]),
     }
 }

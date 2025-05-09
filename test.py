@@ -1,9 +1,19 @@
-#!/usr/bin/env python
-# coding: utf-8
+# ---
+# jupyter:
+#   jupytext:
+#     formats: ipynb,py:percent
+#     text_representation:
+#       extension: .py
+#       format_name: percent
+#       format_version: '1.3'
+#       jupytext_version: 1.17.1
+#   kernelspec:
+#     display_name: .venv
+#     language: python
+#     name: python3
+# ---
 
-# In[6]:
-
-
+# %%
 import polars as pl
 import polars_distance as pld
 from pprint import pprint
@@ -21,12 +31,11 @@ import duckdb
 from duckdb import DuckDBPyConnection
 from time import time
 
+
 pl.Config.set_tbl_rows(20)
 
 
-# In[8]:
-
-
+# %%
 duck_db_path = Path("./data/db/duck_db/data.db")
 duck_db_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -45,19 +54,18 @@ con.execute("PRAGMA enable_object_cache=true")  # Improve query caching
 # con.execute("PRAGMA profiling_output = './profile.json'")  # Set profiling output
 
 
-# In[15]:
-
-
-con.execute("""SELECT * , fts_main_admin_search.match_bm25(geonameId, $term) AS fts_score
+# %%
+con.execute(
+    """SELECT * , fts_main_admin_search.match_bm25(geonameId, $term) AS fts_score
 
         FROM admin_search
         WHERE fts_score IS NOT NULL
-            """, {"term": "Kenya"}).pl()
+            """,
+    {"term": "Kenya"},
+).pl()
 
 
-# In[3]:
-
-
+# %%
 SQL_FOLDER = Path("./sql")
 
 
@@ -81,9 +89,7 @@ def sql_file(sql_path: Path | str, **kwargs) -> str:
     return sql
 
 
-# In[4]:
-
-
+# %%
 GID = "geonameId"
 
 
@@ -430,9 +436,7 @@ con.execute(sql_file("create_view_cities.sql"))
 con.execute(sql_file("create_view_locations_full.sql"))
 
 
-# In[5]:
-
-
+# %%
 # Create country table
 # con.execute(sql_file("create_table_equivalent.sql")).pl()
 # con.execute(sql_file("create_table_admin0.sql")).execute("""PRAGMA create_fts_index(
@@ -453,15 +457,9 @@ con.execute(sql_file("create_view_locations_full.sql"))
 # );""")
 
 
-# In[ ]:
+# %%
 
-
-
-
-
-# In[6]:
-
-
+# %%
 entities_df = con.execute(f"""
     SELECT {GID}, name, feature_class, feature_code
     FROM unique_ids
@@ -521,9 +519,7 @@ if not are_edges:
     logger.debug("Loaded IsIn")
 
 
-# In[7]:
-
-
+# %%
 def get_children_query(geoname_id: int) -> str:
     query = f"""MATCH (p:Entity {{geonameId: {geoname_id}}})-[:IsIn]->(c:Entity)
     RETURN c.{GID} AS {GID}, c.name AS name, c.feature_class AS feature_class, c.feature_code AS feature_code;"""
@@ -569,9 +565,7 @@ conn.execute(get_children_querys([49518, 51537])).get_as_pl()
 conn.execute(get_parents_querys([49518, 51537])).get_as_pl()
 
 
-# In[8]:
-
-
+# %%
 def build_unified_admin_table(con, conn=None, overwrite=True):
     """Build a simplified admin_search table focusing on admin codes for hierarchy."""
 
@@ -713,9 +707,7 @@ def build_unified_admin_table(con, conn=None, overwrite=True):
 build_unified_admin_table(con, conn, overwrite=False)
 
 
-# In[9]:
-
-
+# %%
 def build_places_search_table(con, overwrite=True):
     """Build places_search table with balanced importance scoring."""
 
@@ -1098,17 +1090,13 @@ def build_places_search_table(con, overwrite=True):
 build_places_search_table(con, overwrite=False)
 
 
-# In[10]:
-
-
+# %%
 con.close()
 
 con = duckdb.connect(database=duck_db_path.as_posix(), read_only=True)
 
 
-# In[11]:
-
-
+# %%
 # The idea here is now we want to have a more flexible search function.
 # As we have done above we have have created one big admin_search table, where the core idea of that is to allow us to search over multiple admin levels at once.
 # This will enable us to have two types of searches:
@@ -1274,20 +1262,61 @@ def search_score_admin(
     else:
         df = df.with_columns(country_score=pl.lit(0.5))
 
-    # ===== 5. Parent score influence =====
-    # TODO: No longer need for the function
-    if get_latest_adjusted_score_level(columns) is not None:
-        df = df.with_columns(
-            average_parent_score=pl.mean_horizontal(cs.starts_with("adjusted_score_"))
-        ).with_columns(
-            parent_factor=pl.when(pl.col.average_parent_score > 0)
-            .then(pl.col.average_parent_score / pl.col.average_parent_score.max())
-            .otherwise(0.5)
-        )
+    parent_score_cols_exist = any(
+        col.startswith("parent_adjusted_score_") for col in df.collect_schema().names()
+    )
 
+    if parent_score_cols_exist:
+        df = df.with_columns(
+            # Calculate mean of all parent_adjusted_score_ columns for the row.
+            # fill_null(0.0) handles cases where a row has no matching parent scores
+            # or a specific linkage didn't yield scores.
+            average_parent_score=pl.mean_horizontal(
+                cs.starts_with("parent_adjusted_score_")
+            ).fill_null(0.0)
+        )
+        # Normalize this average_parent_score across the entire DataFrame (current batch)
+        # Add a small epsilon to avoid division by zero if all average_parent_scores are 0.
+        # Max is calculated over a dummy literal column to get the max over the whole frame partition.
+        df = (
+            df.with_columns(
+                parent_max_score_overall=pl.col.average_parent_score.max().over(
+                    pl.lit(1)
+                )  # Max of averages
+            )
+            .with_columns(
+                parent_factor=pl.when(pl.col.parent_max_score_overall > 1e-9)
+                .then(
+                    pl.col.average_parent_score
+                    / (pl.col.parent_max_score_overall + 1e-9)
+                )
+                .otherwise(
+                    0.5
+                )  # Default if all parent scores are zero or no parent scores
+                .clip(0.0, 1.0)  # Ensure it's strictly within [0,1]
+            )
+            .drop("parent_max_score_overall")
+        )
     else:
-        logger.warning("No parent score column found. Skipping parent factor.")
+        # This case handles when results_with_potential_parents had no parent_adjusted_score_ columns
+        # (e.g., no previous_results or no successful joins in the loop)
+        logger.warning(
+            "No parent_adjusted_score_ columns found. Skipping parent factor."
+        )
         df = df.with_columns(parent_factor=pl.lit(0.5))
+
+    #     if get_latest_adjusted_score_level(columns) is not None:
+    #         df = df.with_columns(
+    #             average_parent_score=pl.mean_horizontal(cs.starts_with("adjusted_score_"))
+    #         ).with_columns(
+    #             parent_factor=pl.when(pl.col.average_parent_score > 0)
+    #             .then(pl.col.average_parent_score / pl.col.average_parent_score.max())
+    #             .otherwise(0.5)
+    #         )
+
+    #     else:
+    #         logger.warning("No parent score column found. Skipping parent factor.")
+    #         df = df.with_columns(parent_factor=pl.lit(0.5))
 
     # ===== 6. Final score calculation =====
     # Base score calculation
@@ -1389,7 +1418,7 @@ def search_admin(
     has_country_level = 0 in levels
     country_exact_matches = None
 
-    select: list[str] = (
+    select_cols_list: list[str] = (
         [
             "geonameId",
             "name",
@@ -1413,7 +1442,7 @@ def search_admin(
         # If the term is short (<= 3 characters), we can assume it's a country code
         # First try exact matches for country codes
         exact_match_query = f"""
-        SELECT {", ".join(select)},
+        SELECT {", ".join(select_cols_list)},
         -- High fixed score for exact matches
         CASE
             WHEN LOWER(ISO) = LOWER($term) THEN 10.0
@@ -1462,7 +1491,7 @@ def search_admin(
     fts_query = f"""
 
     WITH filtered_results AS (
-        SELECT {",".join(select)}, fts_main_admin_search.match_bm25(geonameId, $term) AS fts_score
+        SELECT {",".join(select_cols_list)}, fts_main_admin_search.match_bm25(geonameId, $term) AS fts_score
         FROM admin_search
         WHERE {where_clause}
     )
@@ -1508,68 +1537,119 @@ def search_admin(
         results = fts_results.lazy()
 
     # Trying to get the adjusted scores from the previous results working with the flexible search. The issue is that we need to be able to join the previous results with the current results based on the admin codes. (Tracking the path back is much harder than when doing hierarchical search, as there are potentially multiple paths to the same entity. Unsure how to do this yet. )
-    # logger.info(admin_cols)
-    # if previous_results is not None and not previous_results.is_empty():
-    #     for i in range(1, len(admin_cols)+1):
-    #         logger.info(i)
-    #         logger.warning(f"adjusted_score_{min(levels)-1}")
-    #         tmp_cols = admin_cols[:i]
-    #         logger.info(f"{tmp_cols=}")
-    #         logger.info(f"{results.collect_schema().names()=}")
-    #         logger.info(f"{previous_results.select(
-    #                 cs.by_name(tmp_cols), cs.starts_with("adjusted_score_")
-    #             ).collect_schema().names()=}")
+    logger.info(admin_cols)
+    if previous_results is not None and not previous_results.is_empty():
+        previous_scores_df = previous_results.lazy()
+        # Rename score columns from previous_results to mark them as parent scores
+        parent_score_renames = {
+            col: f"parent_{col}"
+            for col in previous_results.collect_schema().names()
+            if col.startswith("adjusted_score_")
+        }
+        previous_scores_df = previous_scores_df.rename(parent_score_renames)
 
-    #         results = results.join(
-    #             previous_results.select(
-    #                 cs.by_name(tmp_cols), pl.col(f"adjusted_score_{min(levels)-1}")
-    #             ),
-    #             on=tmp_cols,
-    #             how="left",
-    #         )
-    #         logger.info(results.collect_schema())
-    #         if f"adjusted_score_{min(levels)-1}_right" in results.collect_schema().names():
-    #             results = results.with_columns(pl.coalesce(cs.starts_with(f"adjusted_score_{min(levels)-1}"))).drop(cs.ends_with("right"))
+        lfs = []
+        # Iterate through increasingly specific join key sets
+        for i in range(1, len(admin_cols) + 1):
+            tmp_cols = admin_cols[
+                :i
+            ]  # e.g., ["admin0_code"], then ["admin0_code", "admin1_code"]
+            # Select join keys and all parent score columns from previous_scores_df
+            selected_previous = previous_scores_df.select(
+                cs.by_name(tmp_cols), cs.starts_with("parent_adjusted_score_")
+            )
+            # Join current FTS results with these selected parent scores
+            joined_lf = results.join(selected_previous, on=tmp_cols, how="left")
+            lfs.append(joined_lf)
+        if lfs:
+            # Combine all joined versions. Each geonameId might appear multiple times
+            # if it could be linked via different paths (different tmp_cols).
+            results_with_potential_parents = pl.concat(lfs, how="vertical")
+        else:
+            # Should not happen if admin_cols is populated, but as a fallback
+            results_with_potential_parents = results
+            # Ensure results_with_potential_parents has a consistent schema for parent scores,
+            # even if they are all nulls here.
+            # This might be needed if search_score_admin expects parent_adjusted_score_ columns.
+            # However, the modified search_score_admin below handles their absence.
+
+    else:  # No previous_results
+        results_with_potential_parents = results
 
     # Original way that works for hierarchical search but not flexible search. Want to try and get this working for flexible search as well.
     # For now we will just ignore any previous score when doing the flexible search as it complicates things too much.
     # A simple way to work out if we are doing a flexible search is to check the length of the admin_cols and the length of the levels.
-    if (
-        previous_results is not None and not previous_results.is_empty()
-        # and 1 == len(levels)
-    ):
-        # Join with previous results to get adjusted scores
-        results = results.join(
-            previous_results.lazy().select(
-                cs.by_name(admin_cols), cs.starts_with("adjusted_score_")
-            ),
-            on=admin_cols,
-            how="left",
-        )
+    # if (
+    #     previous_results is not None and not previous_results.is_empty()
+    #     # and 1 == len(levels)
+    # ):
+    #     # Join with previous results to get adjusted scores
+    #     results = results.join(
+    #         previous_results.lazy().select(
+    #             cs.by_name(admin_cols), cs.starts_with("adjusted_score_")
+    #         ),
+    #         on=admin_cols,
+    #         how="left",
+    #     )
 
     return (
-        results.pipe(search_score_admin, min(levels), search_term=term)
+        results_with_potential_parents.pipe(
+            search_score_admin, min(levels), search_term=term
+        )
         .sort(f"adjusted_score_{min(levels)}", descending=True)
+        # Now, for each geonameId, pick the one that got the highest score
+        # This effectively selects the "best" parent linkage.
         .unique("geonameId", keep="first", maintain_order=True)
         .head(limit)
         .select(
-            (cs.by_name(select), cs.starts_with("adjusted_score_"))
+            # Your existing select logic
+            (
+                cs.by_name(select_cols_list)
+                if select_cols_list != ["*"]
+                else cs.all(),  # Ensure 'select' is a list of actual column names
+                cs.starts_with(
+                    "parent_adjusted_score_"
+                ),  # Optionally keep parent scores for debugging
+                cs.starts_with("adjusted_score_"),
+            )
             if not all_cols
-            else "*"
+            else cs.all()
         )
         .collect()
     )
 
 
-# In[12]:
+# %%
+df = con.table("admin_search").pl()
 
 
+# %%
+a = search_admin("The united states of america", [0, 1], con, None, limit=20)
+
+
+# %%
+search_admin("california", [1, 2], con, a, limit=20)
+
+
+# %%
+a = (
+    df.filter(pl.col("admin_level") == 2)
+    .filter(pl.col.admin0_code.is_in(["US", "UK"]))
+    .select(cs.exclude("admin_level"))
+    .select(cs.starts_with("admin"))
+    .unique()
+)
+a[[s.name for s in a if not (s.null_count() == a.height)]]
+
+
+# %%
 def search_score_place(
     df: pl.LazyFrame,
-    text_weight: float = 0.4,
-    importance_weight: float = 0.35,
+    text_weight: float = 0.35,
+    importance_weight: float = 0.30,
     feature_weight: float = 0.15,
     distance_weight: float = 0.1,
+    parent_admin_score_weight: float = 0.1,
     search_term: str | None = None,
     center_lat: float | None = None,
     center_lon: float | None = None,
@@ -1579,13 +1659,13 @@ def search_score_place(
 
     Parameters:
     - df: DataFrame with search results
-    - level: Admin level (0=country, 1=admin1, etc.)
     - text_weight: Weight for text matching score
     - importance_weight: Weight for pre-calculated importance
     - feature_weight: Weight for feature type relevance
-    - distance_weight: Weight for geographic proximity (if center point provided)
+    - distance_weight: Weight for geographic proximity
+    - parent_admin_score_weight: Weight for scores from parent admin entities
     - search_term: Original search term for exact matching
-    - center_lat/lon: Center point for distance calculation (from previous admin results)
+    - center_lat/lon: Center point for distance calculation
     """
     score_col = "place_score"
     columns = df.collect_schema().names()
@@ -1698,12 +1778,32 @@ def search_score_place(
     else:
         df = df.with_columns(distance_score=pl.lit(0.5))
 
+    # 5. Parent Admin Score Factor
+    parent_score_cols_exist = any(
+        col.startswith("parent_adjusted_score_") for col in df.collect_schema().names()
+    )
+    if parent_score_cols_exist:
+        df = df.with_columns(
+            # Calculate mean of all parent_adjusted_score_ columns for the row.
+            # Assumes parent scores are already normalized (0-1).
+            parent_admin_factor=pl.mean_horizontal(
+                cs.starts_with("parent_adjusted_score_")
+            )
+            .fill_null(0.5)
+            .clip(0.0, 1.0)
+        )
+    else:
+        df = df.with_columns(parent_admin_factor=pl.lit(0.5))
+
     df = df.with_columns(
         (
             pl.col("text_score").mul(text_weight)
             + pl.col("importance_norm").mul(importance_weight)
             + pl.col("feature_score").mul(feature_weight)
             + pl.col("distance_score").mul(distance_weight)
+            + pl.col("parent_admin_factor").mul(
+                parent_admin_score_weight
+            )  # Added parent admin score
         ).alias(score_col)
     )
     # 6. Apply tier boost (prioritize higher importance tiers)
@@ -1751,7 +1851,7 @@ def search_place(
     """
     logger.debug(f"Searching for places with term: {term}")
 
-    select: list[str] = (
+    select_cols_place: list[str] = (
         [
             "geonameId",
             "name",
@@ -1774,7 +1874,7 @@ def search_place(
     )
 
     where_clauses = []
-    admin_cols = []
+    join_on_admin_cols = []
     # Build path filtering from previous results
     if previous_results is not None and not previous_results.is_empty():
         # Determine which admin code columns to use based on the previous results
@@ -1784,13 +1884,17 @@ def search_place(
                 col in previous_results.columns
                 and previous_results[col].drop_nulls().shape[0] > 0
             ):
-                admin_cols.append(col)
+                join_on_admin_cols.append(col)
 
         # Build path conditions using the admin code columns
-        if admin_cols:
-            path_conditions = build_path_conditions(previous_results, admin_cols)
+        if join_on_admin_cols:
+            path_conditions = build_path_conditions(
+                previous_results, join_on_admin_cols
+            )
             if path_conditions:
                 where_clauses.append(f"({path_conditions})")
+    # Add importance tier condition
+    where_clauses.append(f"importance_tier <= {min_importance_tier}")
 
     # Build the WHERE clause
     where_clause = " AND ".join(where_clauses)
@@ -1800,30 +1904,32 @@ def search_place(
         if (
             "latitude" in previous_results.columns
             and "longitude" in previous_results.columns
+            and not previous_results.select(["latitude", "longitude"]).is_empty()
         ):
-            logger.debug(
-                "No center point provided. Using centroid of previous results."
-            )
-            # Use the centroid of previous results
             center_data = previous_results.select(
                 [
                     pl.mean("latitude").alias("center_lat"),
                     pl.mean("longitude").alias("center_lon"),
                 ]
-            ).row(0)
-            center_lat, center_lon = center_data
-            logger.debug(
-                f"Using center point from previous results: ({center_lat}, {center_lon})"
-            )
+            ).row(0, named=True)
+            if (
+                center_data["center_lat"] is not None
+                and center_data["center_lon"] is not None
+            ):
+                center_lat, center_lon = (
+                    center_data["center_lat"],
+                    center_data["center_lon"],
+                )
+                logger.debug(
+                    f"Using center point from previous admin results: ({center_lat}, {center_lon})"
+                )
 
-        # If progressive search didn't return enough results, or not using progressive search
     query = f"""
     WITH filtered_results AS (
-        SELECT {",".join(select)},
+        SELECT {",".join(select_cols_place)},
             fts_main_places_search.match_bm25(geonameId, $term) AS fts_score
         FROM places_search
         WHERE {where_clause}
-            AND importance_tier <= {min_importance_tier}
     )
     SELECT * FROM filtered_results
     WHERE fts_score IS NOT NULL
@@ -1832,21 +1938,57 @@ def search_place(
     LIMIT $limit
     """
     logger.debug(f"Executing FTS query: {query}")
-    results = con.execute(
+    results_df = con.execute(
         query,
         {
             "term": term,
             "limit": limit * 3,
         },
     ).pl()
-    logger.debug(f"Found {results.shape[0]} results")
+    logger.debug(f"Found {results_df.shape[0]} results")
     # Return empty frame if no results
-    if results.is_empty():
-        return results
+    if results_df.is_empty():
+        return results_df
 
+    # Join with parent admin scores if available
+    if (
+        previous_results is not None
+        and not previous_results.is_empty()
+        and join_on_admin_cols
+    ):
+        previous_scores_df = previous_results.lazy()
+
+        parent_score_renames = {
+            col: f"parent_{col}"
+            for col in previous_results.collect_schema().names()
+            if col.startswith("adjusted_score_")
+        }
+
+        # Select only join keys and score columns to be renamed
+        cols_to_select_from_previous = join_on_admin_cols + list(
+            parent_score_renames.keys()
+        )
+        previous_scores_df = previous_scores_df.select(
+            cols_to_select_from_previous
+        ).rename(parent_score_renames)
+
+        # Ensure unique admin paths from previous results before join
+        previous_scores_df = previous_scores_df.unique(
+            subset=join_on_admin_cols, keep="first", maintain_order=False
+        )
+
+        logger.debug(
+            f"Joining place results with parent admin scores on: {join_on_admin_cols}"
+        )
+        results_df = (
+            results_df.lazy()
+            .join(previous_scores_df, on=join_on_admin_cols, how="left")
+            .collect()
+        )
+        logger.debug(f"Shape after joining with parent scores: {results_df.shape}")
     # Score and sort results
-    return (
-        results.lazy()
+    final_results = (
+        results_df.lazy()
         .pipe(
             search_score_place,
             search_term=term,
@@ -1855,22 +1997,28 @@ def search_place(
         )
         .sort("place_score", descending=True)
         .head(limit)
-        .select(
-            (
-                cs.by_name(select),
-                cs.by_name("place_score"),
-                cs.starts_with("adjusted_score_"),
-            )
-            if not all_cols
-            else "*"
-        )
-        .collect()
     )
 
+    # Define final columns to select
+    if not all_cols:
+        # Start with the basic place select columns
+        final_select_expressions = [cs.by_name(select_cols_place)]
+        # Add the main place_score
+        final_select_expressions.append(cs.by_name("place_score"))
+        # Optionally add parent admin scores for debugging/inspection
+        final_select_expressions.append(cs.starts_with("parent_adjusted_score_"))
+        # Add any intermediate scoring factors if desired (e.g., text_score, distance_score etc.)
+        # final_select_expressions.append(cs.by_name(["text_score", "importance_norm", "feature_score", "distance_score", "parent_admin_factor"]))
 
-# In[92]:
+        final_results = final_results.select(final_select_expressions)
+    else:
+        # If all_cols is True, select everything that has been computed
+        final_results = final_results.select(cs.all())
+
+    return final_results.collect()
 
 
+# %%
 class AdminHierarchy(NamedTuple):
     admin0: str | None = None
     admin1: str | None = None
@@ -1881,55 +2029,21 @@ class AdminHierarchy(NamedTuple):
 
     @classmethod
     def from_list(cls, search_terms: list[str | None]) -> Self:
-        # Handle both 5 and 6 length lists
         if len(search_terms) not in [5, 6]:
             raise ValueError("Search terms must be a list of length 5 or 6")
-
-        # Pad with None if only 5 elements provided
         terms = search_terms + [None] if len(search_terms) == 5 else search_terms
-
-        return cls(
-            admin0=terms[0],
-            admin1=terms[1],
-            admin2=terms[2],
-            admin3=terms[3],
-            admin4=terms[4],
-            place=terms[5],
-        )
+        return cls(*terms)
 
     def get_admin_values(self) -> list[str | None]:
-        """Return a list of admin values"""
         return [self.admin0, self.admin1, self.admin2, self.admin3, self.admin4]
 
     def find_last_non_null_admin_index(self) -> int:
-        """Find the index of the last non-null admin level"""
         admin_values = self.get_admin_values()
         return max(
-            (i for i, term in enumerate(admin_values) if term is not None),
-            default=-1
+            (i for i, term in enumerate(admin_values) if term is not None), default=-1
         )
 
-    def move_last_admin_to_place(self) -> 'AdminHierarchy':
-        """Move the last non-null admin level to the place field"""
-        last_idx = self.find_last_non_null_admin_index()
-
-        if last_idx == -1 or self.place is not None:
-            return self
-
-        admin_values = list(self.get_admin_values())
-        place_term = admin_values[last_idx]
-        admin_values[last_idx] = None
-
-        return AdminHierarchy(
-            admin0=admin_values[0],
-            admin1=admin_values[1],
-            admin2=admin_values[2],
-            admin3=admin_values[3],
-            admin4=admin_values[4],
-            place=place_term
-        )
-
-
+    # Removed move_last_admin_to_place as its logic is now integrated into hierarchical_search
 
 
 class SearchResult(TypedDict, total=False):
@@ -1939,43 +2053,6 @@ class SearchResult(TypedDict, total=False):
     admin3: pl.DataFrame
     admin4: pl.DataFrame
     place: pl.DataFrame
-
-
-def find_next_null_admin_level(search_terms: AdminHierarchy | list[str | None]) -> int | None:
-    """
-    Find the position of the first null admin level after the last non-null admin level.
-
-    Args:
-        search_terms: Either an AdminHierarchy or a list of search terms
-
-    Returns:
-        The index of the first null after the last non-null admin level,
-        0 if all admin levels are null, or
-        None if there is no null position available
-    """
-    # Handle AdminHierarchy object
-    if isinstance(search_terms, AdminHierarchy):
-        admin_terms = search_terms.get_admin_values()
-    else:
-        # For list input, consider all but the last element if length is 6
-        admin_terms = search_terms[:-1] if len(search_terms) == 6 else search_terms
-
-    # If all admin terms are None, return 0
-    if all(term is None for term in admin_terms):
-        return 0
-
-    # Find the index of the last non-null admin term
-    last_non_null_idx = max(
-        (i for i, term in enumerate(admin_terms) if term is not None),
-        default=-1
-    )
-
-    # Find the first null after the last non-null
-    for i in range(last_non_null_idx + 1, len(admin_terms)):
-        if admin_terms[i] is None:
-            return i
-
-    return None
 
 
 def search_admin_hierarchy(
@@ -2030,14 +2107,7 @@ def place_as_admin(
     """
     logger.debug(f"Trying place term '{place_term}' as admin level {admin_level}")
 
-    results = search_admin(
-        place_term,
-        admin_level,
-        con,
-        last_results,
-        limit,
-        all_cols
-    )
+    results = search_admin(place_term, admin_level, con, last_results, limit, all_cols)
 
     if not results.is_empty():
         return results
@@ -2078,254 +2148,9 @@ def search_place_with_context(
         return None
 
 
-def hierarchical_search(
-    search_terms: AdminHierarchy,
-    con: DuckDBPyConnection,
-    limit: int = 20,
-    all_cols: bool = False,
-    try_place_as_admin: bool = True,
-) -> SearchResult:
-    """
-    Perform hierarchical geographic search across admin levels.
-
-    Args:
-        search_terms: AdminHierarchy containing search terms
-        con: Database connection
-        limit: Maximum results to return per level
-        all_cols: Return all columns
-        try_place_as_admin: Whether to try place term as admin level
-
-    Returns:
-        Dictionary mapping level names to search results
-    """
-    # Auto-promote last admin to place if place is None
-    if search_terms.place is None and try_place_as_admin:
-        search_terms = search_terms.move_last_admin_to_place()
-        if search_terms.place:
-            logger.debug(f"Moved last non-null admin level '{search_terms.place}' to place term")
-
-    # Search through admin hierarchy
-    results, last_results = search_admin_hierarchy(
-        search_terms, con, limit, all_cols
-    )
-
-    # Try place as admin if enabled
-    if try_place_as_admin and search_terms.place:
-        first_null_level = find_next_null_admin_level(search_terms)
-
-        if first_null_level is not None and first_null_level < 5:
-            fallback_results = place_as_admin(
-                search_terms.place,
-                first_null_level,
-                con,
-                last_results,
-                limit,
-                all_cols
-            )
-
-            if fallback_results is not None:
-                results[f"admin{first_null_level}"] = fallback_results
-                last_results = fallback_results
-
-    # Search for place
-    if search_terms.place:
-        place_results = search_place_with_context(
-            search_terms.place,
-            con,
-            last_results,
-            limit,
-            all_cols
-        )
-
-        if place_results is not None:
-            results["place"] = place_results
-
-    return results
-
-
-def flexible_search(
-    search_terms: list[str],
-    con: DuckDBPyConnection,
-    limit: int = 20,
-    all_cols: bool = False,
-) -> list[pl.DataFrame]:
-    """
-    Perform flexible geographic search across admin levels.
-
-    Args:
-        search_terms: List of search terms
-        con: Database connection
-        limit: Maximum results to return per level
-        all_cols: Return all columns
-
-    Returns:
-        List of DataFrames with search results
-    """
-    # Validate and clean input
-    if len(search_terms) > 6:
-        raise ValueError("Search terms must be a list of length <= 6")
-
-    search_terms = [term for term in search_terms if term is not None and term.strip()]
-
-    if not search_terms:
-        raise ValueError("Search terms must not be empty")
-
-    # Extract place term
-    place_search = search_terms[-1]
-    specific_place_term = len(search_terms) == 6
-
-    if specific_place_term:
-        search_terms.pop()  # Remove place term from admin terms
-
-    logger.debug(f"Search terms: {search_terms}")
-
-    # Search through admin terms
-    previous_results = None
-    results = []
-    empty_terms = 5 - len(search_terms)
-
-    for i, term in enumerate(search_terms):
-        logger.debug(f"Searching for term '{term}' at admin level {i}")
-        search_range = list(range(i, (empty_terms + i + 1)))
-        logger.debug(f"Searching for: '{term}' in range {search_range}")
-
-        search_results = search_admin(
-            term,
-            search_range,
-            con,
-            previous_results,
-            limit,
-            all_cols,
-        )
-
-        if not search_results.is_empty():
-            results.append(search_results)
-
-            # Special handling for last term when not specific place
-            if i == len(search_terms) - 1 and not specific_place_term:
-                logger.debug(
-                    f"Appending results from term '{term}' to previous results for place search"
-                )
-                if previous_results is not None:
-                    previous_results = pl.concat([previous_results, search_results], how="diagonal")
-                else:
-                    previous_results = search_results
-            else:
-                previous_results = search_results
-        else:
-            logger.debug(f"No results found for term '{term}' in range {search_range}")
-
-    # Search for place
-    place_results = search_place_with_context(
-        place_search,
-        con,
-        previous_results,
-        limit,
-        all_cols
-    )
-
-    if place_results is not None:
-        results.append(place_results)
-    else:
-        # Fallback: try place as admin at available levels
-        if not specific_place_term:
-            # Try at next available admin level
-            next_level = len(search_terms)
-            if next_level < 5:
-                logger.debug(f"Fallback: trying place '{place_search}' as admin{next_level}")
-
-                fallback_results = place_as_admin(
-                    place_search,
-                    list(range(next_level, 5)),
-                    con,
-                    previous_results,
-                    limit,
-                    all_cols
-                )
-
-                if fallback_results is not None:
-                    results.append(fallback_results)
-
-    return results
-
-
-def backfill_hierarchy(row: dict, con: DuckDBPyConnection) -> dict:
-    """
-    Backfill the complete hierarchy for a given row.
-
-    Args:
-        row: Dictionary containing admin codes
-        con: Database connection
-
-    Returns:
-        Dictionary with complete hierarchy information
-    """
-    def get_where_clause(codes: list[str | None]) -> str:
-        conditions = []
-        for i, code in enumerate(codes):
-            if code is not None:
-                conditions.append(f"admin{i}_code = '{code}'")
-            else:
-                conditions.append(f"admin{i}_code IS NULL")
-        return "WHERE " + " AND ".join(conditions)
-
-    hierarchy = {}
-    codes = []
-
-    for i in range(5):
-        code = row.get(f"admin{i}_code")
-        codes.append(code)
-
-        if code is not None:
-            query = f"SELECT geonameId, name FROM admin_search WHERE admin_level = {i} AND {get_where_clause(codes)} LIMIT 1"
-            df = con.execute(query).pl()
-
-            if not df.is_empty():
-                hierarchy[f"admin{i}"] = df.to_dicts()[0]
-
-    return hierarchy
-
-
-# In[ ]:
-
-
-class AdminHierarchy(NamedTuple):
-    admin0: str | None = None
-    admin1: str | None = None
-    admin2: str | None = None
-    admin3: str | None = None
-    admin4: str | None = None
-    place: str | None = None
-
-    @classmethod
-    def from_list(cls, search_terms: list[str | None]) -> Self:
-        # Handle both 5 and 6 length lists
-        if len(search_terms) not in [5, 6]:
-            raise ValueError("Search terms must be a list of length 5 or 6")
-
-        # Pad with None if only 5 elements provided
-        terms = search_terms + [None] if len(search_terms) == 5 else search_terms
-
-        return cls(
-            admin0=terms[0],
-            admin1=terms[1],
-            admin2=terms[2],
-            admin3=terms[3],
-            admin4=terms[4],
-            place=terms[5],
-        )
-
-
-class SearchResult(TypedDict, total=False):
-    admin0: pl.DataFrame
-    admin1: pl.DataFrame
-    admin2: pl.DataFrame
-    admin3: pl.DataFrame
-    admin4: pl.DataFrame
-    place: pl.DataFrame
-
-
-def find_next_null_admin_level(search_terms: AdminHierarchy | list[str | None]) -> int | None:
+def find_next_null_admin_level(
+    search_terms: AdminHierarchy | list[str | None],
+) -> int | None:
     """
     Find the position of the first null admin level after the last non-null admin level.
 
@@ -2351,7 +2176,7 @@ def find_next_null_admin_level(search_terms: AdminHierarchy | list[str | None]) 
             search_terms.admin1,
             search_terms.admin2,
             search_terms.admin3,
-            search_terms.admin4
+            search_terms.admin4,
         ]
     else:
         # For list input, consider all but the last element if length is 6
@@ -2360,7 +2185,9 @@ def find_next_null_admin_level(search_terms: AdminHierarchy | list[str | None]) 
     if all(term is None for term in admin_terms):
         return 0
     # Find the index of the last non-null admin term
-    last_non_null_idx = max((i for i, term in enumerate(admin_terms) if term is not None), default=-1)
+    last_non_null_idx = max(
+        (i for i, term in enumerate(admin_terms) if term is not None), default=-1
+    )
     # Find the first null after the last non-null
     for i in range(last_non_null_idx + 1, len(admin_terms)):
         if admin_terms[i] is None:
@@ -2368,207 +2195,268 @@ def find_next_null_admin_level(search_terms: AdminHierarchy | list[str | None]) 
     # If there's no null after the last non-null, return None
     return None
 
+
 def hierarchical_search(
-    search_terms: AdminHierarchy,
+    search_terms_input: AdminHierarchy,
     con: DuckDBPyConnection,
     limit: int = 20,
     all_cols: bool = False,
-    try_place_as_admin: bool = True,
+    use_last_admin_as_implicit_place_if_none_given: bool = True,
+    try_place_candidate_as_admin_in_gap: bool = True,
 ) -> SearchResult:
     """
     Perform hierarchical geographic search across admin levels.
 
     Args:
-        search_terms: List of search terms, ordered by admin level (admin0 (country), admin1, admin2, etc.)
-        con: Database connection
-        limit: Maximum results to return per level
-
+        search_terms_input: AdminHierarchy containing search terms.
+        con: Database connection.
+        limit: Maximum results to return per level.
+        all_cols: Return all columns.
+        use_last_admin_as_implicit_place_if_none_given: If True and no explicit place term is given,
+            the last non-null admin term will be used as the candidate for place search and admin fallback.
+        try_place_candidate_as_admin_in_gap: If True, the place candidate term (explicit or implicit)
+            will be searched as an admin entity in the first available null admin slot
+            after the explicitly specified admin terms.
     Returns:
-        Dictionary mapping level names to search results
+        Dictionary mapping level names to search results.
     """
 
     results: SearchResult = {}
     last_results: pl.DataFrame | None = None
+    # --- Step 1: Perform searches for explicitly provided admin terms ---
+    admin_terms_from_input = list(search_terms_input.get_admin_values())
 
-    # if place is none then move the last non-null admin level to the place term as it will be searched as an admin level anyway that way
-    if search_terms.place is None:
-        # Get last non-null admin level
-        admin_values = [search_terms.admin0, search_terms.admin1,
-                        search_terms.admin2, search_terms.admin3, search_terms.admin4]
-        last_non_null_idx = max(
-            (i for i, term in enumerate(admin_values) if term is not None), default=-1
-        )
-        if last_non_null_idx != -1:
-            # Create a new tuple with the modifications - move last non-null to place
-            place_term = admin_values[last_non_null_idx]
-            new_admin_values = list(admin_values)
-            new_admin_values[last_non_null_idx] = None
+    # Create a temporary AdminHierarchy for search_admin_hierarchy, ensuring its .place is None
+    # so it only processes the adminX fields from the input.
+    temp_hierarchy_for_admin_search = AdminHierarchy(
+        admin0=admin_terms_from_input[0],
+        admin1=admin_terms_from_input[1],
+        admin2=admin_terms_from_input[2],
+        admin3=admin_terms_from_input[3],
+        admin4=admin_terms_from_input[4],
+        place=None,  # Explicitly None for this stage
+    )
 
-            # Create a new AdminHierarchy with the updated values
-            search_terms = AdminHierarchy(
-                admin0=new_admin_values[0],
-                admin1=new_admin_values[1],
-                admin2=new_admin_values[2],
-                admin3=new_admin_values[3],
-                admin4=new_admin_values[4],
-                place=place_term
-            )
+    # search_admin_hierarchy processes admin0-admin4 from temp_hierarchy_for_admin_search
+    results, last_results_context = search_admin_hierarchy(
+        temp_hierarchy_for_admin_search, con, limit, all_cols
+    )
 
-            logger.debug(f"Moved last non-null admin level '{place_term}' to place term")
+    # --- Step 2: Determine the term to be used for place-related searches (place_candidate_term) ---
+    place_candidate_term = (
+        search_terms_input.place
+    )  # The explicitly provided place term
 
+    if place_candidate_term is None and use_last_admin_as_implicit_place_if_none_given:
+        # Find the last non-null term from the *input* admin levels
+        last_admin_idx = search_terms_input.find_last_non_null_admin_index()
 
-
-    for admin_level, term in enumerate([
-        search_terms.admin0,
-        search_terms.admin1,
-        search_terms.admin2,
-        search_terms.admin3,
-        search_terms.admin4
-    ]):
-        if term is None:
-            continue
-
-        logger.debug(f"Searching for term '{term}' at admin level {admin_level}")
-
-        # Perform the search
-        search_results = search_admin(
-            term, admin_level, con, last_results, limit, all_cols
-        )
-
-        # If results are found, store them in the results dictionary
-        if not search_results.is_empty():
-            results[f"admin{admin_level}"] = search_results
-            last_results = search_results
-        else:
+        if last_admin_idx != -1:
+            place_candidate_term = admin_terms_from_input[last_admin_idx]
             logger.debug(
-                f"No results found for term '{term}' at admin level {admin_level}"
+                f"No explicit place term. Using last admin term '{place_candidate_term}' "
+                f"(from input level admin{last_admin_idx}) as the place candidate."
             )
+            # Note: The search for this term as an admin entity (at admin{last_admin_idx})
+            # has already been performed in Step 1.
 
-    first_null_admin_level = find_next_null_admin_level(search_terms)
-    if first_null_admin_level is not None:
-        logger.debug(f"First null admin level found at index {first_null_admin_level}")
-        # If we have a place term, we can try searching it as an admin level
-        if first_null_admin_level < 5 and search_terms.place is not None:
+    # --- Step 3: If a place_candidate_term exists, optionally try it as an admin entity in a "gap" ---
+    if place_candidate_term is not None and try_place_candidate_as_admin_in_gap:
+        # A "gap" is a null admin level in the *original input `search_terms_input`* that occurs
+        # after the last non-null admin term specified in that input.
+        # `find_next_null_admin_level` correctly identifies this.
+        gap_admin_level = find_next_null_admin_level(search_terms_input)
+
+        if gap_admin_level is not None and gap_admin_level < 5:
+            # We try `place_candidate_term` at `gap_admin_level`.
+            # The context for this search is `last_results_context` from Step 1 (or updated if Step 1 had results).
             logger.debug(
-                f"Trying place term '{search_terms.place}' as admin level {first_null_admin_level}"
+                f"Attempting to search place candidate '{place_candidate_term}' "
+                f"as admin level {gap_admin_level} (fallback in gap)."
             )
-            fallback_results = search_admin(
-                search_terms.place,
-                first_null_admin_level,
+            fallback_admin_results = place_as_admin(
+                place_candidate_term,
+                gap_admin_level,
                 con,
-                last_results,
+                last_results_context,
                 limit,
-                all_cols
+                all_cols,
             )
-            if not fallback_results.is_empty():
-                results[f"admin{first_null_admin_level}"] = fallback_results
-                # last_results = pl.concat(
-                #     [last_results, fallback_results], how="diagonal"
-                # )
-                last_results = fallback_results
-            else:
-                logger.debug(
-                    f"No results found for place term '{search_terms.place}' at admin level {first_null_admin_level}"
-                )
+            if (
+                fallback_admin_results is not None
+                and not fallback_admin_results.is_empty()
+            ):
+                # This result is for the `gap_admin_level`.
+                results[f"admin{gap_admin_level}"] = fallback_admin_results
+                # This fallback search now becomes the latest context for the final place search.
+                last_results_context = fallback_admin_results
 
-    if search_terms.place is not None:
-        logger.debug(f"Searching for place: '{search_terms.place}'")
-
-        # If we have admin results, use them to filter the place search
-        place_results = search_place(
-            search_terms.place,
-            con,
-            previous_results=last_results,
-            limit=limit
+    # --- Step 4: Perform the final search for place_candidate_term as a place ---
+    if place_candidate_term is not None:
+        logger.debug(f"Searching for '{place_candidate_term}' as a place entity.")
+        final_place_results = search_place_with_context(
+            place_candidate_term, con, last_results_context, limit, all_cols
         )
-
-        if not place_results.is_empty():
-            results["place"] = place_results
-        else:
-            logger.debug(f"No place results found for '{search_terms.place}'")
+        if final_place_results is not None and not final_place_results.is_empty():
+            results["place"] = final_place_results
+            # Optionally update context if further steps needed it:
+            # last_results_context = final_place_results
 
     return results
 
 
 def flexible_search(
-    search_terms: list[str],
+    search_terms_raw: list[str],
     con: DuckDBPyConnection,
-    limit: int = 50,
+    limit: int = 20,
     all_cols: bool = False,
+    try_place_candidate_as_admin_fallback_on_fail: bool = True,
 ) -> list[pl.DataFrame]:
     """
     Perform flexible geographic search across admin levels.
 
     Args:
-        search_terms: List of search terms, ordered by admin level (admin0 (country), admin1, admin2, etc.)
-        con: Database connection
-        limit: Maximum results to return per level
-
+        search_terms_raw: List of search terms.
+        con: Database connection.
+        limit: Maximum results to return per level.
+        all_cols: Return all columns.
+        try_place_candidate_as_admin_fallback_on_fail: If True and the place candidate term
+            search (as a place) fails, try searching it as an admin entity in subsequent levels.
     Returns:
-        Dictionary mapping level names to search results
+        List of DataFrames with search results.
     """
-    assert len(search_terms) <= 6, "Search terms must be a list of length <= 6"
-    search_terms = [term for term in search_terms if term is not None and term.strip()]
 
-    if len(search_terms) == 0:
-        raise ValueError("Search terms must not be empty")
+    # --- Input Cleaning & Term Definition ---
+    cleaned_terms = [
+        term for term in search_terms_raw if term is not None and term.strip()
+    ]
+    if not cleaned_terms:
+        # Return empty list or raise error based on desired behavior for no valid terms
+        logger.warning("No valid search terms provided after cleaning.")
+        return []
+    if len(cleaned_terms) > 6:
+        raise ValueError("Search terms must be a list of length <= 6 after cleaning.")
 
-    # Last term is the place search term
-    place_search: str = search_terms[-1]
-    specific_places_term: bool = False
-    if len(search_terms) == 6:
-        place_search = search_terms.pop()
-        specific_places_term = True
+    admin_terms_for_flex_search: list[str]
+    place_candidate_term: str
+    # is_place_term_exclusive: True if the place_candidate_term was *only* for place search (input had 6 terms).
+    is_place_term_exclusive: bool
 
+    if len(cleaned_terms) == 6:
+        admin_terms_for_flex_search = cleaned_terms[:-1]
+        place_candidate_term = cleaned_terms[-1]
+        is_place_term_exclusive = True
+    else:  # 1 to 5 terms
+        admin_terms_for_flex_search = list(
+            cleaned_terms
+        )  # All terms are part of admin sequence
+        place_candidate_term = cleaned_terms[
+            -1
+        ]  # The last of these is also the place candidate
+        is_place_term_exclusive = False
 
+    logger.debug(f"Flexible search: Admin terms: {admin_terms_for_flex_search}")
+    logger.debug(
+        f"Flexible search: Place candidate: '{place_candidate_term}', Exclusive: {is_place_term_exclusive}"
+    )
 
+    all_found_results_list: list[pl.DataFrame] = []
+    last_successful_admin_context: pl.DataFrame | None = None
 
-    logger.debug(f"Search terms: {search_terms}")
-    empty_terms = 5 - len(search_terms)
+    # --- Step 1: Iterative Flexible Admin Search ---
+    num_actual_admin_terms = len(admin_terms_for_flex_search)
+    # empty_admin_slots determines how many levels a term can "slide" over.
+    # If 1 admin term, it can be level 0-4 (empty_admin_slots = 4).
+    # If 5 admin terms, each term maps to one level (empty_admin_slots = 0).
+    empty_admin_slots = 5 - num_actual_admin_terms
 
-    previous_results: pl.DataFrame | None = None
-    results = []
+    for i, term_to_search in enumerate(admin_terms_for_flex_search):
+        start_level = i
+        # The term at index `i` can occupy levels from `i` up to `i + empty_admin_slots`.
+        # Max admin level is 4.
+        end_level = min(4, i + empty_admin_slots)
 
-    for i, term in enumerate(search_terms):
-        logger.debug(f"Searching for term '{term}' at admin level {i}")
-        search_range = list(range(i, (empty_terms + i + 1)))
-        logger.debug(f"Searching for: '{term}' in range {search_range}")
-        search_results = search_admin(
-            term,
-            search_range,
+        current_search_levels = list(range(start_level, end_level + 1))
+
+        if not current_search_levels:  # Should ideally not happen with correct logic
+            logger.warning(
+                f"Term '{term_to_search}': No valid admin levels to search (calculated range: {start_level}-{end_level}). Skipping."
+            )
+            continue
+
+        logger.debug(
+            f"Flex-searching admin term '{term_to_search}' for levels {current_search_levels}."
+        )
+
+        term_admin_results = search_admin(
+            term_to_search,
+            current_search_levels,
             con,
-            previous_results,
+            last_successful_admin_context,
             limit,
             all_cols,
         )
-        if not search_results.is_empty():
-            results.append(search_results)
-            # If last iteration of the loop and we dont have a specific place term, what we are esentially doing is chancing it by using the last term as an admin search and as a places term. Because of that if the admin search returns garbage because its a place we want to avoid being locked in to garbage so if thats the case we can append the results to the previous results and use that on the place search.
-            if i == len(search_terms) - 1 and not specific_places_term:
-                logger.debug(
-                    f"Appending results from term '{term}' to previous results for place search"
-                )
-                previous_results = pl.concat(
-                    [previous_results, search_results])
-            else:
-                previous_results = search_results
-        else:
-            logger.debug(f"No results found for term '{term}' in range {search_range}")
 
-    logger.debug(f"Searching for place: '{place_search}'")
-    place_results = search_place(
-        place_search,
-        con,
-        previous_results,
-        limit,
-        all_cols=all_cols,
+        if not term_admin_results.is_empty():
+            all_found_results_list.append(term_admin_results)
+            last_successful_admin_context = term_admin_results
+        else:
+            logger.debug(
+                f"No admin results for term '{term_to_search}' in levels {current_search_levels}."
+            )
+            # Context (last_successful_admin_context) remains from the previous successful search.
+
+    # --- Step 2: Search for Place Candidate as a Place ---
+    logger.debug(f"Searching for '{place_candidate_term}' as a place entity.")
+    place_search_results = search_place_with_context(
+        place_candidate_term, con, last_successful_admin_context, limit, all_cols
     )
-    if not place_results.is_empty():
-        results.append(place_results)
+
+    place_found_successfully = (
+        place_search_results is not None and not place_search_results.is_empty()
+    )
+
+    if place_found_successfully:
+        all_found_results_list.append(place_search_results)  # type: ignore[arg-type]
     else:
-        logger.debug(f"No place results found for '{place_search}'")
-        # TODO: Fallback if no place found. If we have a place that hasn't been tried against the admin levels, we can try it as an admin level here.
-    return results
+        logger.debug(f"No place results for '{place_candidate_term}'.")
+
+        # --- Step 3: Fallback - Try Place Candidate as Admin if Place Search Failed ---
+        if try_place_candidate_as_admin_fallback_on_fail:
+            # Determine levels for this fallback. These should be levels *after* those
+            # notionally covered by `admin_terms_for_flex_search`.
+            # `num_actual_admin_terms` is the count of terms in `admin_terms_for_flex_search`.
+            # So, the next available admin slot starts at index `num_actual_admin_terms`.
+            fallback_start_level = num_actual_admin_terms
+
+            if (
+                fallback_start_level < 5
+            ):  # Max admin level is 4. If fallback_start_level is 5, no slots.
+                admin_fallback_levels = list(
+                    range(fallback_start_level, 5)
+                )  # e.g., if 3 admin terms, try levels 3, 4.
+
+                if admin_fallback_levels:
+                    logger.debug(
+                        f"Fallback: Trying place candidate '{place_candidate_term}' as admin "
+                        f"at levels {admin_fallback_levels}."
+                    )
+                    # Context for this fallback is still `last_successful_admin_context` from Step 1.
+                    admin_fallback_data = place_as_admin(
+                        place_candidate_term,
+                        admin_fallback_levels,
+                        con,
+                        last_successful_admin_context,
+                        limit,
+                        all_cols,
+                    )
+                    if (
+                        admin_fallback_data is not None
+                        and not admin_fallback_data.is_empty()
+                    ):
+                        all_found_results_list.append(admin_fallback_data)
+
+    return all_found_results_list
 
 
 def backfill_hierarchy(row: dict, con: DuckDBPyConnection) -> dict:
@@ -2597,9 +2485,6 @@ def backfill_hierarchy(row: dict, con: DuckDBPyConnection) -> dict:
     return hierarchy
 
 
-# In[78]:
-
-
 # Hierarchical search with place
 st = ["US", "CA", "Los Angeles County", "Beverly Hills", None, None]
 search_terms = AdminHierarchy.from_list(st)
@@ -2607,27 +2492,328 @@ results = hierarchical_search(search_terms, con)
 results.get("admin3")
 
 
-# In[79]:
+# %%
+# Define a configuration structure for the smart flexible search
+class SmartFlexibleSearchConfig(TypedDict, total=False):
+    limit: int  # Max results per search stage
+    all_cols: bool  # Whether to return all columns from underlying tables
+
+    # Max number of terms from input to treat as a sequence of admin entities.
+    # If len(input_terms) > max_sequential_admin_terms, the term at
+    # index `max_sequential_admin_terms` becomes an exclusive place candidate.
+    # If len(input_terms) <= max_sequential_admin_terms, the *last* term of the input
+    # serves as both the end of the admin sequence AND the place candidate.
+    max_sequential_admin_terms: int
+
+    # If True, the place_candidate_term will be proactively searched as an admin entity
+    # in levels *after* the conceptual slots filled by `admin_terms_for_main_sequence`,
+    # but *before* it's searched as a place. This applies if the place_candidate_term
+    # was not already the last term of the admin_terms_for_main_sequence.
+    attempt_place_candidate_as_admin_before_place_search: bool
 
 
-result = flexible_search(["US", "CA", "San Francisco"], con)
-result
+MAX_ADMIN_LEVELS_COUNT = 5  # Represents 5 levels: 0, 1, 2, 3, 4
 
 
-# In[73]:
+def smart_flexible_search(
+    search_terms_raw: list[str],
+    con: DuckDBPyConnection,
+    config: SmartFlexibleSearchConfig | None = None,
+) -> list[pl.DataFrame]:
+    """
+    Perform a smart, flexible geographic search across admin levels and for places.
+    The user provides an ordered list of terms, and the function attempts to match
+    them sequentially and flexibly.
+    """
+
+    cfg: SmartFlexibleSearchConfig = {
+        "limit": 20,
+        "all_cols": False,
+        "max_sequential_admin_terms": 5,
+        "attempt_place_candidate_as_admin_before_place_search": True,
+    }
+    if config:
+        cfg.update(config)  # type: ignore
+
+    # --- 1. Input Cleaning & Term Definition ---
+    cleaned_terms = [term for term in search_terms_raw if term and term.strip()]
+    if not cleaned_terms:
+        logger.warning("No valid search terms provided after cleaning.")
+        return []
+
+    admin_terms_for_main_sequence: list[str]
+    place_candidate_term: str | None = None
+
+    is_place_candidate_also_last_admin_term_in_sequence: bool = False
+
+    num_cleaned_terms = len(cleaned_terms)
+    # Determine how many input terms form the primary administrative sequence
+    num_admin_terms_in_sequence = min(
+        num_cleaned_terms, cfg["max_sequential_admin_terms"]
+    )
+    admin_terms_for_main_sequence = cleaned_terms[:num_admin_terms_in_sequence]
+
+    if num_cleaned_terms > num_admin_terms_in_sequence:
+        place_candidate_term = cleaned_terms[num_admin_terms_in_sequence]
+        if num_cleaned_terms > num_admin_terms_in_sequence + 1:
+            extra_terms = " ".join(cleaned_terms[num_admin_terms_in_sequence + 1 :])
+            place_candidate_term = f"{place_candidate_term} {extra_terms}"
+            logger.info(
+                f"Concatenated extra input terms into place candidate. New place candidate: '{place_candidate_term}'"
+            )
+    elif admin_terms_for_main_sequence:
+        place_candidate_term = admin_terms_for_main_sequence[-1]
+        is_place_candidate_also_last_admin_term_in_sequence = True
+
+    logger.debug(
+        f"Smart Flexible Search: Admin terms for main sequence: {admin_terms_for_main_sequence}"
+    )
+    if place_candidate_term:
+        logger.debug(
+            f"Smart Flexible Search: Place candidate term: '{place_candidate_term}' (Is also last admin in sequence: {is_place_candidate_also_last_admin_term_in_sequence})"
+        )
+    else:
+        logger.debug(
+            "Smart Flexible Search: No distinct place candidate term identified."
+        )
+
+    all_found_results_list: list[pl.DataFrame] = []
+    last_successful_context: pl.DataFrame | None = None
+
+    # --- 2. Iterative Flexible Admin Search (Main Sequence) ---
+    if admin_terms_for_main_sequence:
+        num_terms_in_main_seq = len(admin_terms_for_main_sequence)
+        empty_admin_slots = MAX_ADMIN_LEVELS_COUNT - num_terms_in_main_seq
+        min_level_from_last_success: int | None = None
+
+        for i, term_to_search in enumerate(admin_terms_for_main_sequence):
+            # Determine the search window for the current admin term
+            effective_start_level = i  # Current term's natural starting slot
+            if min_level_from_last_success is not None:
+                # Next term must be at least one level deeper than where the previous term was found
+                # and cannot start shallower than its natural slot 'i'.
+                effective_start_level = max(i, min_level_from_last_success + 1)
+
+            # The end level for the current term's search window is based on its slot and available empty_admin_slots
+            current_search_window_end_level = min(
+                MAX_ADMIN_LEVELS_COUNT - 1, i + empty_admin_slots
+            )
+
+            if effective_start_level > current_search_window_end_level:
+                current_search_levels = []  # No valid levels for this term
+            else:
+                current_search_levels = list(
+                    range(effective_start_level, current_search_window_end_level + 1)
+                )
+
+            if not current_search_levels:
+                logger.warning(
+                    f"Term '{term_to_search}': No valid admin levels to search (effective range: {effective_start_level}-{current_search_window_end_level}). Skipping."
+                )
+                continue
+
+            logger.debug(
+                f"Searching main admin sequence term '{term_to_search}' for admin levels {current_search_levels} with current context."
+            )
+
+            term_admin_results = search_admin(
+                term=term_to_search,
+                levels=current_search_levels,
+                con=con,
+                previous_results=last_successful_context,
+                limit=cfg["limit"],
+                all_cols=cfg["all_cols"],
+            )
+
+            if not term_admin_results.is_empty():
+                logger.info(
+                    f"Found {len(term_admin_results)} results for main admin term '{term_to_search}' in levels {current_search_levels}."
+                )
+                all_found_results_list.append(term_admin_results)
+                last_successful_context = term_admin_results
+                if "admin_level" in term_admin_results.columns:
+                    min_level_from_last_success = term_admin_results[
+                        "admin_level"
+                    ].min()
+                    # min() is used to ensure the next term is strictly deeper than the shallowest level found.
+                else:
+                    min_level_from_last_success = None
+            else:
+                logger.debug(
+                    f"No results for main admin term '{term_to_search}' in levels {current_search_levels}."
+                )
+                # min_level_from_last_success retains its value from the *actual* last successful search.
+    # --- 3. Proactive Admin Search for Place Candidate (if applicable) ---
+    should_run_proactive_admin_search = (
+        place_candidate_term is not None
+        and cfg["attempt_place_candidate_as_admin_before_place_search"]
+        and not is_place_candidate_also_last_admin_term_in_sequence
+    )
+
+    if should_run_proactive_admin_search:
+        # Determine admin levels for this proactive search: levels after the main admin sequence.
+        additional_admin_start_level = len(admin_terms_for_main_sequence)
+
+        if additional_admin_start_level < MAX_ADMIN_LEVELS_COUNT:
+            additional_admin_search_levels = list(
+                range(additional_admin_start_level, MAX_ADMIN_LEVELS_COUNT)
+            )
+
+            if additional_admin_search_levels:
+                logger.debug(
+                    f"Proactively searching place candidate '{place_candidate_term}' as ADMIN "
+                    f"at levels {additional_admin_search_levels} using current context."
+                )
+
+                proactive_admin_results = search_admin(
+                    term=place_candidate_term,  # Safe: checked place_candidate_term is not None above
+                    levels=additional_admin_search_levels,
+                    con=con,
+                    previous_results=last_successful_context,
+                    limit=cfg["limit"],
+                    all_cols=cfg["all_cols"],
+                )
+                if not proactive_admin_results.is_empty():
+                    logger.info(
+                        f"Found {len(proactive_admin_results)} results for place candidate '{place_candidate_term}' as proactive ADMIN in levels {additional_admin_search_levels}."
+                    )
+                    all_found_results_list.append(proactive_admin_results)
+                    last_successful_context = proactive_admin_results
+                else:
+                    logger.debug(
+                        f"No results for place candidate '{place_candidate_term}' as proactive ADMIN in levels {additional_admin_search_levels}."
+                    )
+        else:
+            logger.debug(
+                f"Skipping proactive admin search for '{place_candidate_term}': no subsequent admin levels available (start_level: {additional_admin_start_level})."
+            )
+    elif (
+        place_candidate_term
+        and cfg["attempt_place_candidate_as_admin_before_place_search"]
+        and is_place_candidate_also_last_admin_term_in_sequence
+    ):
+        logger.debug(
+            f"Skipping proactive admin search for '{place_candidate_term}': it was already processed as the last admin term in the main sequence."
+        )
+
+    # --- 4. Final Place Search (if a place_candidate_term exists) ---
+    if place_candidate_term:
+        logger.debug(
+            f"Searching for place candidate '{place_candidate_term}' as PLACE entity using final context."
+        )
+
+        final_place_results_df = search_place(
+            term=place_candidate_term,
+            con=con,
+            previous_results=last_successful_context,
+            limit=cfg["limit"],
+            all_cols=cfg["all_cols"],
+        )
+
+        if not final_place_results_df.is_empty():
+            logger.info(
+                f"Found {len(final_place_results_df)} results for place candidate '{place_candidate_term}' as PLACE."
+            )
+            all_found_results_list.append(final_place_results_df)
+        else:
+            logger.debug(
+                f"No results for place candidate '{place_candidate_term}' as PLACE."
+            )
+
+    logger.info(
+        f"Smart flexible search finished. Returning {len(all_found_results_list)} DataFrame(s)."
+    )
+    return all_found_results_list
 
 
+# %%
+cfg_example = {
+    "limit": 5,
+    "max_sequential_admin_terms": 5,
+    "try_place_candidate_as_admin_fallback_on_place_search_fail": True,
+}
+results_list = smart_flexible_search(
+    ["UK", "London", "Camden", "British Museum"], con, config=cfg_example
+)
+for i, df_result in enumerate(results_list):
+    print(f"\n--- Results from Stage {i + 1} ---")
+    print(df_result)
+
+results_short = smart_flexible_search(["FL", "Lakeland"], con, config={"limit": 3})
+for i, df_result in enumerate(results_short):
+    print(f"\n--- Results from Stage {i + 1} (Short Input) ---")
+    print(df_result)
+
+
+# %%
+con.execute(
+    """WITH filtered_results AS (
+        SELECT geonameId,name,asciiname,admin0_code,admin1_code,admin2_code,admin3_code,admin4_code,feature_class,feature_code,population,latitude,longitude,importance_score,importance_tier,
+            fts_main_places_search.match_bm25(geonameId, $term) AS fts_score
+        FROM places_search
+        WHERE ((admin0_code = 'US' AND admin1_code = 'FL' AND admin2_code = '105' AND admin3_code = '7170309')) AND importance_tier <= 5
+    )
+    SELECT * FROM filtered_results
+    WHERE fts_score IS NOT NULL
+    ORDER BY fts_score DESC,
+        importance_score DESC
+    LIMIT $limit""",
+    {"term": "Lakeland", "limit": 10},
+).pl()
+
+
+# %%
+results_list[3]
+
+
+# %%
+results_short[1]
+
+
+# %%
+results_short[2]
+
+
+# %%
+results = flexible_search(["US", "Los Angeles County", "Beverly Hills"], con)
+results
+
+
+# %%
+results[3]
+
+
+# %%
+a = (
+    results[2]
+    .select(cs.exclude("admin_level"))
+    .select(cs.starts_with("admin"))
+    .unique()
+)
+join_cols = a[[s.name for s in a if not (s.null_count() == a.height)]].columns
+print(join_cols)
+b = (
+    con.table("admin_search")
+    .pl()
+    .lazy()
+    .join(results[2].lazy().select(join_cols), on=join_cols)
+    .filter(
+        # These terms are esentially the same thing
+        pl.col("admin_level").is_in([3, 4])
+    )
+)
+
+
+# %%
 # Flexible search with potential place
 flex_terms = ["United Kingdom", "London", "Westminster", "Parlement"]
 flex_results = flexible_search(flex_terms, con)
 
-flex_results[3]
+flex_results[2]
 
 
-# In[87]:
-
-
-st = ["FR", "Provence-Alpes-Côte d'Azur", None, None, "Le Lavandou"]
+# %%
+st = ["FR", "Provence-Alpes-Côte d'Azur", None, None, "Le Lavandou", None]
 search_terms = AdminHierarchy.from_list(st)
 # Search through the admin hierarchy
 results = hierarchical_search(
@@ -2661,15 +2847,11 @@ if "admin4" in results:
 results["admin4"]
 
 
-# In[ ]:
+# %%
+results["place"]
 
 
-results["admin4"]
-
-
-# In[ ]:
-
-
+# %%
 s = flexible_search(st, con=con, limit=10)
 
 d = s[1]
@@ -2680,18 +2862,14 @@ admin_cols = sorted(
 admin_cols
 
 
-# In[ ]:
-
-
+# %%
 r = search_admin("England", [0, 1], con)
 # First find the administrative region
 admin_results = search_admin("Dover", [3, 4], con, r)
 admin_results
 
 
-# In[ ]:
-
-
+# %%
 # Then search for places within that region
 place_results = search_place(
     "Dover Ferry Terminal",
@@ -2703,9 +2881,7 @@ place_results = search_place(
 place_results
 
 
-# In[ ]:
-
-
+# %%
 r = search_admin("England", [0, 1], con)
 a = search_admin("Islington", [1, 2, 3], con, r)
 b = search_place(
@@ -2717,9 +2893,7 @@ b = search_place(
 b
 
 
-# In[ ]:
-
-
+# %%
 backfill_hierarchy(
     {
         "admin0_code": "GB",
@@ -2732,12 +2906,11 @@ backfill_hierarchy(
 )
 
 
-# In[96]:
-
-
+# %%
 results = hierarchical_search(
-    search_terms=AdminHierarchy.from_list([None, "FL", None, "Lakeland", None, None]), con=con,
-    try_place_as_admin=False
+    search_terms=AdminHierarchy.from_list([None, "FL", None, "Lakeland", None, None]),
+    con=con,
+    try_place_as_admin=False,
 )
 row = results["admin3"].row(0, named=True)
 
@@ -2747,19 +2920,19 @@ pprint(row)
 pprint(backfill_hierarchy(row, con))
 
 
-# In[93]:
-
-
+# %%
 # Search through the admin hierarchy
 results = hierarchical_search(
-    search_terms=AdminHierarchy.from_list([
-        "FR",
-        "Provence-Alpes-Côte d'Azur",
-        "Var",
-        "Arrondissement de Toulon",
-        "Le Lavandou",
-        None,
-    ]),
+    search_terms=AdminHierarchy.from_list(
+        [
+            "FR",
+            "Provence-Alpes-Côte d'Azur",
+            "Var",
+            "Arrondissement de Toulon",
+            "Le Lavandou",
+            None,
+        ]
+    ),
     con=con,
 )
 
@@ -2777,9 +2950,7 @@ if "admin4" in results:
 results["admin4"]
 
 
-# In[ ]:
-
-
+# %%
 data = (
     con.execute("SELECT geonameId, latitude, longitude FROM allCountries")
     .pl()
@@ -2792,18 +2963,14 @@ data = (
 )
 
 
-# In[ ]:
-
-
+# %%
 my_coordinates1 = np.array([51.549902, -0.121696], dtype=np.float32)
 my_coordinates2 = np.array([37.77493, -122.41942], dtype=np.float32)
 
 vidx = VectorIndex("latlon", data, metric="haversine")
 
 
-# In[ ]:
-
-
+# %%
 if (path := Path("./data/processed/latlon.index")).exists():
     logger.debug("Loading index...")
     index = Index.restore(path, view=True)
@@ -2818,9 +2985,7 @@ else:
     index.save(path)
 
 
-# In[ ]:
-
-
+# %%
 # Example function to search and return results with distances
 def search_with_distances(
     index: Index,
@@ -2854,24 +3019,18 @@ def search_with_distances(
     return sorted_results_df.collect()
 
 
-# In[ ]:
-
-
+# %%
 search_with_distances(index, my_coordinates2, df.lazy())
 
 
-# In[ ]:
-
-
+# %%
 output: Matches = index.search(vectors=my_coordinates1, count=10, log=True)
 logger.debug(f"{output.computed_distances=}")
 logger.debug(f"{output.visited_members=}")
 df.filter(pl.col("geonameId").is_in(output.keys))
 
 
-# In[ ]:
-
-
+# %%
 # con.execute(sql_file("create_view_*_NODES.sql", table="admin0"))
 
 # con.execute(sql_file("create_view_*_FTS.sql", table="admin0"))
@@ -3329,4 +3488,3 @@ df.filter(pl.col("geonameId").is_in(output.keys))
 # country_index.fts_search("An Danmhairg").unwrap().join(
 #     con.table("admin0").pl(), "geonameId", "left"
 # )
-

@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use crate::{search::PlacesIndexDef, FTSIndex};
+use crate::{
+    search::{fts_search::FTSIndexSearchParams, PlacesIndexDef},
+    FTSIndex,
+};
 use anyhow::{Context, Result};
 use itertools::Itertools;
 use once_cell::sync::OnceCell;
@@ -19,7 +22,7 @@ pub fn get_places_df() -> Result<&'static LazyFrame> {
             Default::default(),
         )?
         .collect()
-        .and_then(|df| Ok(df.lazy()))
+        .map(|df| df.lazy())
         .map_err(anyhow::Error::from);
         info!(
             "'places_search.parquet' collected in {:.3} seconds",
@@ -31,18 +34,42 @@ pub fn get_places_df() -> Result<&'static LazyFrame> {
 
 const EARTH_RADIUS_KM: f64 = 6371.0;
 
-#[allow(clippy::too_many_arguments)]
+/// Parameters for scoring places based on various factors.
+/// The weights for each factor can be adjusted to change the scoring behaviors.
+/// The weights should sum to 1.0 for a balanced score.
+#[derive(Debug, Clone, Copy)]
+pub struct SearchScorePlaceParams {
+    /// Weight for the text relevance score. Default is `0.35`.
+    pub text_weight: f32,
+    /// Weight for the importance score. Default is `0.30`.
+    pub importance_weight: f32,
+    /// Weight for the feature type score. Default is `0.15`.
+    pub feature_weight: f32,
+    /// Weight for the feature type score. Default is `0.15`.
+    pub distance_weight: f32,
+    /// Weight for the parent admin score. Default is `0.10`.
+    pub parent_admin_score_weight: f32,
+}
+
+impl Default for SearchScorePlaceParams {
+    fn default() -> Self {
+        Self {
+            text_weight: 0.35,
+            importance_weight: 0.30,
+            feature_weight: 0.15,
+            distance_weight: 0.10,
+            parent_admin_score_weight: 0.10,
+        }
+    }
+}
+
 fn search_score_place(
-    lf: LazyFrame,
-    score_col_name: &str,
-    text_weight: f32,
-    importance_weight: f32,
-    feature_weight: f32,
-    distance_weight: f32,
-    parent_admin_score_weight: f32,
     search_term: &str,
+    lf: LazyFrame,
     center_lat: Option<f32>,
     center_lon: Option<f32>,
+    score_col_name: &str,
+    params: &SearchScorePlaceParams,
 ) -> Result<LazyFrame> {
     // ===== 1. Text relevance score (FTS) =====
     let lf = super::text_relevance_score(lf, search_term)
@@ -135,11 +162,11 @@ fn search_score_place(
     let lf = super::parent_factor(lf)?
         // ===== 6. Final score calculation =====
         .with_column(
-            (col("text_score").mul(lit(text_weight))
-                + col("importance_norm").mul(lit(importance_weight))
-                + col("feature_score").mul(lit(feature_weight))
-                + col("distance_score").mul(lit(distance_weight))
-                + col("parent_factor").mul(lit(parent_admin_score_weight)))
+            (col("text_score").mul(lit(params.text_weight))
+                + col("importance_norm").mul(lit(params.importance_weight))
+                + col("feature_score").mul(lit(params.feature_weight))
+                + col("distance_score").mul(lit(params.distance_weight))
+                + col("parent_factor").mul(lit(params.parent_admin_score_weight)))
             .alias(score_col_name),
         )
         // ===== 7. Apply tier boost =====
@@ -163,29 +190,60 @@ fn search_score_place(
     Ok(lf)
 }
 
-#[allow(clippy::too_many_arguments)]
+#[derive(Debug, Clone, Copy)]
+pub struct PlaceSearchParams {
+    /// Maximum number of results to return.
+    pub limit: usize,
+    /// If true, all columns from the input data will be included in the output.
+    pub all_cols: bool,
+    /// Minimum importance tier to include in the search.
+    ///
+    /// From 1 to 5 where 1 = most important, 5 = least important
+    pub min_importance_tier: u8,
+    /// Latitude of the center point for distance scoring.
+    pub center_lat: Option<f32>,
+    /// Longitude of the center point for distance scoring.
+    pub center_lon: Option<f32>,
+    /// Parameters for the FTS search.
+    pub fts_search_params: FTSIndexSearchParams,
+    /// Parameters for scoring the search results.
+    pub search_score_params: SearchScorePlaceParams,
+}
+impl Default for PlaceSearchParams {
+    fn default() -> Self {
+        let limit = 20;
+        Self {
+            limit,
+            all_cols: false,
+            min_importance_tier: 4,
+            center_lat: None,
+            center_lon: None,
+            fts_search_params: FTSIndexSearchParams {
+                limit: limit * 3,
+                ..Default::default()
+            },
+            search_score_params: SearchScorePlaceParams::default(),
+        }
+    }
+}
+
 pub fn place_search(
     term: &str,
-    data: LazyFrame,
     index: &FTSIndex<PlacesIndexDef>,
-    previous_result: Option<LazyFrame>,
-    limit: Option<usize>,
-    all_cols: bool,
-    min_importance_tier: Option<u8>,
-    center_lat: Option<f32>,
-    center_lon: Option<f32>,
-) -> Result<Option<LazyFrame>> {
-    let limit = limit.unwrap_or(100);
-    let min_importance_tier = min_importance_tier.unwrap_or(5).clamp(1, 5);
+    data: impl IntoLazy,
+    previous_result: Option<impl IntoLazy>,
+    params: &PlaceSearchParams,
+) -> Result<Option<DataFrame>> {
+    let data = data.lazy();
+    let previous_result = previous_result.map(|df| df.lazy());
 
     // --- Filter by importance tier first ---
-    let data_filtered_by_tier = data.filter(col("importance_tier").lt_eq(lit(min_importance_tier)));
+    let data_filtered_by_tier =
+        data.filter(col("importance_tier").lt_eq(lit(params.min_importance_tier.clamp(1, 5))));
 
     // --- Determine join columns and filter by previous admin results ---
     let join_cols_expr = super::get_join_expr_from_previous_result(previous_result.as_ref())
         .context("Failed to get join columns from previous result")?;
-
-    dbg!(&join_cols_expr);
 
     let filtered_data_for_fts = match &previous_result {
         Some(prev_lf) if !join_cols_expr.is_empty() => {
@@ -231,7 +289,7 @@ pub fn place_search(
     }
 
     let (fts_gids, fts_scores): (Vec<_>, Vec<_>) = index
-        .search_in_subset(term, &gids_vec, limit * 5, false)? // Fetch more for ranking
+        .search_in_subset(term, &gids_vec, &params.fts_search_params)? // Fetch more for ranking
         .into_iter()
         .unzip();
 
@@ -308,6 +366,8 @@ pub fn place_search(
         }
     };
 
+    let (center_lat, center_lon) = (params.center_lat, params.center_lon);
+
     // --- Determine center_lat and center_lon for distance scoring ---
     let (final_center_lat, final_center_lon) = if center_lat.is_some() && center_lon.is_some() {
         (center_lat, center_lon)
@@ -349,20 +409,17 @@ pub fn place_search(
     // --- Score the results ---
     let score_col_name = "place_score";
     let scored_lf = search_score_place(
-        fts_results_lf_with_potential_parents,
-        score_col_name,
-        0.35, // text_weight
-        0.30, // importance_weight
-        0.15, // feature_weight
-        0.10, // distance_weight
-        0.10, // parent_admin_score_weight
         term,
+        fts_results_lf_with_potential_parents,
         final_center_lat,
         final_center_lon,
-    )?;
+        score_col_name,
+        &params.search_score_params,
+    )
+    .context("Failed to score places")?;
 
     // --- Select final columns ---
-    let final_select_exprs = if all_cols {
+    let final_select_exprs = if params.all_cols {
         vec![col("*")]
     } else {
         // Define your standard set of columns for place search results
@@ -377,25 +434,29 @@ pub fn place_search(
             col("admin4_code"),
             col("feature_class"),
             col("feature_code"),
-            // col("feature_name"), // If available in the input `data` LazyFrame
             col("latitude"),
             col("longitude"),
             col("population"),
-            // col("country_name"), // If available
             col("importance_score"), // Original importance
             col("importance_tier"),
             col(score_col_name), // The final calculated place_score
             col("^parent_adjusted_score_[0-4]$"), // Include parent scores for inspection
-                                 // Optionally include intermediate scores for debugging:
-                                 // col("text_score"), col("importance_norm"), col("feature_score"),
-                                 // col("distance_score"), col("parent_admin_factor"), col("distance_km"),
         ]
     };
 
     let output_lf = scored_lf // Already sorted by search_score_place
         .unique_stable(Some(vec!["geonameId".into()]), UniqueKeepStrategy::First) // Keep best score for each place
-        .limit(limit as u32)
+        .limit(params.limit as u32)
         .select(&final_select_exprs);
 
-    Ok(Some(output_lf))
+    let t0 = std::time::Instant::now();
+    let output = output_lf
+        .collect()
+        .context("Failed to collect place search results")?;
+    info!(
+        "Place df collected in {:.3} seconds. Results: {} rows.",
+        t0.elapsed().as_secs_f32(),
+        output.height()
+    );
+    Ok(Some(output))
 }

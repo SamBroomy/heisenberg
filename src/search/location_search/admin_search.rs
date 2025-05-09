@@ -1,4 +1,7 @@
-use crate::{search::AdminIndexDef, FTSIndex};
+use crate::{
+    search::{fts_search::FTSIndexSearchParams, AdminIndexDef},
+    FTSIndex,
+};
 use anyhow::{Context, Result};
 use once_cell::sync::OnceCell;
 
@@ -26,14 +29,37 @@ pub fn get_admin_df() -> Result<&'static LazyFrame> {
     })
 }
 
+/// Parameters for scoring places based on various factors.
+/// The weights for each factor can be adjusted to change the scoring behaviors.
+/// The weights should sum to 1.0 for a balanced score.
+#[derive(Debug, Clone, Copy)]
+pub struct SearchScoreAdminParams {
+    /// Weight for text relevance score (default: 0.35)
+    pub text_weight: f32,
+    /// Weight for population importance (default: 0.35)
+    pub pop_weight: f32,
+    /// Weight for feature type importance (default: 0.15)
+    pub feature_weight: f32,
+    /// Weight for parent score influence (default: 0.15)
+    pub parent_weight: f32,
+}
+
+impl Default for SearchScoreAdminParams {
+    fn default() -> Self {
+        Self {
+            text_weight: 0.35,
+            pop_weight: 0.35,
+            feature_weight: 0.15,
+            parent_weight: 0.15,
+        }
+    }
+}
+
 fn search_score_admin(
+    search_term: &str,
     lf: LazyFrame,
     score_col_name: &str,
-    text_weight: f32,
-    pop_weight: f32,
-    feature_weight: f32,
-    parent_weight: f32,
-    search_term: &str,
+    params: &SearchScoreAdminParams,
 ) -> Result<LazyFrame> {
     // ===== 1. Text relevance score =====
     let lf = super::text_relevance_score(lf, search_term)
@@ -82,10 +108,10 @@ fn search_score_admin(
     let lf = super::parent_factor(lf)?
         // ====== 6. Final score calculation =====
         .with_column(
-            (col("text_score").mul(lit(text_weight))
-                + col("pop_score").mul(lit(pop_weight))
-                + col("feature_score").mul(lit(feature_weight))
-                + col("parent_factor").mul(lit(parent_weight)))
+            (col("text_score").mul(lit(params.text_weight))
+                + col("pop_score").mul(lit(params.pop_weight))
+                + col("feature_score").mul(lit(params.feature_weight))
+                + col("parent_factor").mul(lit(params.parent_weight)))
             .alias("base_score"),
         )
         // Apply country prominence boost to the final score
@@ -100,34 +126,58 @@ fn search_score_admin(
     Ok(lf)
 }
 
-#[instrument(skip(data, index, previous_result, limit))]
+#[derive(Debug, Clone, Copy)]
+pub struct AdminSearchParams {
+    /// The maximum number of results to return.
+    pub limit: usize,
+    /// If true, all columns from the input data will be included in the output.
+    pub all_cols: bool,
+    /// Parameters for the FTS search.
+    pub fts_search_params: FTSIndexSearchParams,
+    /// Parameters for scoring the search results.
+    pub search_score_params: SearchScoreAdminParams,
+}
+
+impl Default for AdminSearchParams {
+    fn default() -> Self {
+        let limit = 10;
+        Self {
+            limit,
+            all_cols: false,
+            fts_search_params: FTSIndexSearchParams {
+                limit: limit * 3,
+                ..Default::default()
+            },
+            search_score_params: SearchScoreAdminParams::default(),
+        }
+    }
+}
+
+#[instrument(skip(data, index, previous_result))]
 pub fn admin_search(
     term: &str,
     levels: &[u8],
-    data: LazyFrame,
     index: &FTSIndex<AdminIndexDef>,
-    previous_result: Option<LazyFrame>,
-    limit: Option<usize>,
-    all_cols: bool,
-) -> Result<Option<LazyFrame>> {
+    data: impl IntoLazy,
+    previous_result: Option<impl IntoLazy>,
+    params: &AdminSearchParams,
+) -> Result<Option<DataFrame>> {
+    let data = data.lazy();
+    let previous_result = previous_result.map(|df| df.lazy());
+
     let levels_series = Series::new("levels".into(), levels);
-    let limit = limit.unwrap_or(20);
 
     let join_cols_expr = super::get_join_expr_from_previous_result(previous_result.as_ref())
         .context("Failed to get join columns from previous result")?;
-    dbg!(&join_cols_expr);
-    //dbg!(&levels);
-    //let data = dbg!(data.collect()?).lazy();
     let filtered_data = match &previous_result {
         Some(prev_lf) if !join_cols_expr.is_empty() => {
-            //let prev_lf = dbg!(prev_lf.collect()?).lazy();
+            let prev_lf = prev_lf.clone().collect()?.lazy();
             super::filter_data_from_previous_results(data, prev_lf.clone(), &join_cols_expr)
                 .context("Failed to filter data from previous results")?
         }
         _ => data,
     };
     let data_for_level_filter = filtered_data.filter(col("admin_level").is_in(lit(levels_series)));
-    dbg!(&data_for_level_filter.clone().collect()?);
 
     let gids_df = data_for_level_filter
         .clone()
@@ -151,7 +201,7 @@ pub fn admin_search(
 
     // Unzip results into separate vectors
     let (fts_gids, fts_scores): (Vec<_>, Vec<_>) = index
-        .search_in_subset(term, &gids_vec, limit * 5, true)?
+        .search_in_subset(term, &gids_vec, &params.fts_search_params)?
         .into_iter()
         .unzip();
 
@@ -265,7 +315,7 @@ pub fn admin_search(
     debug_assert!(min_level < 5, "Level must be between 0 and 4");
     let score_col_name = format!("adjusted_score_{}", min_level);
 
-    let select_exprs = if all_cols {
+    let select_exprs = if params.all_cols {
         vec![col("*")]
     } else {
         vec![
@@ -282,26 +332,32 @@ pub fn admin_search(
             col("population"),
             col("latitude"),
             col("longitude"),
+            col("admin_level"),
             col("fts_score"),
             col("^adjusted_score_[0-4]$"),
         ]
     };
 
     let scored_lf = search_score_admin(
+        term,
         fts_results_for_scoring,
         &score_col_name,
-        0.35, // text_weight
-        0.35, // pop_weight
-        0.15, // feature_weight
-        0.15, // parent_weight
-        term,
+        &params.search_score_params,
     )?;
 
-    let output_lf =
-        scored_lf // Already sorted by search_score_admin
-            .unique_stable(Some(vec!["geonameId".into()]), UniqueKeepStrategy::First)
-            .limit(limit as u32) // limit is u32
-            .select(&select_exprs); // Pass as slice
+    let output_lf = scored_lf
+        .unique_stable(Some(vec!["geonameId".into()]), UniqueKeepStrategy::First)
+        .limit(params.limit as u32)
+        .select(&select_exprs);
 
-    Ok(Some(output_lf))
+    let t0 = std::time::Instant::now();
+    let output = output_lf
+        .collect()
+        .context("Failed to collect output DataFrame")?;
+    info!(
+        "Admin search df collected in {:.3} seconds. Results: {} rows",
+        t0.elapsed().as_secs_f32(),
+        output.height()
+    );
+    Ok(Some(output))
 }

@@ -1,6 +1,9 @@
 pub mod search;
 use search::fts_search::{AdminIndexDef, FTSIndex, PlacesIndexDef};
-use search::{admin_search, get_admin_df, get_places_df, place_search};
+use search::{
+    admin_search, backfill_hierarchy_from_codes, get_admin_df, get_places_df, place_search,
+    smart_flexible_search, TargetLocationAdminCodes,
+};
 
 use anyhow::Result;
 
@@ -61,59 +64,119 @@ fn main() -> Result<()> {
     let admins = admin_search(
         "The united states of america",
         &[0, 1],
-        admin_lf.clone(),
         &admin_fts_index,
-        None,
-        Some(20),
-        true,
+        admin_lf.clone(),
+        None::<DataFrame>,
+        &Default::default(),
     )?
-    .unwrap()
-    .collect()?;
-
+    .unwrap();
     info!("Admin search results: {:?}", admins);
 
     let admins1 = admin_search(
         "California",
         &[1, 2],
-        admin_lf.clone(),
         &admin_fts_index,
-        Some(admins.lazy()),
-        Some(20),
-        true,
+        admin_lf.clone(),
+        Some(admins),
+        &Default::default(),
     )?
-    .unwrap()
-    .collect()?;
+    .unwrap();
     info!("Admin1 search results: {:?}", admins1);
 
     let admins2 = admin_search(
         "Los Angeles County",
         &[2, 3],
-        admin_lf.clone(),
         &admin_fts_index,
-        Some(admins1.lazy()),
-        Some(20),
-        false,
+        admin_lf.clone(),
+        Some(admins1),
+        &Default::default(),
     )?
-    .unwrap()
-    .collect()?;
+    .unwrap();
     info!("Admin2 search results: {:?}", admins2);
 
-    let place = place_search(
-        "Los Angeles",
-        place_lf.clone(),
-        &places_fts_index,
-        Some(admins2.lazy()),
-        Some(20),
-        true,
-        None,
-        None,
-        None,
+    let admin3 = admin_search(
+        "Beverly Hills",
+        &[3, 4],
+        &admin_fts_index,
+        admin_lf.clone(),
+        Some(admins2.clone()),
+        &Default::default(),
     )?
-    .unwrap()
-    .collect()?;
+    .unwrap();
+    info!("Admin3 search results: {:?}", admin3);
+
+    let places_input = concat(
+        &[admins2.lazy(), admin3.lazy()],
+        UnionArgs {
+            diagonal: true,
+            ..Default::default()
+        },
+    )?;
+    info!("Places input {:?}", places_input.clone().collect()?);
+
+    let place = place_search(
+        "Beverly Hills",
+        &places_fts_index,
+        place_lf.clone(),
+        Some(places_input),
+        &Default::default(),
+    )?
+    .unwrap();
     info!("Place search results: {:?}", place);
 
     info!("Admin search took {} seconds", t0.elapsed().as_secs_f32());
+
+    let t0 = std::time::Instant::now();
+
+    let examples = [
+        vec![
+            "The united states of america",
+            "California",
+            "Los Angeles County",
+            "Beverly Hills",
+        ],
+        vec!["UK", "London", "Camden", "British Museum"],
+        vec!["United Kingdom", "London", "Westminster", "Parlement"],
+        vec!["FR", "Provence-Alpes-Côte d'Azur", "Le Lavandou"],
+        vec!["England", "Dover", "Dover Ferry Terminal"],
+        vec![
+            "FR",
+            "Provence-Alpes-Côte d'Azur",
+            "Var",
+            "Arrondissement de Toulon",
+            "Le Lavandou",
+        ],
+    ];
+
+    for input in examples {
+        let output = smart_flexible_search(
+            &input,
+            &admin_fts_index,
+            admin_lf.clone(),
+            &places_fts_index,
+            place_lf.clone(),
+            &Default::default(),
+        )?;
+        info!(
+            "Smart flexible search took {} seconds",
+            t0.elapsed().as_secs_f32()
+        );
+
+        for (i, df) in output.iter().enumerate() {
+            info!("Smart flexible search results {}: {:?}", i, df);
+        }
+        let chosen_df = output.last().unwrap();
+        info!("Chosen DataFrame: {:?}", chosen_df);
+
+        if !chosen_df.is_empty() {
+            let target_codes = TargetLocationAdminCodes::from_dataframe_row(chosen_df, 0)?;
+            info!("Target Location Admin Codes: {:#?}", target_codes);
+            let enriched_hierarchy =
+                backfill_hierarchy_from_codes(&target_codes, admin_lf.clone())?;
+            // Now `enriched_hierarchy` contains the full path
+            println!("Enriched Hierarchy: {:#?}", enriched_hierarchy);
+        }
+    }
 
     Ok(())
 }

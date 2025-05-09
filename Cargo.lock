@@ -767,6 +767,7 @@ dependencies = [
  "once_cell",
  "polars",
  "regex",
+ "serde",
  "tantivy",
  "tracing",
  "tracing-subscriber",
