@@ -1,134 +1,88 @@
 pub mod search;
 use search::fts_search::{AdminIndexDef, FTSIndex, PlacesIndexDef};
-use search::{
-    admin_search, backfill_hierarchy_from_codes, get_admin_df, get_places_df, place_search,
-    smart_flexible_search, TargetLocationAdminCodes,
-};
+use search::{LocationSearchService, SmartFlexibleSearchConfig, TargetLocationAdminCodes};
 
 use anyhow::Result;
 
 use polars::prelude::*;
-use tracing::{info, Level};
+use tracing::{debug, info, info_span, warn, Level};
 use tracing_subscriber::fmt::format::FmtSpan;
 
 fn main() -> Result<()> {
     tracing_subscriber::fmt::fmt()
-        // filter spans/events with level TRACE or higher.
-        .with_max_level(Level::INFO)
+        .with_max_level(Level::DEBUG)
         .with_span_events(FmtSpan::CLOSE)
-        // build but do not install the subscriber.
         .init();
 
-    let t0 = std::time::Instant::now();
-    // To create/load an admin search index:
-    let admin_fts_index = FTSIndex::new(AdminIndexDef, /* overwrite= */ false)?;
+    let t_total_setup = std::time::Instant::now();
+    let search_service = LocationSearchService::new(false)?;
 
-    info!(
-        "FTSIndex<AdminIndexDef> took {} seconds to load/create",
-        t0.elapsed().as_secs_f32()
-    );
-    let t1 = std::time::Instant::now();
-    let places_fts_index = FTSIndex::new(PlacesIndexDef, /* overwrite= */ false)?;
-    info!(
-        "FTSIndex<PlacesIndexDef> took {} seconds to load/create",
-        t1.elapsed().as_secs_f32()
-    );
-    info!(
-        "FTSIndex took {} seconds to load/create",
-        t0.elapsed().as_secs_f32()
+    debug!(
+        elapsed_seconds = t_total_setup.elapsed().as_secs_f32(),
+        "LocationSearchService setup complete"
     );
 
-    // let results = admin_fts_index.search("Kenya", 10, true)?;
-    // let results = places_fts_index.search("Nairobi", 10, true)?;
+    let _example_search_span = info_span!("manual_search_example").entered();
 
-    let t1 = std::time::Instant::now();
-    let admin_lf = get_admin_df()?;
-    info!(
-        "Admin search took {} seconds to load",
-        t1.elapsed().as_secs_f32()
-    );
-    let t2 = std::time::Instant::now();
+    // Example using the service
+    let admins = search_service
+        .admin_search(
+            "The united states of america",
+            &[0, 1],
+            None::<DataFrame>,
+            &Default::default(),
+        )?
+        .unwrap_or_default();
+    debug!(admins = ?admins, "Admin search results");
 
-    let place_lf = get_places_df()?;
-    info!(
-        "Place search took {} seconds to load",
-        t2.elapsed().as_secs_f32()
-    );
-    info!(
-        "Total load time took {} seconds",
-        t0.elapsed().as_secs_f32()
-    );
+    let admins1 = search_service
+        .admin_search(
+            "California",
+            &[1, 2],
+            Some(admins), // Pass the DataFrame directly
+            &Default::default(),
+        )?
+        .unwrap_or_default();
+    debug!(admins1 = ?admins1, "Admin1 search results");
+    let admins2 = search_service
+        .admin_search(
+            "Los Angeles County",
+            &[2, 3],
+            Some(admins1),
+            &Default::default(),
+        )?
+        .unwrap_or_default();
+    debug!(admins2 = ?admins2, "Admin2 search results");
 
-    let t0 = std::time::Instant::now();
+    let admin3 = search_service
+        .admin_search(
+            "Beverly Hills",
+            &[3, 4],
+            Some(admins2.clone()), // Clone if admins2 is used again
+            &Default::default(),
+        )?
+        .unwrap_or_default();
+    debug!(admin3 = ?admin3, "Admin3 search results");
 
-    let admins = admin_search(
-        "The united states of america",
-        &[0, 1],
-        &admin_fts_index,
-        admin_lf.clone(),
-        None::<DataFrame>,
-        &Default::default(),
-    )?
-    .unwrap();
-    info!("Admin search results: {:?}", admins);
+    if !admins2.is_empty() && !admin3.is_empty() {
+        let places_input_df = concat(
+            &[admins2.lazy(), admin3.lazy()],
+            UnionArgs {
+                diagonal: true,
+                ..Default::default()
+            },
+        )?
+        .collect()?; // Collect to DataFrame for place_search if it expects DataFrame
 
-    let admins1 = admin_search(
-        "California",
-        &[1, 2],
-        &admin_fts_index,
-        admin_lf.clone(),
-        Some(admins),
-        &Default::default(),
-    )?
-    .unwrap();
-    info!("Admin1 search results: {:?}", admins1);
+        let place = search_service
+            .place_search("Beverly Hills", Some(places_input_df), &Default::default())?
+            .unwrap_or_default();
+        debug!(place = ?place, "Place search results");
+    }
 
-    let admins2 = admin_search(
-        "Los Angeles County",
-        &[2, 3],
-        &admin_fts_index,
-        admin_lf.clone(),
-        Some(admins1),
-        &Default::default(),
-    )?
-    .unwrap();
-    info!("Admin2 search results: {:?}", admins2);
+    drop(_example_search_span);
 
-    let admin3 = admin_search(
-        "Beverly Hills",
-        &[3, 4],
-        &admin_fts_index,
-        admin_lf.clone(),
-        Some(admins2.clone()),
-        &Default::default(),
-    )?
-    .unwrap();
-    info!("Admin3 search results: {:?}", admin3);
-
-    let places_input = concat(
-        &[admins2.lazy(), admin3.lazy()],
-        UnionArgs {
-            diagonal: true,
-            ..Default::default()
-        },
-    )?;
-    info!("Places input {:?}", places_input.clone().collect()?);
-
-    let place = place_search(
-        "Beverly Hills",
-        &places_fts_index,
-        place_lf.clone(),
-        Some(places_input),
-        &Default::default(),
-    )?
-    .unwrap();
-    info!("Place search results: {:?}", place);
-
-    info!("Admin search took {} seconds", t0.elapsed().as_secs_f32());
-
-    let t0 = std::time::Instant::now();
-
-    let examples = [
+    let examples = vec![
         vec![
             "The united states of america",
             "California",
@@ -147,35 +101,45 @@ fn main() -> Result<()> {
             "Le Lavandou",
         ],
     ];
+    let mut times = vec![];
+    let smart_search_config = SmartFlexibleSearchConfig::default();
 
-    for input in examples {
-        let output = smart_flexible_search(
-            &input,
-            &admin_fts_index,
-            admin_lf.clone(),
-            &places_fts_index,
-            place_lf.clone(),
-            &Default::default(),
-        )?;
-        info!(
-            "Smart flexible search took {} seconds",
-            t0.elapsed().as_secs_f32()
+    for input in &examples {
+        let t0 = std::time::Instant::now();
+        let output = search_service.smart_flexible_search(input, &smart_search_config)?;
+        let elapsed = t0.elapsed().as_secs_f32();
+
+        warn!(
+            ave_time = elapsed / input.len() as f32,
+            "Smart flexible search seconds per example"
         );
+        times.push(elapsed);
 
         for (i, df) in output.iter().enumerate() {
-            info!("Smart flexible search results {}: {:?}", i, df);
+            info!(i=i,df=?df, "Smart flexible search results");
         }
-        let chosen_df = output.last().unwrap();
-        info!("Chosen DataFrame: {:?}", chosen_df);
+    }
+    let avg_time = times.iter().sum::<f32>() / times.len() as f32;
+    warn!(avg_time = avg_time, "Average smart flexible search time");
+    warn!(
+        total_time = times.iter().sum::<f32>(),
+        "Total smart flexible search time"
+    );
 
-        if !chosen_df.is_empty() {
-            let target_codes = TargetLocationAdminCodes::from_dataframe_row(chosen_df, 0)?;
-            info!("Target Location Admin Codes: {:#?}", target_codes);
-            let enriched_hierarchy =
-                backfill_hierarchy_from_codes(&target_codes, admin_lf.clone())?;
-            // Now `enriched_hierarchy` contains the full path
-            println!("Enriched Hierarchy: {:#?}", enriched_hierarchy);
+    let t_bulk = std::time::Instant::now();
+    let examples_refs: Vec<&[&str]> = examples.iter().map(|v| v.as_slice()).collect();
+    let out_bulk =
+        search_service.bulk_smart_flexible_search(&examples_refs, &smart_search_config)?;
+
+    warn!(t_bulk = ?t_bulk.elapsed(), "Bulk smart flexible search took");
+    warn!(t_avg_per_example = ?t_bulk.elapsed().as_secs_f32() / examples.len() as f32, "Average time per example");
+
+    for (i, df) in out_bulk.iter().enumerate() {
+        if df.is_empty() {
+            warn!(i, "Bulk smart flexible search results {}: empty", i);
+            continue;
         }
+        info!(i, df = ?df, "Bulk smart flexible search results");
     }
 
     Ok(())

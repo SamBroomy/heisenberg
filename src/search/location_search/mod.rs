@@ -9,13 +9,19 @@ use std::ops::Mul;
 use std::rc::Rc;
 use tracing::{debug, instrument, warn};
 
-pub use admin_search::{admin_search, get_admin_df, AdminSearchParams, SearchScoreAdminParams};
+pub use admin_search::{
+    admin_search_inner, get_admin_df, AdminSearchParams, SearchScoreAdminParams,
+};
 pub use enrichment::{
     backfill_hierarchy_from_codes, AdminHierarchyLevelDetail, FullAdminHierarchy,
     TargetLocationAdminCodes,
 };
-pub use place_search::{get_places_df, place_search, PlaceSearchParams, SearchScorePlaceParams};
-pub use smart_flexible_search::{smart_flexible_search, SmartFlexibleSearchConfig};
+pub use place_search::{
+    get_places_df, place_search_inner, PlaceSearchParams, SearchScorePlaceParams,
+};
+pub use smart_flexible_search::{
+    bulk_smart_flexible_search_inner, smart_flexible_search_inner, SmartFlexibleSearchConfig,
+};
 fn text_relevance_score(lf: LazyFrame, search_term: &str) -> LazyFrame {
     lf.with_column(
         ((col("fts_score") - col("fts_score").mean())
@@ -75,7 +81,6 @@ fn parent_factor(lf: LazyFrame) -> Result<LazyFrame> {
     Ok(lf)
 }
 
-#[instrument(skip(previous_result))]
 fn get_join_keys(previous_result: &LazyFrame) -> Result<Vec<Expr>> {
     let mut join_on_cols_str = vec![];
     let join_keys = previous_result
@@ -129,7 +134,6 @@ fn get_col_name_from_expr(expr: &Expr) -> Result<Rc<str>> {
     }
 }
 
-#[instrument(skip(data, previous_result_df))]
 fn filter_data_from_previous_results(
     data: LazyFrame,
     previous_result_df: LazyFrame,

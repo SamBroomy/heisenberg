@@ -13,7 +13,7 @@ use tantivy::{
     },
     Index, IndexWriter, TantivyDocument, Term,
 };
-use tracing::{debug, info, instrument, trace, warn};
+use tracing::{debug, info, instrument, trace, trace_span, warn};
 
 pub trait IndexDefinition: std::fmt::Debug + Send + Sync + 'static {
     /// Returns the unique name for this index, used for directory and file naming.
@@ -276,6 +276,7 @@ pub struct FTSIndex<D: IndexDefinition> {
 }
 
 impl<D: IndexDefinition> FTSIndex<D> {
+    #[instrument(name = "create_load_fts_index", skip(definition), fields(index_name = definition.name()))]
     pub fn new(definition: D, overwrite: bool) -> Result<Self> {
         let index_path = Path::new("./data/indexes/tantivy").join(definition.name());
 
@@ -353,7 +354,7 @@ impl<D: IndexDefinition> FTSIndex<D> {
         self.search_inner(query_str, Some(doc_ids), params)
     }
 
-    #[instrument(skip(self, doc_ids))]
+    #[instrument(skip(self, doc_ids), level = "debug", fields(index_name = self.definition.name(), query = query_str, limit = params.limit, has_subset = doc_ids.is_some()))]
     fn search_inner(
         &self,
         query_str: &str,
@@ -367,12 +368,6 @@ impl<D: IndexDefinition> FTSIndex<D> {
         if params.limit == 0 {
             return Err(anyhow::anyhow!("Search limit must be greater than zero."));
         }
-        debug!(
-            "Searching index '{}' for: '{}', limit: {}",
-            self.definition.name(),
-            query_str,
-            params.limit
-        );
 
         let reader = self.index.reader()?;
         let searcher = reader.searcher();
@@ -393,86 +388,99 @@ impl<D: IndexDefinition> FTSIndex<D> {
             ));
         }
 
-        let mut general_query_parser = QueryParser::for_index(&self.index, default_query_fields);
-        for (field, boost) in self.definition.field_boosts(&schema) {
-            general_query_parser.set_field_boost(field, boost);
-        }
+        let final_query: Box<dyn Query> = {
+            let _span = trace_span!("construct_tantivy_query").entered();
 
-        let general_fts_query = general_query_parser
-            .parse_query(query_str)
-            .with_context(|| format!("Failed to parse query: '{}'", query_str))?;
+            let mut general_query_parser =
+                QueryParser::for_index(&self.index, default_query_fields);
+            for (field, boost) in self.definition.field_boosts(&schema) {
+                general_query_parser.set_field_boost(field, boost);
+            }
 
-        let mut query_clauses: Vec<(Occur, Box<dyn Query>)> =
-            vec![(Occur::Should, general_fts_query)];
+            let (general_fts_query, errors) = general_query_parser.parse_query_lenient(query_str);
+            if errors.is_empty() {
+                trace!(parsed_query = ?general_fts_query, "General FTS query parsed");
+                trace!("Parsed query: {:?}", general_fts_query);
+            } else {
+                warn!(?errors, "Query parsing errors occurred");
+            }
 
-        let is_single_short_token =
-            !query_str.contains(char::is_whitespace) && query_str.len() <= 3;
+            // let general_fts_query = general_query_parser
+            //     .parse_query(query_str)
+            //     .with_context(|| format!("Failed to parse query: '{}'", query_str))?;
 
-        if params.fuzzy_search && !is_single_short_token {
-            let query_terms: Vec<&str> = query_str.split_whitespace().collect();
-            for term_str in query_terms {
-                if term_str.len() > 2 {
-                    let fuzzy_distance = 1;
-                    let fuzzy_transpositions = true;
-                    for field_name_for_fuzzy in ["name", "asciiname"] {
-                        if let Ok(field_for_fuzzy) = schema.get_field(field_name_for_fuzzy) {
-                            let term = Term::from_field_text(field_for_fuzzy, term_str);
-                            let fuzzy_query =
-                                FuzzyTermQuery::new(term, fuzzy_distance, fuzzy_transpositions);
-                            query_clauses.push((
-                                Occur::Should,
-                                Box::new(BoostQuery::new(Box::new(fuzzy_query), 0.8)),
-                            ));
+            let mut query_clauses: Vec<(Occur, Box<dyn Query>)> =
+                vec![(Occur::Should, general_fts_query)];
+
+            let is_single_short_token =
+                !query_str.contains(char::is_whitespace) && query_str.len() <= 3;
+
+            if params.fuzzy_search && !is_single_short_token {
+                let query_terms: Vec<&str> = query_str.split_whitespace().collect();
+                for term_str in query_terms {
+                    if term_str.len() > 2 {
+                        let fuzzy_distance = 1;
+                        let fuzzy_transpositions = true;
+                        for field_name_for_fuzzy in ["name", "asciiname"] {
+                            if let Ok(field_for_fuzzy) = schema.get_field(field_name_for_fuzzy) {
+                                let term = Term::from_field_text(field_for_fuzzy, term_str);
+                                let fuzzy_query =
+                                    FuzzyTermQuery::new(term, fuzzy_distance, fuzzy_transpositions);
+                                query_clauses.push((
+                                    Occur::Should,
+                                    Box::new(BoostQuery::new(Box::new(fuzzy_query), 0.8)),
+                                ));
+                            }
                         }
                     }
                 }
             }
-        }
 
-        let code_like_fields = self.definition.code_like_fields_with_boosts(&schema);
-        if is_single_short_token && !code_like_fields.is_empty() {
-            let lower_case_code_query = query_str.to_lowercase();
-            for (field, boost) in code_like_fields {
-                let term = Term::from_field_text(field, &lower_case_code_query);
-                let exact_query =
-                    tantivy::query::TermQuery::new(term.clone(), IndexRecordOption::Basic);
-                query_clauses.push((
-                    Occur::Should,
-                    Box::new(BoostQuery::new(Box::new(exact_query), boost)),
-                ));
-            }
-        }
-
-        let combined_search_query = BooleanQuery::new(query_clauses);
-
-        let final_query: Box<dyn Query> = match doc_ids {
-            Some(ids) if !ids.is_empty() => {
-                let doc_id_terms: Vec<Term> = ids
-                    .iter()
-                    .map(|&id| Term::from_field_u64(gid_field, id))
-                    .collect();
-                if doc_id_terms.is_empty() {
-                    // Should not happen if ids is not empty
-                    Box::new(combined_search_query)
-                } else {
-                    let doc_id_filter = TermSetQuery::new(doc_id_terms);
-                    Box::new(BooleanQuery::new(vec![
-                        (Occur::Must, Box::new(combined_search_query)),
-                        (Occur::Must, Box::new(doc_id_filter)),
-                    ]))
+            let code_like_fields = self.definition.code_like_fields_with_boosts(&schema);
+            if is_single_short_token && !code_like_fields.is_empty() {
+                let lower_case_code_query = query_str.to_lowercase();
+                for (field, boost) in code_like_fields {
+                    let term = Term::from_field_text(field, &lower_case_code_query);
+                    let exact_query =
+                        tantivy::query::TermQuery::new(term.clone(), IndexRecordOption::Basic);
+                    query_clauses.push((
+                        Occur::Should,
+                        Box::new(BoostQuery::new(Box::new(exact_query), boost)),
+                    ));
                 }
             }
-            _ => Box::new(combined_search_query),
+
+            let combined_search_query = BooleanQuery::new(query_clauses);
+
+            match doc_ids {
+                Some(ids) if !ids.is_empty() => {
+                    let doc_id_terms: Vec<Term> = ids
+                        .iter()
+                        .map(|&id| Term::from_field_u64(gid_field, id))
+                        .collect();
+                    if doc_id_terms.is_empty() {
+                        // Should not happen if ids is not empty
+                        Box::new(combined_search_query)
+                    } else {
+                        let doc_id_filter = TermSetQuery::new(doc_id_terms);
+                        Box::new(BooleanQuery::new(vec![
+                            (Occur::Must, Box::new(combined_search_query)),
+                            (Occur::Must, Box::new(doc_id_filter)),
+                        ]))
+                    }
+                }
+                _ => Box::new(combined_search_query),
+            }
         };
 
-        trace!("Executing Tantivy query: {:?}", final_query);
+        trace!(tantivy_query = ?final_query, "Executing Tantivy query");
+        let t_search = std::time::Instant::now();
         let top_docs = searcher.search(&*final_query, &TopDocs::with_limit(params.limit))?;
-
+        let search_duration = t_search.elapsed();
         debug!(
-            "Found {} results for query '{}' in index '{}'",
-            top_docs.len(),
-            query_str,
-            self.definition.name()
+            num_results = top_docs.len(),
+            search_execution_seconds = search_duration.as_secs_f32(),
+            "Tantivy search execution complete"
         );
 
         top_docs

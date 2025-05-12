@@ -1,15 +1,14 @@
-use std::collections::HashMap;
-
 use crate::{
     search::{fts_search::FTSIndexSearchParams, PlacesIndexDef},
     FTSIndex,
 };
+use ahash::AHashMap as HashMap;
 use anyhow::{Context, Result};
 use itertools::Itertools;
 use once_cell::sync::OnceCell;
 use polars::prelude::*;
 use std::ops::Mul;
-use tracing::{debug, info, warn};
+use tracing::{debug, debug_span, info, info_span, instrument, trace, trace_span, warn};
 
 static PLACES_DF_CACHE: OnceCell<LazyFrame> = OnceCell::new();
 
@@ -63,6 +62,7 @@ impl Default for SearchScorePlaceParams {
     }
 }
 
+#[instrument(level = "trace", skip(lf, params), fields(search_term, score_col_name))]
 fn search_score_place(
     search_term: &str,
     lf: LazyFrame,
@@ -226,8 +226,9 @@ impl Default for PlaceSearchParams {
         }
     }
 }
-
-pub fn place_search(
+#[inline]
+#[instrument(level="debug", skip(data, index, previous_result), fields(term, limit = params.limit, has_previous_result = previous_result.is_some()))]
+pub fn place_search_inner(
     term: &str,
     index: &FTSIndex<PlacesIndexDef>,
     data: impl IntoLazy,
@@ -242,49 +243,60 @@ pub fn place_search(
         data.filter(col("importance_tier").lt_eq(lit(params.min_importance_tier.clamp(1, 5))));
 
     // --- Determine join columns and filter by previous admin results ---
-    let join_cols_expr = super::get_join_expr_from_previous_result(previous_result.as_ref())
-        .context("Failed to get join columns from previous result")?;
+    let (filtered_data_lf, join_cols_expr) = {
+        let _filter_span = debug_span!("prepare_filtered_data_for_search").entered();
 
-    let filtered_data_for_fts = match &previous_result {
-        Some(prev_lf) if !join_cols_expr.is_empty() => {
-            debug!("Filtering place data based on previous admin results.");
-            super::filter_data_from_previous_results(
-                data_filtered_by_tier,
-                prev_lf.clone(),
-                &join_cols_expr,
-            )
-            .context("Failed to filter place data from previous admin results")?
-        }
-        _ => {
-            debug!("No previous admin results to filter by, or no join columns applicable.");
-            data_filtered_by_tier
-        }
+        let join_cols_expr = super::get_join_expr_from_previous_result(previous_result.as_ref())
+            .context("Failed to get join columns from previous result")?;
+
+        let filtered_data_for_fts = match &previous_result {
+            Some(prev_lf) if !join_cols_expr.is_empty() => {
+                debug!("Filtering place data based on previous admin results.");
+                super::filter_data_from_previous_results(
+                    data_filtered_by_tier,
+                    prev_lf.clone(),
+                    &join_cols_expr,
+                )
+                .context("Failed to filter place data from previous admin results")?
+            }
+            _ => {
+                debug!("No previous admin results to filter by, or no join columns applicable.");
+                data_filtered_by_tier
+            }
+        };
+        (filtered_data_for_fts, join_cols_expr)
     };
 
     // --- Perform FTS search on the filtered data ---
-    let gids_df = filtered_data_for_fts
-        .clone()
-        .select([col("geonameId")])
-        .collect()
-        .context("Failed to collect geonameIds for FTS subset search in places")?;
-    let gid_series = gids_df.column("geonameId")?;
+    let gids_vec = {
+        let _gid_span = trace_span!("collect_gids_for_fts_subset_search").entered();
 
-    if gid_series.is_empty() {
-        warn!(
-            "Place search: gid_series is empty after filtering. Term: '{}'",
-            term
-        );
-        return Ok(None);
-    }
-    let gids_vec: Vec<u64> = gid_series
-        .cast(&DataType::UInt64)?
-        .u64()?
-        .into_iter()
-        .flatten()
-        .collect();
+        let gids_df = filtered_data_lf
+            .clone()
+            .select([col("geonameId")])
+            .collect()
+            .context("Failed to collect geonameIds for FTS subset search in places")?;
+        let gid_series = gids_df.column("geonameId")?;
+
+        if gid_series.is_empty() {
+            warn!(
+                "Place search: gid_series is empty after filtering. Term: '{}'",
+                term
+            );
+            return Ok(None);
+        }
+        gid_series
+            .cast(&DataType::UInt64)?
+            .u64()?
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+    };
+    debug_assert!(!gids_vec.is_empty(), "gids should not be empty");
+    trace!(num_gids_for_fts = gids_vec.len(), "GIDs collected for FTS");
 
     if gids_vec.is_empty() {
-        warn!("Place search: gids_vec for FTS is empty. Term: '{}'", term);
+        warn!(term = term, "gids_vec for FTS is empty.");
         return Ok(None);
     }
 
@@ -294,7 +306,7 @@ pub fn place_search(
         .unzip();
 
     if fts_gids.is_empty() {
-        warn!("Place search: FTS returned no results for term: '{}'", term);
+        warn!(term = term, "FTS returned no results");
         return Ok(None);
     }
 
@@ -304,11 +316,21 @@ pub fn place_search(
     )?
     .lazy()
     .join(
-        filtered_data_for_fts, // Join with the data already filtered by tier and admin hierarchy
+        filtered_data_lf,
         [col("geonameId")],
         [col("geonameId")],
         JoinArgs::new(JoinType::Inner),
-    );
+    )
+    .sort(
+        ["fts_score"],
+        SortMultipleOptions::default().with_order_descending(true),
+    )
+    .select([
+        // Select all columns except fts_score
+        col("*").exclude(["fts_score"]),
+        // Then select fts_score to place it at the end
+        col("fts_score"),
+    ]);
 
     // --- Join with previous_result to get parent admin scores ---
     let fts_results_lf_with_potential_parents = match previous_result {
@@ -449,14 +471,26 @@ pub fn place_search(
         .limit(params.limit as u32)
         .select(&final_select_exprs);
 
-    let t0 = std::time::Instant::now();
-    let output = output_lf
-        .collect()
-        .context("Failed to collect place search results")?;
-    info!(
-        "Place df collected in {:.3} seconds. Results: {} rows.",
-        t0.elapsed().as_secs_f32(),
-        output.height()
-    );
-    Ok(Some(output))
+    let output_df = {
+        let _collect_span = info_span!("collect_final_admin_search_df").entered();
+        let t_collect = std::time::Instant::now();
+        let df = output_lf
+            .collect()
+            .context("Failed to collect final output DataFrame")?;
+        debug!(
+            collection_time_seconds = t_collect.elapsed().as_secs_f32(),
+            num_results = df.height(),
+            "Final admin search DataFrame collected."
+        );
+        df
+    };
+    if output_df.is_empty() {
+        debug!(
+            "Admin search for term '{}' yielded no results after all processing.",
+            term
+        );
+        Ok(None)
+    } else {
+        Ok(Some(output_df))
+    }
 }
