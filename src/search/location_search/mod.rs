@@ -4,7 +4,9 @@ mod place_search;
 mod smart_flexible_search;
 
 use anyhow::{Context, Result};
+use itertools::izip;
 use polars::prelude::*;
+use rapidfuzz::fuzz::RatioBatchComparator;
 use std::ops::Mul;
 use std::rc::Rc;
 use tracing::{debug, trace, warn};
@@ -13,8 +15,8 @@ pub use admin_search::{
     admin_search_inner, get_admin_df, AdminSearchParams, SearchScoreAdminParams,
 };
 pub use enrichment::{
-    backfill_administrative_context, resolve_search_candidates, AdministrativeContext, Entry,
-    GeonameEntry, GeonameFullEntry, ResolvedSearchResult, TargetLocationAdminCodes,
+    backfill_administrative_context, resolve_search_candidates, Entry, GeonameEntry,
+    GeonameFullEntry, LocationContext, ResolvedSearchResult, TargetLocationAdminCodes,
 };
 pub use place_search::{
     get_places_df, place_search_inner, PlaceSearchParams, SearchScorePlaceParams,
@@ -23,6 +25,7 @@ pub use smart_flexible_search::{
     bulk_location_search_inner, location_search_inner, SmartFlexibleSearchConfig,
 };
 fn text_relevance_score(lf: LazyFrame, search_term: &str) -> LazyFrame {
+    let search_term_capture = search_term.to_string();
     lf.with_column(
         ((col("fts_score") - col("fts_score").mean())
             / when(col("fts_score").std(0).gt(0.0))
@@ -30,18 +33,67 @@ fn text_relevance_score(lf: LazyFrame, search_term: &str) -> LazyFrame {
                 .otherwise(1.0))
         .alias("z_score"),
     )
-    .with_column((lit(1.0) / (lit(1.0) + col("z_score").mul(lit(-1.5)).exp())).alias("text_score"))
     .with_column(
-        when(
-            col("name")
-                .str()
-                .to_lowercase()
-                .eq(lit(search_term.to_lowercase())),
-        )
-        .then(lit(1.0))
-        .otherwise(col("text_score"))
-        .clip(lit(0.0), lit(1.0))
-        .alias("text_score"),
+        as_struct(vec![col("name"), col("alternatenames")])
+            .map(
+                move |s| {
+                    let scorer = RatioBatchComparator::new(search_term_capture.chars());
+                    let s = s.struct_().unwrap();
+                    let name = s.field_by_name("name").unwrap();
+                    let name = name.str().unwrap();
+                    let altname = s.field_by_name("alternatenames").unwrap();
+                    let altname = altname.str().unwrap();
+                    let altname = altname
+                        .iter()
+                        .map(|s| s.map(|s| s.split(',').map(|s| s.chars()).collect::<Vec<_>>()))
+                        .collect::<Vec<_>>();
+
+                    let matches = izip!(name, altname)
+                        .map(|(name, alternatenames)| {
+                            let mut name = scorer
+                                .similarity(name.expect("Should never be None").chars())
+                                as f32;
+
+                            let alternatenames = alternatenames.and_then(|s| {
+                                s.into_iter()
+                                    .map(|s| scorer.similarity(s) as f32)
+                                    .max_by(|x, y| {
+                                        x.abs().partial_cmp(&y.abs()).expect("Should never be NAN")
+                                    })
+                            });
+                            if let Some(alternatenames) = alternatenames {
+                                name = (name * 0.75) + (alternatenames * 0.25);
+                            }
+                            name
+                        })
+                        .collect::<Vec<_>>();
+                    let out = Column::new("fuzzy_score".into(), matches);
+                    Ok(Some(out))
+                },
+                GetOutput::from_type(DataType::Float32),
+            )
+            .alias("fuzzy_score"),
+    )
+    // Calculate the FTS contribution (0-1 score)
+    .with_column(
+        (lit(1.0) / (lit(1.0) + col("z_score").mul(lit(-1.5)).exp()))
+            .alias("fts_contribution_score"),
+    )
+    // Normalize fuzzy_score to 0-1 range
+    .with_column(
+        when(col("fuzzy_score").max().neq(col("fuzzy_score").min()))
+            .then(
+                (col("fuzzy_score") - col("fuzzy_score").min())
+                    / (col("fuzzy_score").max() - col("fuzzy_score").min()),
+            )
+            .otherwise(lit(0.75))
+            .fill_null(0.0)
+            .clip(lit(0.0), lit(1.0))
+            .alias("fuzzy_contribution_score"),
+    )
+    .with_column(
+        (lit(0.3) * col("fts_contribution_score") + lit(0.7) * col("fuzzy_contribution_score"))
+            .alias("text_score"),
     )
 }
 

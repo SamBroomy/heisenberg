@@ -29,20 +29,20 @@ pub trait Entry: Sized + Default + Clone + Send + Sync + 'static {
     fn field_names() -> Vec<&'static str>;
 }
 
-/// Holds the backfilled administrative hierarchy for a matched entity.
+/// Holds the resolved context for a search result, including admin hierarchy and a potential place.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct AdministrativeContext<E: Entry> {
+pub struct LocationContext<E: Entry> {
     pub admin0: Option<E>,
     pub admin1: Option<E>,
     pub admin2: Option<E>,
     pub admin3: Option<E>,
     pub admin4: Option<E>,
+    pub place: Option<E>, // The specific place, if the matched entity was a place
 }
 /// Represents a search result that has been fully resolved and enriched.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResolvedSearchResult<E: Entry> {
-    pub matched_entity: E,
-    pub context: AdministrativeContext<E>,
+    pub context: LocationContext<E>,
     pub score: f64,
 }
 
@@ -53,6 +53,7 @@ where
     pub fn simple(&self) -> Vec<String> {
         self.full().into_iter().flatten().unique().collect()
     }
+
     pub fn full(&self) -> [Option<String>; 6] {
         [
             self.context.admin0.as_ref().map(|e| e.name().to_string()),
@@ -60,7 +61,7 @@ where
             self.context.admin2.as_ref().map(|e| e.name().to_string()),
             self.context.admin3.as_ref().map(|e| e.name().to_string()),
             self.context.admin4.as_ref().map(|e| e.name().to_string()),
-            Some(self.matched_entity.name().to_string()),
+            self.context.place.as_ref().map(|e| e.name().to_string()),
         ]
     }
 }
@@ -397,8 +398,8 @@ fn query_admin_level_entity<E: Entry>(
 pub fn backfill_administrative_context<E: Entry>(
     target_codes: &TargetLocationAdminCodes,
     admin_data_lf: LazyFrame,
-) -> Result<AdministrativeContext<E>> {
-    let mut context = AdministrativeContext::<E>::default();
+) -> Result<LocationContext<E>> {
+    let mut context = LocationContext::<E>::default();
     let codes_hierarchy = [
         (&target_codes.admin0_code, "admin0_code"),
         (&target_codes.admin1_code, "admin1_code"),
@@ -406,19 +407,18 @@ pub fn backfill_administrative_context<E: Entry>(
         (&target_codes.admin3_code, "admin3_code"),
         (&target_codes.admin4_code, "admin4_code"),
     ];
-
     let mut cumulative_filter_parts: Vec<Expr> = Vec::new();
 
-    for (admin_level, (level_code_opt, level_code_col_name)) in codes_hierarchy.iter().enumerate() {
+    for (admin_level_idx, (level_code_opt, level_code_col_name)) in
+        codes_hierarchy.iter().enumerate()
+    {
         if let Some(current_level_code) = level_code_opt {
-            // Add current level's code to cumulative filter for exact match
             cumulative_filter_parts
                 .push(col(*level_code_col_name).eq(lit(current_level_code.clone())));
 
-            // Construct the full filter for this level: admin_level = X AND admin0_code=A AND admin1_code=B ...
             let mut level_specific_filter_parts =
-                vec![col("admin_level").eq(lit(admin_level as u8))];
-            level_specific_filter_parts.extend_from_slice(&cumulative_filter_parts); // Add all current cumulative code checks
+                vec![col("admin_level").eq(lit(admin_level_idx as u8))]; // Use admin_level_idx
+            level_specific_filter_parts.extend_from_slice(&cumulative_filter_parts);
 
             let final_filter_for_level = level_specific_filter_parts
                 .into_iter()
@@ -428,12 +428,12 @@ pub fn backfill_administrative_context<E: Entry>(
             match query_admin_level_entity::<E>(&admin_data_lf, final_filter_for_level) {
                 Ok(Some(entity)) => {
                     debug!(
-                        level = admin_level,
+                        level = admin_level_idx,
                         geoname_id = entity.geoname_id(),
                         name = entity.name(),
                         "Found admin entity"
                     );
-                    match admin_level {
+                    match admin_level_idx {
                         0 => context.admin0 = Some(entity),
                         1 => context.admin1 = Some(entity),
                         2 => context.admin2 = Some(entity),
@@ -443,32 +443,22 @@ pub fn backfill_administrative_context<E: Entry>(
                     }
                 }
                 Ok(None) => {
-                    warn!(level = admin_level, code = current_level_code, cumulative_filters = ?cumulative_filter_parts, "Admin entity not found for level and codes.");
-                    // If an entity is not found, we stop trying to use its code for further cumulative filters.
-                    // Remove the last added part (the current level's code) as it didn't lead to a match.
-                    // This allows subsequent levels to be found if their own path is valid from the root.
-                    // However, the Python version's logic implies that if admin1_code is X, and admin2_code is Y,
-                    // it queries for admin0_code=A, admin1_code=X, admin2_code=Y.
-                    // My current cumulative_filter_parts logic does this correctly. If admin1 is not found,
-                    // the filter for admin2 will still include admin1_code=X, and likely won't find admin2 either.
-                    // This is probably the desired behavior: the hierarchy must be consistent.
-                    // So, no need to pop from cumulative_filter_parts here.
+                    warn!(level = admin_level_idx, code = current_level_code, cumulative_filters = ?cumulative_filter_parts, "Admin entity not found for level and codes.");
                 }
                 Err(e) => {
-                    warn!(level = admin_level, code = current_level_code, error = ?e, "Error querying admin entity.");
+                    warn!(level = admin_level_idx, code = current_level_code, error = ?e, "Error querying admin entity.");
                 }
             }
         } else {
-            // If the code for the current level is None in target_codes, we cannot add a specific equality
-            // constraint for it to the cumulative_filter_parts. The chain of specific codes is broken here.
-            // Subsequent levels will be queried with the cumulative filter built so far.
-            debug!(level = admin_level, "No code provided in TargetLocationAdminCodes for this admin level. Cumulative filter remains as is.");
-            // No specific code to add to cumulative_filter_parts for this level.
-            // If higher levels have codes, they will be queried against the path found so far.
+            debug!(
+                level = admin_level_idx,
+                "No code provided in TargetLocationAdminCodes for this admin level."
+            );
         }
     }
     Ok(context)
 }
+
 #[instrument(level = "info", skip(search_results_batches, admin_data_lf), fields(num_batches = search_results_batches.len(), limit_per_query))]
 pub fn resolve_search_candidates<E: Entry>(
     search_results_batches: Vec<Vec<DataFrame>>,
@@ -509,15 +499,6 @@ pub fn resolve_search_candidates<E: Entry>(
             std::cmp::min(primary_candidates_df.height(), limit_per_query);
 
         for i in 0..num_candidates_to_process {
-            let candidate_row_result = primary_candidates_df.get_row(i);
-            let candidate_row = match candidate_row_result {
-                Ok(r) => r,
-                Err(e) => {
-                    warn!("Failed to get row {} from primary_candidates_df for batch {}: {:?}. Skipping row.", i, batch_idx, e);
-                    continue;
-                }
-            };
-
             // 1. Extract TargetLocationAdminCodes
             let target_codes = match TargetLocationAdminCodes::from_row(
                 &primary_candidates_df
@@ -544,12 +525,20 @@ pub fn resolve_search_candidates<E: Entry>(
                     continue;
                 }
             };
+            let candidate_row_result = primary_candidates_df.get_row(i);
+            let candidate_row = match candidate_row_result {
+                Ok(r) => r,
+                Err(e) => {
+                    warn!("Failed to get row {} from primary_candidates_df for batch {}: {:?}. Skipping row.", i, batch_idx, e);
+                    continue;
+                }
+            };
 
             // 2. Create Matched Entity
-            let matched_entity = match E::try_from(&candidate_row) {
+            let primary_candidate_entity = match E::try_from(&candidate_row) {
                 Ok(me) => me,
                 Err(e) => {
-                    warn!("Failed to create Matched Entity (type E) for row {} in batch {}: {:?}. Skipping row.", i, batch_idx, e);
+                    warn!("Failed to create Primary Candidate Entity (type E) for row {} in batch {}: {:?}. Skipping row.", i, batch_idx, e);
                     continue;
                 }
             };
@@ -563,7 +552,7 @@ pub fn resolve_search_candidates<E: Entry>(
 
             // 4. Backfill Administrative Context
             // Note: backfill_administrative_context takes owned LazyFrame, so clone admin_data_lf
-            let admin_context = match backfill_administrative_context::<E>(
+            let mut final_context = match backfill_administrative_context::<E>(
                 &target_codes,
                 admin_data_lf.clone(),
             ) {
@@ -573,13 +562,69 @@ pub fn resolve_search_candidates<E: Entry>(
                         "Failed to backfill context for geonameId {} in batch {}: {:?}. Proceeding with empty context.",
                         target_codes.geoname_id, batch_idx, e
                     );
-                    AdministrativeContext::<E>::default() // Use default empty context on error
+                    LocationContext::<E>::default() // Use default empty context on error
                 }
             };
 
+            // Determine if primary_candidate_entity is a "place"
+            // This requires GeonameFullEntry to have a feature_class field.
+            // Let's assume E is GeonameFullEntry for this logic.
+            // A more generic way would be a trait method on E like `is_place_like()`.
+            let feature_class_str = candidate_row
+                .0
+                .get(9) // Assuming feature_class is at index 9
+                .and_then(|av| av.get_str())
+                .map(|s| s.to_owned());
+
+            if let Some(fc) = feature_class_str {
+                // Define what constitutes a "place" based on feature class
+                // P: populated place. Others like S (spot), H (hydrographic), L (area/park) could also be considered.
+                if fc == "P"
+                    || fc == "S"
+                    || fc == "H"
+                    || fc == "L"
+                    || fc == "T"
+                    || fc == "V"
+                    || fc == "R"
+                    || fc == "U"
+                {
+                    // If the primary entity is a place, ensure it's not also one of the admin entities
+                    // by geoname_id to avoid duplication in the `full()` display if it happened to be an admin unit
+                    // that is also a PPL (e.g. a city that is its own admin level).
+                    // This check might be overly cautious if backfill_administrative_context is robust.
+                    let is_already_in_admin_context =
+                        final_context.admin0.as_ref().is_some_and(|a| {
+                            a.geoname_id() == primary_candidate_entity.geoname_id()
+                        }) || final_context.admin1.as_ref().is_some_and(|a| {
+                            a.geoname_id() == primary_candidate_entity.geoname_id()
+                        }) || final_context.admin2.as_ref().is_some_and(|a| {
+                            a.geoname_id() == primary_candidate_entity.geoname_id()
+                        }) || final_context.admin3.as_ref().is_some_and(|a| {
+                            a.geoname_id() == primary_candidate_entity.geoname_id()
+                        }) || final_context.admin4.as_ref().is_some_and(|a| {
+                            a.geoname_id() == primary_candidate_entity.geoname_id()
+                        });
+
+                    if !is_already_in_admin_context {
+                        final_context.place = Some(primary_candidate_entity);
+                    } else {
+                        // The primary entity was a place-like feature class but it's already represented
+                        // as one of the admin levels (e.g. a city that is its own ADM3).
+                        // In this case, we don't need to set it in `place` again.
+                        // The `backfill_administrative_context` should have placed it correctly.
+                        debug!("Primary entity (geonameId: {}) with place-like feature class '{}' is already in admin context. Not setting context.place.", primary_candidate_entity.geoname_id(), fc);
+                    }
+                }
+                // If feature_class is 'A', primary_candidate_entity is an admin unit.
+                // It should have been populated into one of the admin0-4 slots by backfill_administrative_context.
+                // So, final_context.place remains None.
+            } else {
+                // If no feature_class, assume it's not a place for this purpose, or handle as error/default
+                warn!("Missing feature_class for geonameId {} in batch {}. Cannot determine if it's a place.", target_codes.geoname_id, batch_idx);
+            }
+
             resolved_for_this_query.push(ResolvedSearchResult {
-                matched_entity,
-                context: admin_context,
+                context: final_context,
                 score: score_value,
             });
         }

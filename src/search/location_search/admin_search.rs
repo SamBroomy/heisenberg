@@ -347,6 +347,8 @@ pub fn admin_search_inner(
             col("longitude"),
             col("admin_level"),
             col("fts_score"),
+            col("fuzzy_score"),
+            col("text_score"),
             col("^score_admin_[0-4]$"),
         ]
     };

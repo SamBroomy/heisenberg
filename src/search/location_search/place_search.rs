@@ -461,6 +461,8 @@ pub fn place_search_inner(
             col("population"),
             col("importance_score"), // Original importance
             col("importance_tier"),
+            col("fts_score"),
+            col("text_score"),
             col("^parent_score_admin_[0-4]$"), // Include parent scores for inspection
             col(score_col_name),               // The final calculated place_score
         ]

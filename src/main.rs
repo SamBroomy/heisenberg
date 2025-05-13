@@ -88,6 +88,7 @@ fn main() -> Result<()> {
     drop(_example_search_span);
 
     let examples = vec![
+        vec!["US", "CA", "SF", "Golden Gate Bridge"],
         vec!["FL", "Lakeland"],
         vec![
             "The united states of america",

@@ -3,7 +3,7 @@ use polars::prelude::*;
 use tracing::{debug, info, info_span, warn};
 
 use crate::search::location_search::{
-    backfill_administrative_context, AdministrativeContext, ResolvedSearchResult,
+    backfill_administrative_context, LocationContext, ResolvedSearchResult,
 };
 use crate::search::TargetLocationAdminCodes;
 
