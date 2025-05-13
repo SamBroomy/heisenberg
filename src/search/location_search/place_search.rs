@@ -1,7 +1,4 @@
-use crate::{
-    search::{fts_search::FTSIndexSearchParams, PlacesIndexDef},
-    FTSIndex,
-};
+use crate::search::{fts_search::FTSIndexSearchParams, FTSIndex, PlacesIndexDef};
 use ahash::AHashMap as HashMap;
 use anyhow::{Context, Result};
 use itertools::Itertools;
@@ -38,31 +35,36 @@ const EARTH_RADIUS_KM: f64 = 6371.0;
 /// The weights should sum to 1.0 for a balanced score.
 #[derive(Debug, Clone, Copy)]
 pub struct SearchScorePlaceParams {
-    /// Weight for the text relevance score. Default is `0.35`.
+    /// Weight for the text relevance score. Default is `0.40`.
     pub text_weight: f32,
-    /// Weight for the importance score. Default is `0.30`.
+    /// Weight for the importance score. Default is `0.20`.
     pub importance_weight: f32,
     /// Weight for the feature type score. Default is `0.15`.
     pub feature_weight: f32,
-    /// Weight for the feature type score. Default is `0.15`.
-    pub distance_weight: f32,
-    /// Weight for the parent admin score. Default is `0.10`.
+    /// Weight for the parent admin score. Default is `0.15`.
     pub parent_admin_score_weight: f32,
+    /// Weight for the feature type score. Default is `0.05`.
+    pub distance_weight: f32,
 }
 
 impl Default for SearchScorePlaceParams {
     fn default() -> Self {
         Self {
-            text_weight: 0.35,
-            importance_weight: 0.30,
+            text_weight: 0.4,
+            importance_weight: 0.20,
             feature_weight: 0.15,
-            distance_weight: 0.10,
-            parent_admin_score_weight: 0.10,
+            parent_admin_score_weight: 0.15,
+            distance_weight: 0.05,
         }
     }
 }
 
-#[instrument(level = "trace", skip(lf, params), fields(search_term, score_col_name))]
+#[instrument(
+    name = "Place Search Score",
+    level = "trace",
+    skip_all,
+    fields(search_term, score_col_name)
+)]
 fn search_score_place(
     search_term: &str,
     lf: LazyFrame,
@@ -144,9 +146,7 @@ fn search_score_place(
                 * lit(clat as f64).radians().cos()
                 * d_lon.sin().pow(2);
 
-        let distance_km = lit(2.0_f64)
-                * a.sqrt().arcsin() // asin is arcsin
-                * lit(EARTH_RADIUS_KM);
+        let distance_km = lit(2.0_f64) * a.sqrt().arcsin() * lit(EARTH_RADIUS_KM);
 
         lf.with_column(distance_km.alias("distance_km"))
             .with_column(
@@ -220,14 +220,14 @@ impl Default for PlaceSearchParams {
             center_lon: None,
             fts_search_params: FTSIndexSearchParams {
                 limit: limit * 3,
-                ..Default::default()
+                fuzzy_search: true,
             },
             search_score_params: SearchScorePlaceParams::default(),
         }
     }
 }
 #[inline]
-#[instrument(level="debug", skip(data, index, previous_result), fields(term, limit = params.limit, has_previous_result = previous_result.is_some()))]
+#[instrument(name = "Place Search", level="debug", skip_all, fields(term=term, limit = params.limit, has_previous_result = previous_result.is_some()))]
 pub fn place_search_inner(
     term: &str,
     index: &FTSIndex<PlacesIndexDef>,
@@ -301,7 +301,7 @@ pub fn place_search_inner(
     }
 
     let (fts_gids, fts_scores): (Vec<_>, Vec<_>) = index
-        .search_in_subset(term, &gids_vec, &params.fts_search_params)? // Fetch more for ranking
+        .search_in_subset(term, &gids_vec, &params.fts_search_params)?
         .into_iter()
         .unzip();
 
@@ -342,7 +342,7 @@ pub fn place_search_inner(
             )?;
 
             let mut renames_map: HashMap<String, String> = HashMap::new();
-            let score_pattern = regex::Regex::new(r"^adjusted_score_[0-4]$").unwrap();
+            let score_pattern = regex::Regex::new(r"^score_admin_[0-4]$").unwrap();
 
             for name_idx in prev_schema.iter_names() {
                 let name = name_idx.as_ref();
@@ -358,8 +358,8 @@ pub fn place_search_inner(
                 prev_lf_processed = prev_lf_processed.rename(&old_names, &new_names, true);
             }
 
-            // Select only the join keys and the renamed parent_adjusted_score_ columns
-            let mut cols_to_select_from_prev = join_cols_expr.clone(); // These are Exprs
+            // Select only the join keys and the renamed parent_score_admin_ columns
+            let mut cols_to_select_from_prev = join_cols_expr.clone();
             for new_parent_score_name in renames_map.values() {
                 cols_to_select_from_prev.push(col(new_parent_score_name));
             }
@@ -429,7 +429,7 @@ pub fn place_search_inner(
     };
 
     // --- Score the results ---
-    let score_col_name = "place_score";
+    let score_col_name = "score_place";
     let scored_lf = search_score_place(
         term,
         fts_results_lf_with_potential_parents,
@@ -461,8 +461,8 @@ pub fn place_search_inner(
             col("population"),
             col("importance_score"), // Original importance
             col("importance_tier"),
-            col(score_col_name), // The final calculated place_score
-            col("^parent_adjusted_score_[0-4]$"), // Include parent scores for inspection
+            col("^parent_score_admin_[0-4]$"), // Include parent scores for inspection
+            col(score_col_name),               // The final calculated place_score
         ]
     };
 

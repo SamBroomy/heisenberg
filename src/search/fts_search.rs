@@ -154,17 +154,17 @@ impl IndexDefinition for AdminIndexDef {
 
     fn field_boosts(&self, schema: &Schema) -> Vec<(Field, f32)> {
         vec![
-            (schema.get_field("name").unwrap(), 2.2),
-            (schema.get_field("asciiname").unwrap(), 1.8),
-            (schema.get_field("alternatenames").unwrap(), 1.5),
-            (schema.get_field("official_name").unwrap(), 2.2),
+            (schema.get_field("name").unwrap(), 3.0),
+            (schema.get_field("asciiname").unwrap(), 2.0),
+            (schema.get_field("alternatenames").unwrap(), 1.0),
+            (schema.get_field("official_name").unwrap(), 4.0),
         ]
     }
     fn code_like_fields_with_boosts(&self, schema: &Schema) -> Vec<(Field, f32)> {
         vec![
-            (schema.get_field("ISO3").unwrap(), 500.0),
-            (schema.get_field("ISO").unwrap(), 400.0),
-            (schema.get_field("fips").unwrap(), 200.0),
+            (schema.get_field("ISO3").unwrap(), 1000.0),
+            (schema.get_field("ISO").unwrap(), 800.0),
+            (schema.get_field("fips").unwrap(), 400.0),
         ]
     }
 }
@@ -240,8 +240,8 @@ impl IndexDefinition for PlacesIndexDef {
 
     fn field_boosts(&self, schema: &Schema) -> Vec<(Field, f32)> {
         vec![
-            (schema.get_field("name").unwrap(), 2.8),
-            (schema.get_field("asciiname").unwrap(), 1.8),
+            (schema.get_field("name").unwrap(), 3.0),
+            (schema.get_field("asciiname").unwrap(), 2.0),
             (schema.get_field("alternatenames").unwrap(), 1.0),
         ]
     }
@@ -276,7 +276,7 @@ pub struct FTSIndex<D: IndexDefinition> {
 }
 
 impl<D: IndexDefinition> FTSIndex<D> {
-    #[instrument(name = "create_load_fts_index", skip(definition), fields(index_name = definition.name()))]
+    #[instrument(name = "Create Index", skip(definition), fields(index_name = definition.name()))]
     pub fn new(definition: D, overwrite: bool) -> Result<Self> {
         let index_path = Path::new("./data/indexes/tantivy").join(definition.name());
 
@@ -354,7 +354,8 @@ impl<D: IndexDefinition> FTSIndex<D> {
         self.search_inner(query_str, Some(doc_ids), params)
     }
 
-    #[instrument(skip(self, doc_ids), level = "debug", fields(index_name = self.definition.name(), query = query_str, limit = params.limit, has_subset = doc_ids.is_some()))]
+    #[instrument(name="Search Text Index",
+        skip_all, level = "debug", fields(index_name = self.definition.name(), query = query_str, limit = params.limit, has_subset = doc_ids.is_some()))]
     fn search_inner(
         &self,
         query_str: &str,
@@ -428,7 +429,7 @@ impl<D: IndexDefinition> FTSIndex<D> {
                                     FuzzyTermQuery::new(term, fuzzy_distance, fuzzy_transpositions);
                                 query_clauses.push((
                                     Occur::Should,
-                                    Box::new(BoostQuery::new(Box::new(fuzzy_query), 0.8)),
+                                    Box::new(BoostQuery::new(Box::new(fuzzy_query), 1.5)),
                                 ));
                             }
                         }

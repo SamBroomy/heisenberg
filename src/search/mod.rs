@@ -4,8 +4,7 @@ pub mod service;
 
 pub use fts_search::{AdminIndexDef, FTSIndex, FTSIndexSearchParams, PlacesIndexDef};
 pub use location_search::{
-    AdminHierarchyLevelDetail, AdminSearchParams, FullAdminHierarchy, PlaceSearchParams,
-    SearchScoreAdminParams, SearchScorePlaceParams, SmartFlexibleSearchConfig,
-    TargetLocationAdminCodes,
+    AdminSearchParams, GeonameEntry, GeonameFullEntry, PlaceSearchParams, SearchScoreAdminParams,
+    SearchScorePlaceParams, SmartFlexibleSearchConfig, TargetLocationAdminCodes,
 };
 pub use service::LocationSearchService;

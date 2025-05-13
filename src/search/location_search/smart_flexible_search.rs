@@ -12,7 +12,7 @@ use polars::prelude::*;
 use rayon::prelude::*;
 use std::cmp::{max, min};
 use std::hash::{Hash, Hasher};
-use tracing::{debug, info, warn};
+use tracing::{debug, info, instrument, warn};
 const MAX_ADMIN_LEVELS_COUNT: usize = 5; // Admin levels 0 through 4
 
 #[derive(Debug, Clone)]
@@ -51,7 +51,8 @@ impl Default for SmartFlexibleSearchConfig {
     }
 }
 
-pub fn smart_flexible_search_inner(
+#[instrument(name = "Location Search", level = "info",    skip_all, fields(search_terms = ?search_terms_raw))]
+pub fn location_search_inner(
     search_terms_raw: &[&str],
     admin_fts_index: &FTSIndex<AdminIndexDef>,
     admin_data_lf: LazyFrame,
@@ -72,7 +73,7 @@ pub fn smart_flexible_search_inner(
         .collect::<Vec<_>>();
 
     if cleaned_terms.is_empty() {
-        warn!("Smart Flexible Search: No valid search terms provided after cleaning.");
+        warn!("No valid search terms provided after cleaning.");
         return Ok(Vec::new());
     }
 
@@ -91,7 +92,7 @@ pub fn smart_flexible_search_inner(
             let extra_terms = cleaned_terms[(num_admin_terms_in_sequence + 1)..].join(" ");
             pct = format!("{} {}", pct, extra_terms);
             info!(
-                "Smart Flexible Search: Concatenated extra input terms into place candidate. New place candidate: '{}'",
+                "Concatenated extra input terms into place candidate. New place candidate: '{}'",
                 pct
             );
         }
@@ -102,16 +103,16 @@ pub fn smart_flexible_search_inner(
     }
 
     debug!(
-        "Smart Flexible Search: Admin terms for main sequence: {:?}",
+        "Admin terms for main sequence: {:?}",
         admin_terms_for_main_sequence
     );
     if let Some(ref pct) = place_candidate_term {
         debug!(
-            "Smart Flexible Search: Place candidate term: '{}' (Is also last admin in sequence: {})",
+            "Place candidate term: '{}' (Is also last admin in sequence: {})",
             pct, is_place_candidate_also_last_admin_term_in_sequence
         );
     } else {
-        debug!("Smart Flexible Search: No distinct place candidate term identified.");
+        debug!("No distinct place candidate term identified.");
     }
 
     let mut all_found_results_list: Vec<DataFrame> = Vec::new();
@@ -144,14 +145,14 @@ pub fn smart_flexible_search_inner(
 
             if current_search_levels.is_empty() {
                 warn!(
-                    "Smart Flexible Search: Term '{}': No valid admin levels to search (effective range: {}-{}). Skipping.",
+                    "Term '{}': No valid admin levels to search (effective range: {}-{}). Skipping.",
                     term_to_search, effective_start_level, current_search_window_end_level
                 );
                 continue;
             }
 
             debug!(
-                "Smart Flexible Search: Searching main admin sequence term '{}' for admin levels {:?} with current context.",
+                "Searching main admin sequence term '{}' for admin levels {:?} with current context.",
                 term_to_search, current_search_levels
             );
 
@@ -172,8 +173,10 @@ pub fn smart_flexible_search_inner(
             ) {
                 Ok(Some(df)) if !df.is_empty() => {
                     info!(
-                        "Smart Flexible Search: Found {} results for main admin term '{}' in levels {:?}.",
-                        df.height(), term_to_search, current_search_levels
+                        "Found {} results for main admin term '{}' in levels {:?}.",
+                        df.height(),
+                        term_to_search,
+                        current_search_levels
                     );
                     all_found_results_list.push(df.clone());
                     last_successful_context = Some(df.clone());
@@ -183,24 +186,24 @@ pub fn smart_flexible_search_inner(
                         if let Ok(casted_series) = admin_level_series.cast(&DataType::UInt8) {
                             min_level_from_last_success = casted_series.u8().unwrap().min();
                         } else {
-                            warn!("Smart Flexible Search: Could not cast 'admin_level' to UInt8.");
+                            warn!("Could not cast 'admin_level' to UInt8.");
                             min_level_from_last_success = None; // Reset if problematic
                         }
                     } else {
-                        warn!("Smart Flexible Search: 'admin_level' column not found in admin search results.");
+                        warn!("'admin_level' column not found in admin search results.");
                         min_level_from_last_success = None; // Reset if not found
                     }
                 }
                 Ok(_) => {
                     debug!(
-                        "Smart Flexible Search: No results for main admin term '{}' in levels {:?}.",
+                        "No results for main admin term '{}' in levels {:?}.",
                         term_to_search, current_search_levels
                     );
                     // min_level_from_last_success remains from the *actual* last successful search.
                 }
                 Err(e) => {
                     warn!(
-                        "Smart Flexible Search: Error searching for admin term '{}': {:?}",
+                        "Error searching for admin term '{}': {:?}",
                         term_to_search, e
                     );
                 }
@@ -223,7 +226,7 @@ pub fn smart_flexible_search_inner(
 
                 if !additional_admin_search_levels.is_empty() {
                     debug!(
-                        "Smart Flexible Search: Proactively searching place candidate '{}' as ADMIN at levels {:?} using current context.",
+                        "Proactively searching place candidate '{}' as ADMIN at levels {:?} using current context.",
                         pct_for_admin, additional_admin_search_levels
                     );
                     let admin_params = AdminSearchParams {
@@ -242,7 +245,7 @@ pub fn smart_flexible_search_inner(
                     ) {
                         Ok(Some(df)) if !df.is_empty() => {
                             info!(
-                                "Smart Flexible Search: Found {} results for place candidate '{}' as proactive ADMIN in levels {:?}.",
+                                "Found {} results for place candidate '{}' as proactive ADMIN in levels {:?}.",
                                 df.height(), pct_for_admin, additional_admin_search_levels
                             );
                             all_found_results_list.push(df.clone());
@@ -250,13 +253,13 @@ pub fn smart_flexible_search_inner(
                         }
                         Ok(_) => {
                             debug!(
-                                "Smart Flexible Search: No results for place candidate '{}' as proactive ADMIN in levels {:?}.",
+                                "No results for place candidate '{}' as proactive ADMIN in levels {:?}.",
                                 pct_for_admin, additional_admin_search_levels
                             );
                         }
                         Err(e) => {
                             warn!(
-                                "Smart Flexible Search: Error during proactive admin search for '{}': {:?}",
+                                "Error during proactive admin search for '{}': {:?}",
                                 pct_for_admin, e
                             );
                         }
@@ -264,7 +267,7 @@ pub fn smart_flexible_search_inner(
                 }
             } else {
                 debug!(
-                    "Smart Flexible Search: Skipping proactive admin search for '{}': no subsequent admin levels available (start_level: {}).",
+                    "Skipping proactive admin search for '{}': no subsequent admin levels available (start_level: {}).",
                     pct_for_admin, additional_admin_start_level
                 );
             }
@@ -274,7 +277,7 @@ pub fn smart_flexible_search_inner(
         && is_place_candidate_also_last_admin_term_in_sequence
     {
         debug!(
-            "Smart Flexible Search: Skipping proactive admin search for '{}': it was already processed as the last admin term in the main sequence.",
+            "Skipping proactive admin search for '{}': it was already processed as the last admin term in the main sequence.",
             place_candidate_term.as_ref().unwrap_or(&String::new())
         );
     }
@@ -282,7 +285,7 @@ pub fn smart_flexible_search_inner(
     // --- 4. Final Place Search (if a place_candidate_term exists) ---
     if let Some(ref final_pct) = place_candidate_term {
         debug!(
-            "Smart Flexible Search: Searching for place candidate '{}' as PLACE entity using final context.",
+            "Searching for place candidate '{}' as PLACE entity using final context.",
             final_pct
         );
 
@@ -305,23 +308,17 @@ pub fn smart_flexible_search_inner(
         ) {
             Ok(Some(df)) if !df.is_empty() => {
                 info!(
-                    "Smart Flexible Search: Found {} results for place candidate '{}' as PLACE.",
+                    "Found {} results for place candidate '{}' as PLACE.",
                     df.height(),
                     final_pct
                 );
                 all_found_results_list.push(df);
             }
             Ok(_) => {
-                debug!(
-                    "Smart Flexible Search: No results for place candidate '{}' as PLACE.",
-                    final_pct
-                );
+                debug!("No results for place candidate '{}' as PLACE.", final_pct);
             }
             Err(e) => {
-                warn!(
-                    "Smart Flexible Search: Error searching for place '{}': {:?}",
-                    final_pct, e
-                );
+                warn!("Error searching for place '{}': {:?}", final_pct, e);
             }
         }
     }
@@ -380,17 +377,15 @@ fn calculate_target_levels_for_query_state(
 
 fn extract_min_admin_level_from_df(df: &DataFrame) -> Option<u8> {
     match df.column("admin_level") {
-        Ok(admin_level_series) => {
-            match admin_level_series.cast(&DataType::UInt8) {
-                Ok(casted_series) => casted_series.u8().ok().and_then(|ca| ca.min()),
-                Err(_) => {
-                    warn!("Bulk Search: Could not cast 'admin_level' to UInt8 for min_level extraction.");
-                    None
-                }
+        Ok(admin_level_series) => match admin_level_series.cast(&DataType::UInt8) {
+            Ok(casted_series) => casted_series.u8().ok().and_then(|ca| ca.min()),
+            Err(_) => {
+                warn!("Could not cast 'admin_level' to UInt8 for min_level extraction.");
+                None
             }
-        }
+        },
         Err(_) => {
-            warn!("Bulk Search: 'admin_level' column not found for min_level extraction.");
+            warn!("'admin_level' column not found for min_level extraction.");
             None
         }
     }
@@ -411,7 +406,8 @@ fn generate_context_signature(context_df: Option<&DataFrame>) -> Option<u64> {
     })
 }
 
-pub fn bulk_smart_flexible_search_inner(
+#[instrument(name = "Bulk Smart Flexible Search", level = "info", skip_all)]
+pub fn bulk_location_search_inner(
     all_raw_input_batches: &[&[&str]],
     admin_fts_index: &FTSIndex<AdminIndexDef>,
     admin_data_lf: impl IntoLazy,
@@ -422,7 +418,7 @@ pub fn bulk_smart_flexible_search_inner(
     let admin_data_lf = admin_data_lf.lazy();
     let places_data_lf = places_data_lf.lazy();
     info!(
-        "Starting bulk_smart_flexible_search for {} input batches.",
+        "Starting Bulk Location Search for {} input batches.",
         all_raw_input_batches.len()
     );
 
@@ -621,7 +617,7 @@ pub fn bulk_smart_flexible_search_inner(
             searches_to_batch_this_pass.len()
         );
         // Prepare tasks for parallel execution
-        let tasks_for_parallel_execution: Vec<_> = searches_to_batch_this_pass
+        let tasks_for_parallel_execution = searches_to_batch_this_pass
             .into_iter() // Consumes the HashMap
             .map(|((term, levels, _context_sig), batch_query_indices)| {
                 // It's crucial that query_states is not mutably borrowed here.
@@ -643,10 +639,10 @@ pub fn bulk_smart_flexible_search_inner(
                     admin_search_params,              // AdminSearchParams is Copy
                 )
             })
-            .collect();
+            .collect::<Vec<_>>();
 
         // Parallel execution of search tasks
-        let batch_processing_results: Vec<_> = tasks_for_parallel_execution
+        let batch_processing_results = tasks_for_parallel_execution
             .par_iter()
             .filter_map(
                 |(
@@ -697,7 +693,7 @@ pub fn bulk_smart_flexible_search_inner(
                     }
                 },
             )
-            .collect();
+            .collect::<Vec<_>>();
 
         // Sequential update of query_states and all_results_this_pass_dfs
         for (batch_query_indices, result_outcome, new_min_level_option) in batch_processing_results
@@ -1153,7 +1149,7 @@ pub fn bulk_smart_flexible_search_inner(
     }
 
     info!(
-        "bulk_smart_flexible_search finished. Returning results for {} original inputs.",
+        "Bulk Location Search finished. Returning results for {} original inputs.",
         final_bulk_results.len()
     );
     Ok(final_bulk_results)

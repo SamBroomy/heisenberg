@@ -1,16 +1,21 @@
 pub mod search;
-use search::fts_search::{AdminIndexDef, FTSIndex, PlacesIndexDef};
-use search::{LocationSearchService, SmartFlexibleSearchConfig, TargetLocationAdminCodes};
+use search::location_search::{get_admin_df, resolve_search_candidates};
+use search::{GeonameEntry, LocationSearchService, SmartFlexibleSearchConfig};
 
 use anyhow::Result;
 
 use polars::prelude::*;
-use tracing::{debug, info, info_span, warn, Level};
+use tracing::{debug, info, info_span, warn};
 use tracing_subscriber::fmt::format::FmtSpan;
+use tracing_subscriber::EnvFilter;
 
 fn main() -> Result<()> {
+    let filter = EnvFilter::try_from_default_env()
+        .or_else(|_| EnvFilter::try_new("debug"))?
+        .add_directive("tantivy=info".parse()?);
+
     tracing_subscriber::fmt::fmt()
-        .with_max_level(Level::DEBUG)
+        .with_env_filter(filter)
         .with_span_events(FmtSpan::CLOSE)
         .init();
 
@@ -83,6 +88,7 @@ fn main() -> Result<()> {
     drop(_example_search_span);
 
     let examples = vec![
+        vec!["FL", "Lakeland"],
         vec![
             "The united states of america",
             "California",
@@ -140,6 +146,21 @@ fn main() -> Result<()> {
             continue;
         }
         info!(i, df = ?df, "Bulk smart flexible search results");
+    }
+
+    let out =
+        resolve_search_candidates::<GeonameEntry>(out_bulk, &get_admin_df()?.clone().lazy(), 10)?;
+
+    for (i, out) in out.iter().enumerate() {
+        if out.is_empty() {
+            warn!(i, "Bulk smart flexible search results {}: empty", i);
+            continue;
+        }
+        info!(i, out = ?out, "Bulk smart flexible search results");
+        for res in out.iter() {
+            info!(simple = ?res.simple());
+            info!(full = ?res.full());
+        }
     }
 
     Ok(())

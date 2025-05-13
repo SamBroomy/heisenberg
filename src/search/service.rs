@@ -1,11 +1,16 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use polars::prelude::*;
-use tracing::{info, info_span};
+use tracing::{debug, info, info_span, warn};
+
+use crate::search::location_search::{
+    backfill_administrative_context, AdministrativeContext, ResolvedSearchResult,
+};
+use crate::search::TargetLocationAdminCodes;
 
 use super::fts_search::{AdminIndexDef, FTSIndex, PlacesIndexDef};
 use super::location_search::{
-    admin_search_inner, bulk_smart_flexible_search_inner, get_admin_df, get_places_df,
-    place_search_inner, smart_flexible_search_inner, AdminSearchParams, PlaceSearchParams,
+    admin_search_inner, bulk_location_search_inner, get_admin_df, get_places_df,
+    location_search_inner, place_search_inner, AdminSearchParams, Entry, PlaceSearchParams,
     SmartFlexibleSearchConfig,
 };
 
@@ -88,12 +93,9 @@ impl LocationSearchService {
         input_terms: &[impl AsRef<str>],
         config: &SmartFlexibleSearchConfig,
     ) -> Result<Vec<DataFrame>> {
-        let input_terms = input_terms
-            .into_iter()
-            .map(|s| s.as_ref())
-            .collect::<Vec<_>>();
+        let input_terms = input_terms.iter().map(|s| s.as_ref()).collect::<Vec<_>>();
 
-        smart_flexible_search_inner(
+        location_search_inner(
             &input_terms,
             &self.admin_fts_index,
             self.admin_data_lf.clone(),
@@ -109,8 +111,8 @@ impl LocationSearchService {
         config: &SmartFlexibleSearchConfig,
     ) -> Result<Vec<Vec<DataFrame>>>
     where
-        Batch: AsRef<[Term]>,
-        Term: AsRef<str>,
+        Batch: AsRef<[Term]> + Sync,
+        Term: AsRef<str> + Sync,
     {
         let all_raw_input_batches = all_raw_input_batches
             .iter()
@@ -127,7 +129,7 @@ impl LocationSearchService {
             .map(|inner_vec| inner_vec.as_slice()) // Convert each Vec<&str> to &[&str]
             .collect::<Vec<_>>();
 
-        bulk_smart_flexible_search_inner(
+        bulk_location_search_inner(
             &all_raw_input_batches,
             &self.admin_fts_index,
             self.admin_data_lf.clone(),

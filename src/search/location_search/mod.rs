@@ -7,20 +7,20 @@ use anyhow::{Context, Result};
 use polars::prelude::*;
 use std::ops::Mul;
 use std::rc::Rc;
-use tracing::{debug, instrument, warn};
+use tracing::{debug, trace, warn};
 
 pub use admin_search::{
     admin_search_inner, get_admin_df, AdminSearchParams, SearchScoreAdminParams,
 };
 pub use enrichment::{
-    backfill_hierarchy_from_codes, AdminHierarchyLevelDetail, FullAdminHierarchy,
-    TargetLocationAdminCodes,
+    backfill_administrative_context, resolve_search_candidates, AdministrativeContext, Entry,
+    GeonameEntry, GeonameFullEntry, ResolvedSearchResult, TargetLocationAdminCodes,
 };
 pub use place_search::{
     get_places_df, place_search_inner, PlaceSearchParams, SearchScorePlaceParams,
 };
 pub use smart_flexible_search::{
-    bulk_smart_flexible_search_inner, smart_flexible_search_inner, SmartFlexibleSearchConfig,
+    bulk_location_search_inner, location_search_inner, SmartFlexibleSearchConfig,
 };
 fn text_relevance_score(lf: LazyFrame, search_term: &str) -> LazyFrame {
     lf.with_column(
@@ -46,7 +46,7 @@ fn text_relevance_score(lf: LazyFrame, search_term: &str) -> LazyFrame {
 }
 
 fn parent_factor(lf: LazyFrame) -> Result<LazyFrame> {
-    let parent_score_re = regex::Regex::new(r"^parent_adjusted_score_[0-4]$").unwrap();
+    let parent_score_re = regex::Regex::new(r"^parent_score_admin_[0-4]$").unwrap();
     let parent_score_exprs_for_mean = lf
         .clone()
         .collect_schema()
@@ -251,10 +251,10 @@ fn filter_data_from_previous_results(
     }
 
     if lfs_to_concat.is_empty() {
-        debug!("No data matched any constructed filter paths from previous results. Returning empty frame.");
+        trace!("No data matched any constructed filter paths from previous results. Returning empty frame.");
         Ok(data.limit(0))
     } else {
-        debug!(
+        trace!(
             "Concatenating {} LazyFrames from filtered data chunks.",
             lfs_to_concat.len()
         );

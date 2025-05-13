@@ -1115,14 +1115,12 @@ con = duckdb.connect(database=duck_db_path.as_posix(), read_only=True)
 #   - Due to the nature of the flexible search it may not filter down nicely as the structured search, but we can try to filter it down as accurately as possible.
 
 
-def get_latest_adjusted_score_level(columns: list[str]) -> int | None:
-    adjusted_score_columns = [
-        col for col in columns if col.startswith("adjusted_score_")
-    ]
-    if not adjusted_score_columns:
+def get_latest_score_admin_level(columns: list[str]) -> int | None:
+    score_admin_columns = [col for col in columns if col.startswith("score_admin_")]
+    if not score_admin_columns:
         return None
     # Extract the level from the column name and find the maximum level
-    levels = [int(col.rsplit("_", maxsplit=1)[-1]) for col in adjusted_score_columns]
+    levels = [int(col.rsplit("_", maxsplit=1)[-1]) for col in score_admin_columns]
     max_level = max(levels)
     return max_level
 
@@ -1153,7 +1151,7 @@ def search_score_admin(
     - DataFrame with adjusted scores
     """
     assert level in range(5), "Level must be between 0 and 4"
-    score_col = f"adjusted_score_{level}"
+    score_col = f"score_admin_{level}"
     columns = df.collect_schema().names()
 
     # ===== 1. Text relevance score =====
@@ -1263,16 +1261,16 @@ def search_score_admin(
         df = df.with_columns(country_score=pl.lit(0.5))
 
     parent_score_cols_exist = any(
-        col.startswith("parent_adjusted_score_") for col in df.collect_schema().names()
+        col.startswith("parent_score_admin_") for col in df.collect_schema().names()
     )
 
     if parent_score_cols_exist:
         df = df.with_columns(
-            # Calculate mean of all parent_adjusted_score_ columns for the row.
+            # Calculate mean of all parent_score_admin_ columns for the row.
             # fill_null(0.0) handles cases where a row has no matching parent scores
             # or a specific linkage didn't yield scores.
             average_parent_score=pl.mean_horizontal(
-                cs.starts_with("parent_adjusted_score_")
+                cs.starts_with("parent_score_admin_")
             ).fill_null(0.0)
         )
         # Normalize this average_parent_score across the entire DataFrame (current batch)
@@ -1298,16 +1296,14 @@ def search_score_admin(
             .drop("parent_max_score_overall")
         )
     else:
-        # This case handles when results_with_potential_parents had no parent_adjusted_score_ columns
+        # This case handles when results_with_potential_parents had no parent_score_admin_ columns
         # (e.g., no previous_results or no successful joins in the loop)
-        logger.warning(
-            "No parent_adjusted_score_ columns found. Skipping parent factor."
-        )
+        logger.warning("No parent_score_admin_ columns found. Skipping parent factor.")
         df = df.with_columns(parent_factor=pl.lit(0.5))
 
-    #     if get_latest_adjusted_score_level(columns) is not None:
+    #     if get_latest_score_admin_level(columns) is not None:
     #         df = df.with_columns(
-    #             average_parent_score=pl.mean_horizontal(cs.starts_with("adjusted_score_"))
+    #             average_parent_score=pl.mean_horizontal(cs.starts_with("score_admin_"))
     #         ).with_columns(
     #             parent_factor=pl.when(pl.col.average_parent_score > 0)
     #             .then(pl.col.average_parent_score / pl.col.average_parent_score.max())
@@ -1544,7 +1540,7 @@ def search_admin(
         parent_score_renames = {
             col: f"parent_{col}"
             for col in previous_results.collect_schema().names()
-            if col.startswith("adjusted_score_")
+            if col.startswith("score_admin_")
         }
         previous_scores_df = previous_scores_df.rename(parent_score_renames)
 
@@ -1556,7 +1552,7 @@ def search_admin(
             ]  # e.g., ["admin0_code"], then ["admin0_code", "admin1_code"]
             # Select join keys and all parent score columns from previous_scores_df
             selected_previous = previous_scores_df.select(
-                cs.by_name(tmp_cols), cs.starts_with("parent_adjusted_score_")
+                cs.by_name(tmp_cols), cs.starts_with("parent_score_admin_")
             )
             # Join current FTS results with these selected parent scores
             joined_lf = results.join(selected_previous, on=tmp_cols, how="left")
@@ -1570,7 +1566,7 @@ def search_admin(
             results_with_potential_parents = results
             # Ensure results_with_potential_parents has a consistent schema for parent scores,
             # even if they are all nulls here.
-            # This might be needed if search_score_admin expects parent_adjusted_score_ columns.
+            # This might be needed if search_score_admin expects parent_score_admin_ columns.
             # However, the modified search_score_admin below handles their absence.
 
     else:  # No previous_results
@@ -1586,7 +1582,7 @@ def search_admin(
     #     # Join with previous results to get adjusted scores
     #     results = results.join(
     #         previous_results.lazy().select(
-    #             cs.by_name(admin_cols), cs.starts_with("adjusted_score_")
+    #             cs.by_name(admin_cols), cs.starts_with("score_admin_")
     #         ),
     #         on=admin_cols,
     #         how="left",
@@ -1596,7 +1592,7 @@ def search_admin(
         results_with_potential_parents.pipe(
             search_score_admin, min(levels), search_term=term
         )
-        .sort(f"adjusted_score_{min(levels)}", descending=True)
+        .sort(f"score_admin_{min(levels)}", descending=True)
         # Now, for each geonameId, pick the one that got the highest score
         # This effectively selects the "best" parent linkage.
         .unique("geonameId", keep="first", maintain_order=True)
@@ -1608,9 +1604,9 @@ def search_admin(
                 if select_cols_list != ["*"]
                 else cs.all(),  # Ensure 'select' is a list of actual column names
                 cs.starts_with(
-                    "parent_adjusted_score_"
+                    "parent_score_admin_"
                 ),  # Optionally keep parent scores for debugging
-                cs.starts_with("adjusted_score_"),
+                cs.starts_with("score_admin_"),
             )
             if not all_cols
             else cs.all()
@@ -1780,14 +1776,14 @@ def search_score_place(
 
     # 5. Parent Admin Score Factor
     parent_score_cols_exist = any(
-        col.startswith("parent_adjusted_score_") for col in df.collect_schema().names()
+        col.startswith("parent_score_admin_") for col in df.collect_schema().names()
     )
     if parent_score_cols_exist:
         df = df.with_columns(
-            # Calculate mean of all parent_adjusted_score_ columns for the row.
+            # Calculate mean of all parent_score_admin_ columns for the row.
             # Assumes parent scores are already normalized (0-1).
             parent_admin_factor=pl.mean_horizontal(
-                cs.starts_with("parent_adjusted_score_")
+                cs.starts_with("parent_score_admin_")
             )
             .fill_null(0.5)
             .clip(0.0, 1.0)
@@ -1961,7 +1957,7 @@ def search_place(
         parent_score_renames = {
             col: f"parent_{col}"
             for col in previous_results.collect_schema().names()
-            if col.startswith("adjusted_score_")
+            if col.startswith("score_admin_")
         }
 
         # Select only join keys and score columns to be renamed
@@ -2006,7 +2002,7 @@ def search_place(
         # Add the main place_score
         final_select_expressions.append(cs.by_name("place_score"))
         # Optionally add parent admin scores for debugging/inspection
-        final_select_expressions.append(cs.starts_with("parent_adjusted_score_"))
+        final_select_expressions.append(cs.starts_with("parent_score_admin_"))
         # Add any intermediate scoring factors if desired (e.g., text_score, distance_score etc.)
         # final_select_expressions.append(cs.by_name(["text_score", "importance_norm", "feature_score", "distance_score", "parent_admin_factor"]))
 

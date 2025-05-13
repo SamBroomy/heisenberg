@@ -1,7 +1,4 @@
-use crate::{
-    search::{fts_search::FTSIndexSearchParams, AdminIndexDef},
-    FTSIndex,
-};
+use crate::search::{fts_search::FTSIndexSearchParams, AdminIndexDef, FTSIndex};
 use anyhow::{Context, Result};
 use once_cell::sync::OnceCell;
 
@@ -35,27 +32,32 @@ pub fn get_admin_df() -> Result<&'static LazyFrame> {
 /// The weights should sum to 1.0 for a balanced score.
 #[derive(Debug, Clone, Copy)]
 pub struct SearchScoreAdminParams {
-    /// Weight for text relevance score (default: 0.35)
+    /// Weight for text relevance score (default: 0.4)
     pub text_weight: f32,
-    /// Weight for population importance (default: 0.35)
+    /// Weight for population importance (default: 0.25)
     pub pop_weight: f32,
+    /// Weight for parent score influence (default: 0.20)
+    pub parent_weight: f32,
     /// Weight for feature type importance (default: 0.15)
     pub feature_weight: f32,
-    /// Weight for parent score influence (default: 0.15)
-    pub parent_weight: f32,
 }
 
 impl Default for SearchScoreAdminParams {
     fn default() -> Self {
         Self {
-            text_weight: 0.35,
-            pop_weight: 0.35,
+            text_weight: 0.4,
+            pop_weight: 0.25,
+            parent_weight: 0.20,
             feature_weight: 0.15,
-            parent_weight: 0.15,
         }
     }
 }
-#[instrument(level = "trace", skip(lf, params), fields(search_term, score_col_name))]
+#[instrument(
+    name = "Admin Search Score",
+    level = "trace",
+    skip_all,
+    fields(search_term, score_col_name)
+)]
 fn search_score_admin(
     search_term: &str,
     lf: LazyFrame,
@@ -155,7 +157,7 @@ impl Default for AdminSearchParams {
 }
 
 #[inline]
-#[instrument(level="debug", skip(data, index, previous_result), fields(term, levels = ?levels, limit = params.limit, has_previous_result = previous_result.is_some()))]
+#[instrument(name = "Admin Level Search",    level="debug", skip_all, fields(term=term, levels = ?levels, limit = params.limit, has_previous_result = previous_result.is_some()))]
 pub fn admin_search_inner(
     term: &str,
     levels: &[u8],
@@ -258,7 +260,7 @@ pub fn admin_search_inner(
 
             let mut renames_map: HashMap<String, String> = HashMap::new();
             let mut parent_score_col_exprs: Vec<Expr> = Vec::new();
-            let score_pattern = regex::Regex::new(r"^adjusted_score_[0-4]$").unwrap();
+            let score_pattern = regex::Regex::new(r"^score_admin_[0-4]$").unwrap();
 
             for name_idx in prev_schema.iter_names() {
                 let name = name_idx.as_ref();
@@ -320,14 +322,11 @@ pub fn admin_search_inner(
             base_fts_results_lf
         }
     };
-    // It's often good to let the lazy engine optimize fully, so collecting here might be optional
-    // unless you observe specific query plan issues or very large intermediate results.
-    // For now, let's proceed without the explicit collect().lazy() here.
     let fts_results_for_scoring = fts_results_lf_with_potential_parents;
 
-    let min_level = levels.iter().min().copied().unwrap_or(0); // .copied() and fixed unwrap
+    let min_level = levels.iter().min().cloned().unwrap_or(0);
     debug_assert!(min_level < 5, "Level must be between 0 and 4");
-    let score_col_name = format!("adjusted_score_{}", min_level);
+    let score_col_name = format!("score_admin_{}", min_level);
 
     let select_exprs = if params.all_cols {
         vec![col("*")]
@@ -348,7 +347,7 @@ pub fn admin_search_inner(
             col("longitude"),
             col("admin_level"),
             col("fts_score"),
-            col("^adjusted_score_[0-4]$"),
+            col("^score_admin_[0-4]$"),
         ]
     };
 
