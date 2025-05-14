@@ -21,6 +21,7 @@ polars = { version = "0.46", features = [
     "dtype-u8",
     "dtype-u16",
     "dtype-struct",
+    "dtype-categorical",
     "trigonometry",
     # "performant",
     # "cse",

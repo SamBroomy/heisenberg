@@ -74,62 +74,57 @@ fn search_score_place(
     params: &SearchScorePlaceParams,
 ) -> Result<LazyFrame> {
     // ===== 1. Text relevance score (FTS) =====
-    let lf = super::text_relevance_score(lf, search_term)
+    let lf = super::text_relevance_score(lf, search_term).with_columns([
         // ===== 2. Importance score (pre-calculated) =====
-        .with_column(
-            col("importance_score")
-                .clip(lit(0.0_f32), lit(1.0_f32))
-                .alias("importance_norm"),
-        )
+        col("importance_score")
+            .clip(lit(0.0_f32), lit(1.0_f32))
+            .alias("importance_norm"),
         // ===== 3. Feature type scoring for places =====
-        .with_column(
-            when(col("feature_code").is_in(lit(Series::new(
-                "major_capitals".into(),
-                &["PPLC", "PPLA", "PPLA2", "PPLA3", "PPLA4"],
-            ))))
-            .then(lit(1.0_f32))
-            .when(col("feature_code").is_in(lit(Series::new(
-                "landmarks".into(),
-                &["CSTL", "MNMT", "RUIN", "TOWR"],
-            ))))
-            .then(lit(0.95_f32))
-            .when(col("feature_code").is_in(lit(Series::new(
-                "cultural".into(),
-                &["MUS", "THTR", "AMTH", "LIBR", "OPRA"],
-            ))))
-            .then(lit(0.9_f32))
-            .when(col("feature_code").is_in(lit(Series::new(
-                "populated".into(),
-                &["PPL", "PPLF", "PPLS", "PPLX"],
-            ))))
-            .then(lit(0.85_f32))
-            .when(col("feature_code").is_in(lit(Series::new(
-                "transport".into(),
-                &["AIRP", "RSTN", "PRT", "MAR"],
-            ))))
-            .then(lit(0.8_f32))
-            .when(col("feature_code").is_in(lit(Series::new(
-                "facilities_edu_med".into(),
-                &["UNIV", "SCH", "HSP", "HTL", "RSRT"],
-            ))))
-            .then(lit(0.75_f32))
-            .when(
-                col("feature_code").is_in(lit(Series::new("commercial".into(), &["MALL", "MKT"]))),
-            )
-            .then(lit(0.7_f32))
-            .when(col("feature_code").is_in(lit(Series::new(
-                "religious".into(),
-                &["CH", "MSQE", "TMPL", "SHRN"],
-            ))))
-            .then(lit(0.65_f32))
-            .when(col("feature_code").is_in(lit(Series::new(
-                "natural".into(),
-                &["MT", "PK", "VLC", "ISL", "BCH", "LK", "BAY"],
-            ))))
-            .then(lit(0.6_f32))
-            .otherwise(lit(0.3_f32))
-            .alias("feature_score"),
-        );
+        when(col("feature_code").is_in(lit(Series::new(
+            "major_capitals".into(),
+            &["PPLC", "PPLA", "PPLA2", "PPLA3", "PPLA4"],
+        ))))
+        .then(lit(1.0_f32))
+        .when(col("feature_code").is_in(lit(Series::new(
+            "landmarks".into(),
+            &["CSTL", "MNMT", "RUIN", "TOWR"],
+        ))))
+        .then(lit(0.95_f32))
+        .when(col("feature_code").is_in(lit(Series::new(
+            "cultural".into(),
+            &["MUS", "THTR", "AMTH", "LIBR", "OPRA"],
+        ))))
+        .then(lit(0.9_f32))
+        .when(col("feature_code").is_in(lit(Series::new(
+            "populated".into(),
+            &["PPL", "PPLF", "PPLS", "PPLX"],
+        ))))
+        .then(lit(0.85_f32))
+        .when(col("feature_code").is_in(lit(Series::new(
+            "transport".into(),
+            &["AIRP", "RSTN", "PRT", "MAR"],
+        ))))
+        .then(lit(0.8_f32))
+        .when(col("feature_code").is_in(lit(Series::new(
+            "facilities_edu_med".into(),
+            &["UNIV", "SCH", "HSP", "HTL", "RSRT"],
+        ))))
+        .then(lit(0.75_f32))
+        .when(col("feature_code").is_in(lit(Series::new("commercial".into(), &["MALL", "MKT"]))))
+        .then(lit(0.7_f32))
+        .when(col("feature_code").is_in(lit(Series::new(
+            "religious".into(),
+            &["CH", "MSQE", "TMPL", "SHRN"],
+        ))))
+        .then(lit(0.65_f32))
+        .when(col("feature_code").is_in(lit(Series::new(
+            "natural".into(),
+            &["MT", "PK", "VLC", "ISL", "BCH", "LK", "BAY"],
+        ))))
+        .then(lit(0.6_f32))
+        .otherwise(lit(0.3_f32))
+        .alias("feature_score"),
+    ]);
 
     // ===== 4. Distance score =====
     let lf = if let (Some(clat), Some(clon)) = (center_lat, center_lon) {

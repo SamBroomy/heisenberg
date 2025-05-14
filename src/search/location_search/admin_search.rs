@@ -65,47 +65,42 @@ fn search_score_admin(
     params: &SearchScoreAdminParams,
 ) -> Result<LazyFrame> {
     // ===== 1. Text relevance score =====
-    let lf = super::text_relevance_score(lf, search_term)
+    let lf = super::text_relevance_score(lf, search_term).with_columns([
         // ===== 2. Population importance =====
-        .with_column(
-            when(col("population").gt(0))
-                .then(lit(1.0) - lit(1.0) / (lit(1.0) + (col("population").log(10.0) / lit(3))))
-                .otherwise(lit(0.1))
-                .alias("pop_score"),
-        )
+        when(col("population").gt(0))
+            .then(lit(1.0) - lit(1.0) / (lit(1.0) + (col("population").log(10.0) / lit(3))))
+            .otherwise(lit(0.1))
+            .alias("pop_score"),
         // ===== 3. Feature type importance =====
-        .with_column(
-            when(col("feature_code").eq(lit("PCLI")))
-                .then(lit(1.0))
-                .when(col("feature_code").str().starts_with(lit("PCL")))
-                .then(lit(0.9))
-                .when(col("feature_code").eq(lit("PPLC")))
-                .then(lit(0.95))
-                .when(col("feature_code").str().starts_with(lit("PPL")))
-                .then(lit(0.8))
-                .when(col("feature_code").str().starts_with(lit("ADM1")))
-                .then(lit(0.85))
-                .when(col("feature_code").str().starts_with(lit("ADM2")))
-                .then(lit(0.75))
-                .when(col("feature_code").str().starts_with(lit("ADM3")))
-                .then(lit(0.65))
-                .when(col("feature_code").str().starts_with(lit("ADM")))
-                .then(lit(0.55))
-                .otherwise(lit(0.5))
-                .alias("feature_score"),
-        )
-        // ===== 4. Country/region prominence =====
-        .with_column(
-            when(col("admin0_code").is_in(lit(Series::new(
-                "major_countries".into(),
-                &[
-                    "US", "GB", "DE", "FR", "JP", "CN", "IN", "BR", "RU", "CA", "AU",
-                ],
-            ))))
+        when(col("feature_code").eq(lit("PCLI")))
+            .then(lit(1.0))
+            .when(col("feature_code").str().starts_with(lit("PCL")))
+            .then(lit(0.9))
+            .when(col("feature_code").eq(lit("PPLC")))
+            .then(lit(0.95))
+            .when(col("feature_code").str().starts_with(lit("PPL")))
             .then(lit(0.8))
+            .when(col("feature_code").str().starts_with(lit("ADM1")))
+            .then(lit(0.85))
+            .when(col("feature_code").str().starts_with(lit("ADM2")))
+            .then(lit(0.75))
+            .when(col("feature_code").str().starts_with(lit("ADM3")))
+            .then(lit(0.65))
+            .when(col("feature_code").str().starts_with(lit("ADM")))
+            .then(lit(0.55))
             .otherwise(lit(0.5))
-            .alias("country_score"),
-        );
+            .alias("feature_score"),
+        // ===== 4. Country/region prominence =====
+        when(col("admin0_code").is_in(lit(Series::new(
+            "major_countries".into(),
+            &[
+                "US", "GB", "DE", "FR", "JP", "CN", "IN", "BR", "RU", "CA", "AU",
+            ],
+        ))))
+        .then(lit(0.8))
+        .otherwise(lit(0.5))
+        .alias("country_score"),
+    ]);
 
     // ===== 5. Parent score influence =====
     let lf = super::parent_factor(lf)?
@@ -157,7 +152,7 @@ impl Default for AdminSearchParams {
 }
 
 #[inline]
-#[instrument(name = "Admin Level Search",    level="debug", skip_all, fields(term=term, levels = ?levels, limit = params.limit, has_previous_result = previous_result.is_some()))]
+#[instrument(name = "Admin Level Search", level="debug", skip_all, fields(term=term, levels = ?levels, limit = params.limit, has_previous_result = previous_result.is_some()))]
 pub fn admin_search_inner(
     term: &str,
     levels: &[u8],
