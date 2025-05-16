@@ -293,7 +293,8 @@ pub fn admin_search_inner(
                     selected_previous_lf,
                     current_join_key_exprs,
                     current_join_key_exprs,
-                    JoinArgs::new(JoinType::Left),
+                    // TODO: Use JoinType::Semi and remove any code that becomes redundant because of that. (the select above and therefore `cols_to_select_from_prev` ect)
+                    JoinArgs::new(JoinType::Semi),
                 );
                 lfs_to_concat.push(joined_lf);
             }

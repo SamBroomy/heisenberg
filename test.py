@@ -31,7 +31,6 @@ import duckdb
 from duckdb import DuckDBPyConnection
 from time import time
 
-
 pl.Config.set_tbl_rows(20)
 
 
@@ -55,15 +54,7 @@ con.execute("PRAGMA enable_object_cache=true")  # Improve query caching
 
 
 # %%
-con.execute(
-    """SELECT * , fts_main_admin_search.match_bm25(geonameId, $term) AS fts_score
-
-        FROM admin_search
-        WHERE fts_score IS NOT NULL
-            """,
-    {"term": "Kenya"},
-).pl()
-
+con.table("admin_search").pl().schema
 
 # %%
 SQL_FOLDER = Path("./sql")
@@ -1089,6 +1080,579 @@ def build_places_search_table(con, overwrite=True):
 
 build_places_search_table(con, overwrite=False)
 
+
+# %%
+
+# %%
+df = (
+    con.table("hierarchy")
+    .pl()
+    .select(pl.col("parentId").append(pl.col("childId")).unique().alias(GID))
+    .join(con.table("allCountries").pl(), on=GID, how="inner")
+)
+
+# %%
+pl.concat(
+    [
+        df.filter(pl.col("feature_code").str.contains("PCL[A-Z]*|TERR")),
+    ]
+).unique(GID, keep="first")
+
+# %%
+con.table("admin_search").pl().group_by("feature_code").agg(pl.len()).sort(
+    "len", descending=True
+)
+
+
+# %%
+def load_file1(
+    file_path: str,
+    schema: dict[str, pl.DataType],
+    pipe: Callable[[pl.LazyFrame], pl.LazyFrame] | None = None,
+    skip_rows: int = 0,
+) -> pl.LazyFrame:
+    time_scan = time()
+    q = pl.scan_csv(
+        file_path,
+        separator="\t",
+        has_header=False,
+        schema=schema,
+        skip_rows=skip_rows,
+    )
+    q = q.with_columns(
+        pl.col(pl.Utf8).str.strip_chars().str.strip_chars("\"':").str.strip_chars()
+    )
+    if pipe is not None:
+        q = q.pipe(pipe)
+    # if GID in schema:
+    #     q = q.sort(GID, nulls_last=True)
+    logger.debug(f"Scan time: {time() - time_scan:.6f}s")
+
+    q = q.with_columns(cs.by_dtype(pl.String).str.strip_chars().replace("", None))
+    return q
+
+
+def drop_duplicates(df: pl.LazyFrame) -> pl.LazyFrame:
+    cols = [
+        "name",
+        "asciiname",
+        "feature_class",
+        "feature_code",
+        "admin0_code",
+        "admin1_code",
+        "admin2_code",
+        "admin3_code",
+        "admin4_code",
+        "timezone",
+    ]
+    return (
+        df.sort("modification_date", descending=True)
+        .unique(cols, keep="first")
+        .filter(~pl.all_horizontal(pl.col(cols).is_null()))
+        # .sort("geonameId")
+    )
+
+
+def alt_names_to_list(df: pl.LazyFrame) -> pl.LazyFrame:
+    return df.with_columns(pl.col("alternatenames").str.split(","))
+
+
+def all_countries_pipe(
+    df: pl.LazyFrame,
+) -> pl.LazyFrame:
+    return df.pipe(drop_duplicates).pipe(alt_names_to_list)
+
+
+schema_all_countries = {
+    GID: pl.UInt32,
+    "name": pl.Utf8,
+    "asciiname": pl.Utf8,
+    "alternatenames": pl.Utf8,
+    "latitude": pl.Float32,
+    "longitude": pl.Float32,
+    "feature_class": pl.String,
+    "feature_code": pl.String,
+    "admin0_code": pl.String,
+    "cc2": pl.Utf8,
+    "admin1_code": pl.Utf8,
+    "admin2_code": pl.Utf8,
+    "admin3_code": pl.Utf8,
+    "admin4_code": pl.Utf8,
+    "population": pl.Int64,
+    "elevation": pl.Int32,
+    "dem": pl.Int32,
+    "timezone": pl.Categorical,
+    "modification_date": pl.Date,
+}
+all_countries_parquet = Path(
+    "./data/processed/geonames/allCountries.parquet"
+)
+
+t1 = time()
+allCountries = (
+    load_file1(
+        "./data/raw/geonames/allCountries.txt",
+        schema_all_countries,
+        pipe=all_countries_pipe,
+    )
+    .lazy()
+).sink_parquet(
+    all_countries_parquet.as_posix(),
+
+)
+allCountries = pl.scan_parquet(
+    all_countries_parquet.as_posix(),
+)
+
+country_info_parquet = Path(
+    "./data/processed/geonames/countryInfo.parquet"
+)
+countryInfo = (
+    load_file1(
+        "./data/raw/geonames/countryInfo.txt",
+        {
+            "ISO": pl.String,
+            "ISO3": pl.String,
+            "ISO_Numeric": pl.Int32,
+            "fips": pl.String,
+            "Country": pl.Utf8,
+            "Capital": pl.Utf8,
+            "Area": pl.Float32,
+            "Population": pl.Int32,
+            "Continent": pl.Categorical,
+            "tld": pl.Utf8,
+            "CurrencyCode": pl.Utf8,
+            "CurrencyName": pl.Utf8,
+            "Phone": pl.Utf8,
+            "Postal_Code_Format": pl.Utf8,
+            "Postal_Code_Regex": pl.Utf8,
+            "Languages": pl.Utf8,
+            GID: pl.UInt32,
+            "neighbours": pl.Utf8,
+            "EquivalentFipsCode": pl.Utf8,
+        },
+        skip_rows=51,
+    )
+).sink_parquet(
+    country_info_parquet.as_posix(),
+)
+countryInfo = pl.scan_parquet(
+    country_info_parquet.as_posix(),
+)
+
+
+def feature_codes_pipe(df: pl.LazyFrame) -> pl.LazyFrame:
+    return (
+        df.with_columns(_tmp=pl.col.code.str.split("."))
+        .with_columns(
+            feature_class=pl.col._tmp.list.first(), feature_code=pl.col._tmp.list.last()
+        )
+        .drop("_tmp", "code")
+    )
+
+feature_codes_parquet = Path(
+    "./data/processed/geonames/featureCodes.parquet"
+)
+featureCodes = (
+    load_file1(
+        "./data/raw/geonames/featureCodes_en.txt",
+        {
+            "code": pl.String,
+            "name": pl.String,
+            "description": pl.String,
+        },
+        pipe=feature_codes_pipe,
+    )
+).sink_parquet(
+    feature_codes_parquet.as_posix(),
+)
+featureCodes = pl.scan_parquet(
+    feature_codes_parquet.as_posix(),
+)
+
+
+# %%
+# build_unified_admin_table(con, conn, overwrite=False)
+admin_search = (
+    allCountries.lazy()
+    .with_columns(
+        admin_level_tmp=pl.sum_horizontal(
+            cs.matches(r"admin\d+_code").is_not_null()
+        ).cast(pl.UInt8),
+        #     feature_code=pl.col.feature_code.cast(pl.Utf8),
+    )
+    .with_columns(
+        admin_level=pl.when(pl.col("feature_code").str.contains(r"^PCL[A-Z]*$|^TERR$"))
+        .then(0)
+        .when(pl.col("feature_code").str.contains(r"^ADM[1-5]$"))
+        .then(pl.col("admin_level_tmp") - 1)
+        .when((pl.col("feature_code").str.contains(r"^PPLC|PPLA[2-5]*|PPLX$")))
+        .then(pl.col("admin_level_tmp"))
+        .otherwise(None)
+        .clip(0, 4),
+    )
+    .with_columns(
+        admin1_code=pl.when(pl.col("admin_level") == 0)
+        .then(None)
+        .otherwise(pl.col("admin1_code"))
+    )
+    # .with_columns(
+    #     feature_code=pl.col.feature_code.cast(pl.Categorical))
+    .join(
+        countryInfo.lazy(),
+        on=GID,
+        how="left",
+    )
+    .select(
+        [
+            "geonameId",
+            "name",
+            "asciiname",
+            "admin_level",
+            "admin0_code",
+            "admin1_code",
+            "admin2_code",
+            "admin3_code",
+            "admin4_code",
+            "feature_class",
+            "feature_code",
+            "ISO",
+            "ISO3",
+            pl.col("Country").alias("official_name"),
+            "fips",
+            "latitude",
+            "longitude",
+            "population",
+            "alternatenames",
+        ]
+    )
+    .filter(pl.col("admin_level").is_not_null())
+).sink_parquet(
+    Path("./data/processed/geonames/admin_search.parquet").as_posix(),
+    # partition_by=["admin_level"],
+)
+admin_search = pl.scan_parquet(
+    Path("./data/processed/geonames/admin_search.parquet").as_posix(),
+)
+
+# %%
+# admin_search = pl.scan_parquet(
+#     Path("./data/processed/geonames/admin_search.parquet").as_posix(),
+# ).collect()
+# admin_search.sample(fraction=1)
+
+# %%
+categories = {
+    "capitals": ["PPLC", "PPLG", "PPLCH"],
+    "major_populated": ["PPLA", "PPLA2", "PPLA3", "PPLA4", "PPLF", "PPLS"],
+    "populated": ["PPL", "PPLL", "STLMT"],
+    "landmarks": ["CSTL", "MNMT", "TOWR", "ARCH", "CAVE", "ANS"],
+    "historic": ["MNMT", "RUIN", "HSTS", "ARCH"],
+    "religious": ["CH", "MSQE", "TMPL", "SHRN", "SYG", "CVNT"],
+    "transportation": ["AIRP", "RSTN", "BUSTN", "MAR", "PRT", "STNM", "STNR", "STNS"],
+    "commercial": ["MALL", "MKT", "RECR", "RECG", "SHOP", "CSNO"],
+    "education": ["UNIV", "SCH", "SCHC", "SCHL", "SCHM", "SCHN", "SCHT"],
+    "medical": ["HSP", "CTRM", "HSPC", "HSPD"],
+    "facilities": ["HTL", "RSRT", "ZOO", "STDM", "PRK", "SPA", "ATHF", "ASYL"],
+    "infrastructure": [
+        "BDG",
+        "DAM",
+        "LOCK",
+        "LTHSE",
+        "BRKW",
+        "PIER",
+        "QUAY",
+        "PRMN",
+        "OILR",
+        "PS",
+        "PSH",
+        "PSN",
+        "CTRF",
+    ],
+    "nature_reserve": ["RESN", "RESW", "RESH", "RESF", "RESA"],
+    "water_features": ["LK", "STM", "BAY", "RSV", "FLLS", "CNYN", "VAL", "GLCR"],
+    "mountain_features": ["MT", "PK", "VLC", "HLL", "HLLS", "MTS", "PLAT"],
+    "area": ["RGN", "AREA", "CONT", "LCTY", "RGNH", "RGNL"],
+    "government": [
+        "ADMF",
+        "GOVL",
+        "CTHSE",
+        "DIP",
+        "BANK",
+        "PO",
+        "PP",
+        "CSTM",
+        "MILB",
+        "INSM",
+    ],
+}
+
+category_weights = {
+    "capitals": 1.0,
+    "major_populated": 0.8,
+    "populated": 0.6,
+    "landmarks": 0.7,
+    "historic": 0.5,
+    "religious": 0.5,
+    "transportation": 0.5,
+    "commercial": 0.3,
+    "education": 0.3,
+    "medical": 0.3,
+    "facilities": 0.2,
+    "infrastructure": 0.15,
+    "nature_reserve": 0.2,
+    "water_features": 0.2,
+    "mountain_features": 0.2,
+    "area": 0.3,
+    "government": 0.4,
+    "other": 0.1,
+}
+
+class_category_weights = {
+    "P": ("populated", 0.2),
+    "A": ("area", 0.2),
+    "S": ("facilities", 0.15),
+    "T": ("mountain_features", 0.15),
+    "H": ("water_features", 0.15),
+    "L": ("area", 0.1),
+    "R": ("infrastructure", 0.1),
+    "V": ("area", 0.1),
+    "U": ("area", 0.1),
+}
+category_map = []
+for cat, codes in categories.items():
+    for code in codes:
+        category_map.append(
+            {
+                "feature_code": code,
+                "category_name": cat,
+                "category_weight": category_weights[cat],
+            }
+        )
+category_map_df = pl.LazyFrame(category_map)
+
+# 2. Join featureCodes with category_map on feature_code
+cat_features = featureCodes.join(category_map_df, on="feature_code", how="left")
+
+# 3. Fill in class defaults for missing category_name (i.e., codes not in mapping)
+class_defaults_df = pl.LazyFrame(
+    [
+        {
+            "feature_class": fc,
+            "category_name": cat,
+            "category_weight": weight,
+        }
+        for fc, (cat, weight) in class_category_weights.items()
+    ]
+)
+cat_features = cat_features.join(
+    class_defaults_df, on="feature_class", how="left", suffix="_class_default"
+)
+
+
+# 4. Use coalesce to fill missing values from class defaults, then fallback to "other"
+cat_features = cat_features.with_columns(
+    [
+        pl.coalesce(
+            [
+                pl.col("category_name"),
+                pl.col("category_name_class_default"),
+                pl.lit("other"),
+            ]
+        ).alias("category_name"),
+        pl.coalesce(
+            [
+                pl.col("category_weight"),
+                pl.col("category_weight_class_default"),
+                pl.lit(0.1),
+            ]
+        ).alias("category_weight"),
+    ]
+).select(
+    [
+        "feature_class",
+        "feature_code",
+        "name",
+        "description",
+        "category_name",
+        "category_weight",
+    ]
+)
+cat_features
+
+
+places_search = (
+    allCountries.join(admin_search, on=GID, how="anti")
+    .filter(
+        pl.col("admin0_code").is_not_null(),
+        pl.col("feature_class").is_in(["P", "S", "T", "H", "L", "V", "R"]),
+        pl.col("feature_code").str.contains(r"ADM[A-Z]*|PCL[A-Z]*|TERR").not_(),
+    )
+    .with_columns(
+        pop_log1p=pl.col("population").log1p(),
+        name_len_log1p=pl.col("alternatenames").list.len().fill_null(0).log1p(),
+    )
+    .with_columns(
+        pop_boost=(
+            (pl.col("pop_log1p") - pl.col("pop_log1p").min())
+            / (pl.col("pop_log1p").max() - pl.col("pop_log1p").min())
+        ).fill_nan(0.0),
+        name_boost=(
+            (pl.col("name_len_log1p") - pl.col("name_len_log1p").min())
+            / (pl.col("name_len_log1p").max() - pl.col("name_len_log1p").min())
+        ).fill_nan(0.0),
+    )
+    .join(cat_features, on="feature_code", how="left")
+    .with_columns(
+        importance_score=(
+            (pl.col("pop_boost") * 0.5)
+            + (pl.col("category_weight") * 0.3)
+            + (pl.col("name_boost") * 0.2)
+        )
+    )
+    .with_columns(
+        importance_score=1
+        / (
+            1
+            + (
+                (pl.col.importance_score - pl.col.importance_score.mean())
+                / pl.col.importance_score.std()
+            )
+            .mul(-1.5)
+            .exp()
+        ),
+    )
+    .filter(
+        pl.col("importance_score").is_not_null(),
+    )
+    #.sort("importance_score", descending=True)
+    .select(
+        [
+            GID,
+            "name",
+            "asciiname",
+            "admin0_code",
+            "admin1_code",
+            "admin2_code",
+            "admin3_code",
+            "admin4_code",
+            "feature_class",
+            "feature_code",
+            "latitude",
+            "longitude",
+            "population",
+            "elevation",
+            "alternatenames",
+            "importance_score",
+        ]
+    )
+).sink_parquet(
+    Path("./data/processed/geonames/places_search.parquet").as_posix(),
+
+)
+time() - t1
+
+# %%
+pl.collect_all(
+
+    [places_search,admin_search]
+    #,engine="streaming"
+)
+
+
+# %%
+#18.7 for stright collect all.
+# 17.8 for sequential final collect
+# 17.5 for allCounrties collect first.
+
+# %%
+con.table("places_search").pl()
+
+# %%
+allCountries.join(admin_search.lazy(), on=GID, how="anti").collect()
+
+# %%
+allCountries.collect()
+
+# %%
+o
+
+# %%
+allCountries.collect()
+
+# %%
+o.with_columns(
+    admin_level_tmp=pl.sum_horizontal(cs.matches(r"admin\d+_code").is_not_null()).cast(
+        pl.UInt8
+    )
+).filter(pl.col("admin_level_tmp") != pl.col("admin_level")).filter(admin_level=0)
+
+# %%
+con.table("admin_search").pl().filter(
+    pl.col.admin_level.is_in([1, 2]),
+    name="California",
+)
+
+# %%
+o.filter(
+    pl.col.admin_level.is_in([1, 2]),
+    name="California",
+)
+
+# %%
+# "DE"	"16"	"00"	"11000"	"11000000"
+o.filter(
+    pl.col.admin4_code.is_null(),
+    admin0_code="DE",
+    admin1_code="16",
+    admin2_code="00",
+    admin3_code="11000",
+)
+
+# %%
+h = (
+    con.table("hierarchy")
+    .pl()
+    .select(pl.col("parentId").append(pl.col("childId")).unique().alias(GID))
+)
+
+
+# %%
+h.select(pl.col.child.unique())
+
+# %%
+entire_set.filter(pl.col(GID).is_in()
+
+# %%
+con.table("allCountries").pl().filter(pl.col(GID) == 13100072)
+
+
+# %%
+con.table("admin_search").pl().filter(
+    (pl.col("admin1_code") == "ENG")
+    & (pl.col("admin2_code") == "GLA")
+    & (pl.col("admin_level") == 2)
+)
+
+# %%
+df.filter(feature_class="L")
+
+# %%
+df.select(pl.col.feature_class.value_counts()).unnest("feature_class").sort(
+    "count", descending=True
+)
+
+# %%
+con.table("admin_search").pl().filter(geonameId=13100072)
+
+# %%
+con.table("admin_search").pl().filter(pl.col("alternatenames").is_null())
+
+# %%
+df.group_by("name").agg(pl.len()).sort("len", descending=True).head(10)
+
+# %%
+df.filter(pl.col.admin0_code.is_null())
 
 # %%
 con.close()
@@ -2742,28 +3306,15 @@ for i, df_result in enumerate(results_short):
 
 
 # %%
-con.execute(
-    """WITH filtered_results AS (
-        SELECT geonameId,name,asciiname,admin0_code,admin1_code,admin2_code,admin3_code,admin4_code,feature_class,feature_code,population,latitude,longitude,importance_score,importance_tier,
-            fts_main_places_search.match_bm25(geonameId, $term) AS fts_score
-        FROM places_search
-        WHERE ((admin0_code = 'US' AND admin1_code = 'FL' AND admin2_code = '105' AND admin3_code = '7170309')) AND importance_tier <= 5
-    )
-    SELECT * FROM filtered_results
-    WHERE fts_score IS NOT NULL
-    ORDER BY fts_score DESC,
-        importance_score DESC
-    LIMIT $limit""",
-    {"term": "Lakeland", "limit": 10},
-).pl()
-
-
-# %%
 results_list[3]
 
 
 # %%
 results_short[1]
+
+
+# %%
+con.table("places_search").pl().filter(geonameId=7170309)
 
 
 # %%
@@ -3484,3 +4035,4 @@ df.filter(pl.col("geonameId").is_in(output.keys))
 # country_index.fts_search("An Danmhairg").unwrap().join(
 #     con.table("admin0").pl(), "geonameId", "left"
 # )
+

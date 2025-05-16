@@ -200,6 +200,7 @@ fn filter_data_from_previous_results(
         .map(get_col_name_from_expr)
         .collect::<Result<_>>()
         .context("Failed to extract column names from join_key_exprs")?;
+    trace!(join_key_names = ?join_key_names_arc);
 
     // Select only the necessary columns for unique paths
     let unique_previous_paths_df = previous_result_df
@@ -289,6 +290,7 @@ fn filter_data_from_previous_results(
         }
 
         if let Some(filter) = current_path_filter {
+            trace!(filter = ?filter);
             lfs_to_concat.push(data.clone().filter(filter));
         } else {
             // This case might happen if all join_key_names resulted in null values for a path,

@@ -98,12 +98,12 @@ pub struct GenericEntry {
     pub geoname_id: u32,
     pub name: String,
     pub admin_level: u8,
-    pub feature_code: String,
     pub admin0_code: Option<String>,
     pub admin1_code: Option<String>,
     pub admin2_code: Option<String>,
     pub admin3_code: Option<String>,
     pub admin4_code: Option<String>,
+    pub feature_code: String,
     pub latitude: Option<f32>,
     pub longitude: Option<f32>,
     pub population: Option<i64>,
@@ -121,15 +121,15 @@ impl Entry for GenericEntry {
             admin_level: row.0[2]
                 .try_extract::<u8>()
                 .with_context(|| "Failed to extract admin_level")?,
-            feature_code: row.0[3]
+            admin0_code: row.0[3].get_str().map(|s| s.to_owned()),
+            admin1_code: row.0[4].get_str().map(|s| s.to_owned()),
+            admin2_code: row.0[5].get_str().map(|s| s.to_owned()),
+            admin3_code: row.0[6].get_str().map(|s| s.to_owned()),
+            admin4_code: row.0[7].get_str().map(|s| s.to_owned()),
+            feature_code: row.0[8]
                 .get_str()
                 .map(|s| s.to_owned())
                 .with_context(|| "Failed to extract feature_code as string")?,
-            admin0_code: row.0[4].get_str().map(|s| s.to_owned()),
-            admin1_code: row.0[5].get_str().map(|s| s.to_owned()),
-            admin2_code: row.0[6].get_str().map(|s| s.to_owned()),
-            admin3_code: row.0[7].get_str().map(|s| s.to_owned()),
-            admin4_code: row.0[8].get_str().map(|s| s.to_owned()),
             latitude: row.0[9].try_extract::<f32>().ok(),
             longitude: row.0[10].try_extract::<f32>().ok(),
             population: row.0[11].try_extract::<i64>().ok(),
@@ -138,17 +138,17 @@ impl Entry for GenericEntry {
 
     fn try_from_struct<'a>(value: &'a [AnyValue<'a>]) -> Result<Self> {
         match value {
-            [AnyValue::UInt32(geoname_id), AnyValue::String(name), AnyValue::UInt8(admin_level), AnyValue::String(feature_code), AnyValue::String(admin0_code), AnyValue::String(admin1_code), AnyValue::String(admin2_code), AnyValue::String(admin3_code), AnyValue::String(admin4_code), AnyValue::Float32(latitude), AnyValue::Float32(longitude), AnyValue::Int64(population)] => {
+            [AnyValue::UInt32(geoname_id), AnyValue::String(name), AnyValue::UInt8(admin_level), AnyValue::String(admin0_code), AnyValue::String(admin1_code), AnyValue::String(admin2_code), AnyValue::String(admin3_code), AnyValue::String(admin4_code), AnyValue::String(feature_code), AnyValue::Float32(latitude), AnyValue::Float32(longitude), AnyValue::Int64(population)] => {
                 Ok(Self {
                     geoname_id: *geoname_id,
                     name: name.to_string(),
                     admin_level: *admin_level,
-                    feature_code: feature_code.to_string(),
                     admin0_code: Some(admin0_code.to_string()),
                     admin1_code: Some(admin1_code.to_string()),
                     admin2_code: Some(admin2_code.to_string()),
                     admin3_code: Some(admin3_code.to_string()),
                     admin4_code: Some(admin4_code.to_string()),
+                    feature_code: feature_code.to_string(),
                     latitude: Some(*latitude),
                     longitude: Some(*longitude),
                     population: Some(*population),
@@ -170,12 +170,12 @@ impl Entry for GenericEntry {
             "geonameId",
             "name",
             "admin_level",
-            "feature_code",
             "admin0_code",
             "admin1_code",
             "admin2_code",
             "admin3_code",
             "admin4_code",
+            "feature_code",
             "latitude",
             "longitude",
             "population",
@@ -498,6 +498,8 @@ pub fn resolve_search_candidates<E: Entry>(
         let num_candidates_to_process =
             std::cmp::min(primary_candidates_df.height(), limit_per_query);
 
+        // TODO: Fix this as its brittle. Needs data to be in right order. Maybe do a select on the target df.
+        // And then loop over the zipped columns rather than the rows.
         for i in 0..num_candidates_to_process {
             // 1. Extract TargetLocationAdminCodes
             let target_codes = match TargetLocationAdminCodes::from_row(
@@ -572,7 +574,7 @@ pub fn resolve_search_candidates<E: Entry>(
             // A more generic way would be a trait method on E like `is_place_like()`.
             let feature_class_str = candidate_row
                 .0
-                .get(9) // Assuming feature_class is at index 9
+                .get(8) // Assuming feature_class is at index 9
                 .and_then(|av| av.get_str())
                 .map(|s| s.to_owned());
 
