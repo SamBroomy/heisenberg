@@ -19,7 +19,7 @@ pub fn download_to_temp_file(client: &Client, url: &str) -> Result<NamedTempFile
         .progress_chars("#>-"));
     pb.set_message(format!(
         "Downloading {}",
-        url.split('/').last().unwrap_or(url)
+        url.split('/').next_back().unwrap_or(url)
     ));
 
     let temp_file = NamedTempFile::new()?;
@@ -31,7 +31,7 @@ pub fn download_to_temp_file(client: &Client, url: &str) -> Result<NamedTempFile
     copy(&mut source, &mut dest_file)?;
     pb.finish_with_message(format!(
         "Downloaded {} to {:?}",
-        url.split('/').last().unwrap_or(url),
+        url.split('/').next_back().unwrap_or(url),
         temp_file.path()
     ));
     info!(path = ?temp_file.path(), "Download complete");

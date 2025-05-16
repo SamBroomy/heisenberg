@@ -1,24 +1,19 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use polars::prelude::*;
-use tracing::{debug, info, info_span, warn};
+use tracing::{info, info_span};
 
-use crate::search::location_search::{
-    backfill_administrative_context, LocationContext, ResolvedSearchResult,
-};
-use crate::search::TargetLocationAdminCodes;
 
 use super::fts_search::{AdminIndexDef, FTSIndex, PlacesIndexDef};
 use super::location_search::{
-    admin_search_inner, bulk_location_search_inner, get_admin_df, get_places_df,
-    location_search_inner, place_search_inner, AdminSearchParams, Entry, PlaceSearchParams,
-    SmartFlexibleSearchConfig,
+    admin_search_inner, bulk_location_search_inner, location_search_inner, place_search_inner,
+    AdminSearchParams, PlaceSearchParams, SmartFlexibleSearchConfig,
 };
 
 pub struct LocationSearchService {
     admin_fts_index: FTSIndex<AdminIndexDef>,
     admin_data_lf: LazyFrame,
     places_fts_index: FTSIndex<PlacesIndexDef>,
-    places_data_lf: LazyFrame,
+    place_data_lf: LazyFrame,
 }
 
 impl LocationSearchService {
@@ -26,22 +21,15 @@ impl LocationSearchService {
         info!("Initializing LocationSearchService...");
         let t_init = std::time::Instant::now();
 
+        let (admin_data_lf, place_data_lf) = crate::data::get_data()?;
+
         let admin_fts_index = {
             let _ = info_span!("load_service_admin_index").entered();
-            FTSIndex::new(AdminIndexDef, overwrite_fts_indexes)?
+            FTSIndex::new(AdminIndexDef, admin_data_lf.clone(), overwrite_fts_indexes)?
         };
         let places_fts_index = {
             let _ = info_span!("load_service_places_index").entered();
-            FTSIndex::new(PlacesIndexDef, overwrite_fts_indexes)?
-        };
-
-        let admin_data_lf = {
-            let _ = info_span!("load_service_admin_df").entered();
-            get_admin_df()?.clone()
-        };
-        let places_data_lf = {
-            let _ = info_span!("load_service_places_df").entered();
-            get_places_df()?.clone()
+            FTSIndex::new(PlacesIndexDef, place_data_lf.clone(), overwrite_fts_indexes)?
         };
 
         info!(
@@ -52,7 +40,7 @@ impl LocationSearchService {
             admin_fts_index,
             admin_data_lf,
             places_fts_index,
-            places_data_lf,
+            place_data_lf,
         })
     }
 
@@ -82,7 +70,7 @@ impl LocationSearchService {
         place_search_inner(
             term.as_ref(),
             &self.places_fts_index,
-            self.places_data_lf.clone(),
+            self.place_data_lf.clone(),
             previous_result,
             params,
         )
@@ -100,7 +88,7 @@ impl LocationSearchService {
             &self.admin_fts_index,
             self.admin_data_lf.clone(),
             &self.places_fts_index,
-            self.places_data_lf.clone(),
+            self.place_data_lf.clone(),
             config,
         )
     }
@@ -134,7 +122,7 @@ impl LocationSearchService {
             &self.admin_fts_index,
             self.admin_data_lf.clone(),
             &self.places_fts_index,
-            self.places_data_lf.clone(),
+            self.place_data_lf.clone(),
             config,
         )
     }

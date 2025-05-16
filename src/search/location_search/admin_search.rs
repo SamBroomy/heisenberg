@@ -1,31 +1,9 @@
 use crate::search::{fts_search::FTSIndexSearchParams, AdminIndexDef, FTSIndex};
-use anyhow::{Context, Result};
-use once_cell::sync::OnceCell;
-
 use ahash::AHashMap as HashMap;
+use anyhow::{Context, Result};
 use polars::prelude::*;
 use std::ops::Mul;
-use tracing::{debug, debug_span, info, info_span, instrument, trace, trace_span, warn};
-static ADMIN_DF_CACHE: OnceCell<LazyFrame> = OnceCell::new();
-
-pub fn get_admin_df() -> Result<&'static LazyFrame> {
-    ADMIN_DF_CACHE.get_or_try_init(|| {
-        info!("Loading and collecting 'admin_search.parquet' into memory for the first time...");
-        let t_load = std::time::Instant::now();
-        let df = LazyFrame::scan_parquet(
-            "./data/processed/geonames/admin_search.parquet",
-            Default::default(),
-        )?
-        .collect()
-        .map(|df| df.lazy())
-        .map_err(anyhow::Error::from);
-        info!(
-            "'admin_search.parquet' collected in {:.3} seconds",
-            t_load.elapsed().as_secs_f32()
-        );
-        df
-    })
-}
+use tracing::{debug, debug_span, info_span, instrument, trace, trace_span, warn};
 
 /// Parameters for scoring places based on various factors.
 /// The weights for each factor can be adjusted to change the scoring behaviors.

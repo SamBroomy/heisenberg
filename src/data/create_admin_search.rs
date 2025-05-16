@@ -1,12 +1,8 @@
 use anyhow::Result;
 use polars::prelude::*;
 
-pub fn get_admin_search_data(
-    all_countries: &LazyFrame,
-    country_info: &LazyFrame,
-) -> Result<LazyFrame> {
+pub fn get_admin_search_lf(all_countries: LazyFrame, country_info: LazyFrame) -> Result<LazyFrame> {
     Ok(all_countries
-        .clone()
         .with_column(
             polars::lazy::dsl::sum_horizontal([col(r"^admin\d+_code$").is_not_null()], true)?
                 .cast(DataType::UInt8)
@@ -47,6 +43,7 @@ pub fn get_admin_search_data(
                 ..Default::default()
             },
         )
+        .filter(col("admin_level").is_not_null())
         .select([
             col("geonameId"),
             col("name"),
@@ -67,6 +64,5 @@ pub fn get_admin_search_data(
             col("longitude"),
             col("population"),
             col("alternatenames"),
-        ])
-        .filter(col("admin_level").is_not_null()))
+        ]))
 }

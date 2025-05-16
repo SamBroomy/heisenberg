@@ -7,7 +7,7 @@ use tempfile::NamedTempFile;
 const ALL_COUNTRIES_URL: &str = "https://download.geonames.org/export/dump/allCountries.zip";
 
 fn download_all_countries(client: &Client) -> Result<NamedTempFile> {
-    download_zip_and_extract_first_entry_to_temp_file(&client, ALL_COUNTRIES_URL)
+    download_zip_and_extract_first_entry_to_temp_file(client, ALL_COUNTRIES_URL)
 }
 
 const ALL_COUNTRIES_SCHEMA: [(PlSmallStr, DataType); 19] = [

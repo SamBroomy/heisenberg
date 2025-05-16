@@ -6,7 +6,7 @@ use tempfile::NamedTempFile;
 
 const COUNTRY_INFO_URL: &str = "https://download.geonames.org/export/dump/countryInfo.txt";
 fn download_country_info(client: &Client) -> Result<NamedTempFile> {
-    download_to_temp_file(&client, COUNTRY_INFO_URL)
+    download_to_temp_file(client, COUNTRY_INFO_URL)
 }
 
 const COUNTRY_INFO_SCHEMA: [(PlSmallStr, DataType); 19] = [

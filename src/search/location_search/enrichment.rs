@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use itertools::Itertools;
 use polars::{frame::row::Row, prelude::*};
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error, instrument, warn};
+use tracing::{debug, instrument, warn};
 
 /// Trait for entities that can be extracted from a search result row.
 pub trait Entry: Sized + Default + Clone + Send + Sync + 'static {

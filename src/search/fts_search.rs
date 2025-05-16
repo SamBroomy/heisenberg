@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use itertools::izip;
 use polars::prelude::{col, LazyFrame};
 use polars::prelude::{DataFrame, DataType};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tantivy::schema::Field;
 use tantivy::{
     collector::TopDocs,
@@ -28,7 +28,7 @@ pub trait IndexDefinition: std::fmt::Debug + Send + Sync + 'static {
     /// Populates the Tantivy index from the given DataFrame.
     /// This method is responsible for iterating through the DataFrame,
     /// creating TantivyDocuments, and adding them to the IndexWriter.
-    fn index_data(&self, writer: &mut IndexWriter, df: DataFrame, schema: &Schema) -> Result<()>;
+    fn index_data(&self, writer: &mut IndexWriter, data: DataFrame, schema: &Schema) -> Result<()>;
 
     /// Returns the default fields to be queried in a search.
     fn default_query_fields(&self, schema: &Schema) -> Vec<Field>;
@@ -90,7 +90,7 @@ impl IndexDefinition for AdminIndexDef {
         let geoname_id_series = geoname_id_series.u64()?;
         let name_series = df.column("name")?.str()?;
         let asciiname_series = df.column("asciiname")?.str()?;
-        let alternatenames_series = df.column("alternatenames")?.str()?;
+        let alternatenames_series = df.column("alternatenames")?.list()?;
         let official_name_series = df.column("official_name")?.str()?;
         let iso_series = df.column("ISO")?.str()?;
         let iso3_series = df.column("ISO3")?.str()?;
@@ -123,7 +123,9 @@ impl IndexDefinition for AdminIndexDef {
                     doc.add_text(f_ascii, val);
                 }
                 if let Some(val) = alternatenames {
-                    doc.add_text(f_alt, val);
+                    for alt in val.str()?.iter().flatten() {
+                        doc.add_text(f_alt, alt);
+                    }
                 }
                 if let Some(val) = official_name {
                     doc.add_text(f_official, val);
@@ -201,7 +203,7 @@ impl IndexDefinition for PlacesIndexDef {
         let geoname_id_series = geoname_id_series.u64()?;
         let name_series = df.column("name")?.str()?;
         let asciiname_series = df.column("asciiname")?.str()?;
-        let alternatenames_series = df.column("alternatenames")?.str()?;
+        let alternatenames_series = df.column("alternatenames")?.list()?;
 
         let f_gid = schema.get_field("geonameId")?;
         let f_name = schema.get_field("name")?;
@@ -222,7 +224,9 @@ impl IndexDefinition for PlacesIndexDef {
                     doc.add_text(f_ascii, val);
                 }
                 if let Some(val) = alternatenames {
-                    doc.add_text(f_alt, val);
+                    for alt in val.str()?.iter().flatten() {
+                        doc.add_text(f_alt, alt);
+                    }
                 }
                 writer.add_document(doc)?;
             }
@@ -276,20 +280,26 @@ pub struct FTSIndex<D: IndexDefinition> {
 }
 
 impl<D: IndexDefinition> FTSIndex<D> {
-    #[instrument(name = "Create Index", skip(definition), fields(index_name = definition.name()))]
-    pub fn new(definition: D, overwrite: bool) -> Result<Self> {
+    #[instrument(name = "Create Index", skip(definition, data), fields(index_name = definition.name()))]
+    pub fn new(definition: D, data: LazyFrame, overwrite: bool) -> Result<Self> {
         let index_path = Path::new("./data/indexes/tantivy").join(definition.name());
 
         if index_path.exists() && !overwrite {
-            info!("Index '{}' already exists. Loading.", definition.name());
+            info!(index = definition.name(), "Already exists. Loading.",);
             let index = Index::open_in_dir(&index_path).with_context(|| {
                 format!("Failed to open existing index '{}'", definition.name())
             })?;
-            return Ok(FTSIndex { index, definition });
+            if index.reader().unwrap().searcher().num_docs() as usize
+                == data.clone().collect()?.shape().0
+            {
+                info!(index = definition.name(), "Up to date");
+                return Ok(FTSIndex { index, definition });
+            }
+            info!(index = definition.name(), "Not up to date, reindexing");
         }
 
         if index_path.exists() && overwrite {
-            info!("Deleting existing index '{}'...", definition.name());
+            info!(index = definition.name(), "Deleting existing index");
             std::fs::remove_dir_all(&index_path).with_context(|| {
                 format!("Failed to remove existing index '{}'", definition.name())
             })?;
@@ -312,13 +322,7 @@ impl<D: IndexDefinition> FTSIndex<D> {
             )
         })?;
 
-        info!("Loading data for index '{}'...", definition.name());
-        let df_path = PathBuf::from(format!(
-            "./data/processed/geonames/{}.parquet",
-            definition.name()
-        ));
-
-        let df = LazyFrame::scan_parquet(&df_path, Default::default())?
+        let data = data
             .select(
                 definition
                     .columns_for_indexing()
@@ -327,14 +331,14 @@ impl<D: IndexDefinition> FTSIndex<D> {
                     .collect::<Vec<_>>(),
             )
             .collect()
-            .with_context(|| format!("Failed to collect DataFrame from {:?}", df_path))?;
+            .with_context(|| "Failed to collect DataFrame".to_string())?;
 
         let mut index_writer: IndexWriter = index.writer(500_000_000).with_context(|| {
             format!("Failed to create index writer for '{}'", definition.name())
         })?;
 
         info!("Populating index '{}'...", definition.name());
-        definition.index_data(&mut index_writer, df, &schema)?;
+        definition.index_data(&mut index_writer, data, &schema)?;
 
         info!("Committing index '{}'...", definition.name());
         index_writer.commit()?;

@@ -6,7 +6,7 @@ use tempfile::NamedTempFile;
 
 const FEATURE_CODES_URL: &str = "https://download.geonames.org/export/dump/featureCodes_en.txt";
 fn download_feature_codes(client: &Client) -> Result<NamedTempFile> {
-    download_to_temp_file(&client, FEATURE_CODES_URL)
+    download_to_temp_file(client, FEATURE_CODES_URL)
 }
 
 const FEATURE_CODES_SCHEMA: [(PlSmallStr, DataType); 3] = [
