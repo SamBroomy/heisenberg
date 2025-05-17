@@ -1,4 +1,4 @@
-use crate::search::fts_search::{AdminIndexDef, FTSIndex, FTSIndexSearchParams, PlacesIndexDef};
+use crate::index::{AdminIndexDef, FTSIndex, FTSIndexSearchParams, PlacesIndexDef};
 use crate::search::location_search::admin_search::{
     admin_search_inner, AdminSearchParams, SearchScoreAdminParams,
 };
@@ -46,12 +46,12 @@ impl Default for SmartFlexibleSearchConfig {
                 ..Default::default()
             },
             place_search_score_params: Default::default(),
-            place_min_importance_tier: 4, // Default from PlaceSearchParams
+            place_min_importance_tier: 5, // Default from PlaceSearchParams
         }
     }
 }
 
-#[instrument(name = "Location Search", level = "info",    skip_all, fields(search_terms = ?search_terms_raw))]
+#[instrument(name = "Location Search", level = "info", skip_all, fields(search_terms = ?search_terms_raw))]
 pub fn location_search_inner(
     search_terms_raw: &[&str],
     admin_fts_index: &FTSIndex<AdminIndexDef>,

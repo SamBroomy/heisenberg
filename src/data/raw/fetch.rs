@@ -29,12 +29,9 @@ pub fn download_to_temp_file(client: &Client, url: &str) -> Result<NamedTempFile
     let mut source = pb.wrap_read(response);
 
     copy(&mut source, &mut dest_file)?;
-    pb.finish_with_message(format!(
-        "Downloaded {} to {:?}",
-        url.split('/').next_back().unwrap_or(url),
-        temp_file.path()
-    ));
-    info!(path = ?temp_file.path(), "Download complete");
+    pb.finish();
+
+    println!();
     Ok(temp_file)
 }
 

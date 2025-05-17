@@ -2,7 +2,6 @@ pub mod fts_search;
 pub mod location_search;
 pub mod service;
 
-pub use fts_search::{AdminIndexDef, FTSIndex, FTSIndexSearchParams, PlacesIndexDef};
 pub use location_search::{
     AdminSearchParams, GeonameEntry, GeonameFullEntry, PlaceSearchParams, SearchScoreAdminParams,
     SearchScorePlaceParams, SmartFlexibleSearchConfig, TargetLocationAdminCodes,

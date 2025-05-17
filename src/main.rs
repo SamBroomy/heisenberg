@@ -96,7 +96,7 @@ fn main() -> Result<()> {
             "Beverly Hills",
         ],
         vec!["UK", "London", "Camden", "British Museum"],
-        vec!["United Kingdom", "London", "Westminster", "Parlement"],
+        vec!["United Kingdom", "London", "Westminster", "Parliament"],
         vec!["FR", "Provence-Alpes-Côte d'Azur", "Le Lavandou"],
         vec!["England", "Dover", "Dover Ferry Terminal"],
         vec![

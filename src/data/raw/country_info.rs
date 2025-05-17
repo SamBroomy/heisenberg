@@ -1,11 +1,13 @@
-use super::fetch::download_to_temp_file;
 use anyhow::Result;
 use polars::prelude::*;
 use reqwest::blocking::Client;
+use std::path::Path;
 use tempfile::NamedTempFile;
 
+use super::fetch::download_to_temp_file;
+
 const COUNTRY_INFO_URL: &str = "https://download.geonames.org/export/dump/countryInfo.txt";
-fn download_country_info(client: &Client) -> Result<NamedTempFile> {
+pub fn download_country_info(client: &Client) -> Result<NamedTempFile> {
     download_to_temp_file(client, COUNTRY_INFO_URL)
 }
 
@@ -43,8 +45,8 @@ const COUNTRY_INFO_SCHEMA: [(PlSmallStr, DataType); 19] = [
     ),
 ];
 
-fn get_country_info_df(tmp_file: NamedTempFile) -> Result<LazyFrame> {
-    Ok(LazyCsvReader::new(tmp_file)
+pub fn get_country_info_df(path: impl AsRef<Path>) -> Result<LazyFrame> {
+    Ok(LazyCsvReader::new(path)
         .with_separator(b'\t')
         .with_has_header(false)
         .with_schema(Some(Schema::from_iter(COUNTRY_INFO_SCHEMA).into()))
@@ -57,9 +59,4 @@ fn get_country_info_df(tmp_file: NamedTempFile) -> Result<LazyFrame> {
                 .str()
                 .strip_chars(lit("")),
         ))
-}
-
-pub fn get_country_info(client: &Client) -> Result<LazyFrame> {
-    let tmp_file = download_country_info(client)?;
-    get_country_info_df(tmp_file)
 }

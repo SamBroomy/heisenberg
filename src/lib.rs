@@ -1,5 +1,6 @@
-pub mod search;
 pub mod data;
+pub mod index;
+pub mod search;
 use anyhow::Result;
 use once_cell::sync::OnceCell;
 pub use search::{

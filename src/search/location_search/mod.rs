@@ -38,11 +38,26 @@ fn text_relevance_score(lf: LazyFrame, search_term: &str) -> LazyFrame {
                     let name = s.field_by_name("name").unwrap();
                     let name = name.str().unwrap();
                     let altname = s.field_by_name("alternatenames").unwrap();
-                    let altname = altname.str().unwrap();
                     let altname = altname
-                        .iter()
-                        .map(|s| s.map(|s| s.split(',').map(|s| s.chars()).collect::<Vec<_>>()))
+                        .list()
+                        .unwrap()
+                        .into_iter()
+                        .map(|series| {
+                            series.map(|s| {
+                                s.str()
+                                    .unwrap()
+                                    .into_iter()
+                                    .map(|s| s.unwrap().chars().collect::<Vec<_>>())
+                                    .collect::<Vec<_>>()
+                            })
+                        })
                         .collect::<Vec<_>>();
+
+                    // let altname = altname.str().unwrap();
+                    // let altname: Vec<Option<Vec<std::str::Chars<'_>>>> = altname
+                    //     .iter()
+                    //     .map(|s| s.map(|s| s.split(',').map(|s| s.chars()).collect::<Vec<_>>()))
+                    //     .collect::<Vec<_>>();
 
                     let matches = izip!(name, altname)
                         .map(|(name, alternatenames)| {

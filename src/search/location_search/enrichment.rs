@@ -394,7 +394,7 @@ fn query_admin_level_entity<E: Entry>(
     }
 }
 
-#[instrument(level = "debug", skip(admin_data_lf), fields(target_codes = ?target_codes))]
+#[instrument(level = "trace", skip(admin_data_lf), fields(target_codes = ?target_codes))]
 pub fn backfill_administrative_context<E: Entry>(
     target_codes: &TargetLocationAdminCodes,
     admin_data_lf: LazyFrame,

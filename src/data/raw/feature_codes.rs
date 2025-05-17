@@ -1,11 +1,13 @@
-use super::fetch::download_to_temp_file;
 use anyhow::Result;
 use polars::prelude::*;
 use reqwest::blocking::Client;
+use std::path::Path;
 use tempfile::NamedTempFile;
 
+use super::fetch::download_to_temp_file;
+
 const FEATURE_CODES_URL: &str = "https://download.geonames.org/export/dump/featureCodes_en.txt";
-fn download_feature_codes(client: &Client) -> Result<NamedTempFile> {
+pub fn download_feature_codes(client: &Client) -> Result<NamedTempFile> {
     download_to_temp_file(client, FEATURE_CODES_URL)
 }
 
@@ -15,8 +17,8 @@ const FEATURE_CODES_SCHEMA: [(PlSmallStr, DataType); 3] = [
     (PlSmallStr::from_static("description"), DataType::String),
 ];
 
-fn get_feature_codes_df(tmp_file: NamedTempFile) -> Result<LazyFrame> {
-    Ok(LazyCsvReader::new(tmp_file.path())
+pub fn get_feature_codes_df(path: impl AsRef<Path>) -> Result<LazyFrame> {
+    Ok(LazyCsvReader::new(path)
         .with_separator(b'\t')
         .with_has_header(false)
         .with_schema(Some(Schema::from_iter(FEATURE_CODES_SCHEMA).into()))
@@ -34,9 +36,4 @@ fn get_feature_codes_df(tmp_file: NamedTempFile) -> Result<LazyFrame> {
                 .str()
                 .strip_chars(lit("")),
         ))
-}
-
-pub fn get_feature_codes(client: &Client) -> Result<LazyFrame> {
-    let tmp_file = download_feature_codes(client)?;
-    get_feature_codes_df(tmp_file)
 }

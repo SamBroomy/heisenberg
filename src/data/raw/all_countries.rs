@@ -1,12 +1,14 @@
-use super::fetch::download_zip_and_extract_first_entry_to_temp_file;
 use anyhow::Result;
 use polars::prelude::*;
 use reqwest::blocking::Client;
+use std::path::Path;
 use tempfile::NamedTempFile;
+
+use super::fetch::download_zip_and_extract_first_entry_to_temp_file;
 
 const ALL_COUNTRIES_URL: &str = "https://download.geonames.org/export/dump/allCountries.zip";
 
-fn download_all_countries(client: &Client) -> Result<NamedTempFile> {
+pub fn download_all_countries(client: &Client) -> Result<NamedTempFile> {
     download_zip_and_extract_first_entry_to_temp_file(client, ALL_COUNTRIES_URL)
 }
 
@@ -32,8 +34,8 @@ const ALL_COUNTRIES_SCHEMA: [(PlSmallStr, DataType); 19] = [
     (PlSmallStr::from_static("modification_date"), DataType::Date),
 ];
 
-fn get_all_countries_df(tmp_file: NamedTempFile) -> Result<LazyFrame> {
-    Ok(LazyCsvReader::new(tmp_file.path())
+pub fn get_all_countries_df(path: impl AsRef<Path>) -> Result<LazyFrame> {
+    Ok(LazyCsvReader::new(path)
         .with_separator(b'\t')
         .with_has_header(false)
         .with_schema(Some(Schema::from_iter(ALL_COUNTRIES_SCHEMA).into()))
@@ -67,9 +69,4 @@ fn get_all_countries_df(tmp_file: NamedTempFile) -> Result<LazyFrame> {
                 .strip_chars(lit("")),
         )
         .with_column(col("alternatenames").str().split(lit(","))))
-}
-
-pub fn get_all_countries(client: &Client) -> Result<LazyFrame> {
-    let tmp_file = download_all_countries(client)?;
-    get_all_countries_df(tmp_file)
 }

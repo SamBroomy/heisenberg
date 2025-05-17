@@ -27,7 +27,8 @@ polars = { version = "0.46", features = [
     "csv",
     "semi_anti_join",
     # "performant",
-    # "cse",
+    "cse",
+    "streaming",
 ] }
 rapidfuzz = "0.5.0"
 rayon = "1.10.0"

@@ -2,12 +2,11 @@ use anyhow::Result;
 use polars::prelude::*;
 use tracing::{info, info_span};
 
-
-use super::fts_search::{AdminIndexDef, FTSIndex, PlacesIndexDef};
 use super::location_search::{
     admin_search_inner, bulk_location_search_inner, location_search_inner, place_search_inner,
     AdminSearchParams, PlaceSearchParams, SmartFlexibleSearchConfig,
 };
+use crate::index::{AdminIndexDef, FTSIndex, PlacesIndexDef};
 
 pub struct LocationSearchService {
     admin_fts_index: FTSIndex<AdminIndexDef>,

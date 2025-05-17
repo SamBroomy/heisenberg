@@ -1,4 +1,4 @@
-use crate::search::{fts_search::FTSIndexSearchParams, FTSIndex, PlacesIndexDef};
+use crate::index::{FTSIndex, FTSIndexSearchParams, PlacesIndexDef};
 use ahash::AHashMap as HashMap;
 use anyhow::{Context, Result};
 use itertools::Itertools;

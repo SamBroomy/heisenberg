@@ -1,4 +1,4 @@
-use crate::search::{fts_search::FTSIndexSearchParams, AdminIndexDef, FTSIndex};
+use crate::index::{AdminIndexDef, FTSIndex, FTSIndexSearchParams};
 use ahash::AHashMap as HashMap;
 use anyhow::{Context, Result};
 use polars::prelude::*;

@@ -54,9 +54,6 @@ con.execute("PRAGMA enable_object_cache=true")  # Improve query caching
 
 
 # %%
-con.table("admin_search").pl().schema
-
-# %%
 SQL_FOLDER = Path("./sql")
 
 
@@ -222,7 +219,6 @@ schema_all_countries = {
     "timezone": pl.Categorical,
     "modification_date": pl.Date,
 }
-
 
 load_file(
     "./data/raw/geonames/allCountries.txt",
@@ -688,9 +684,8 @@ def build_unified_admin_table(con, conn=None, overwrite=True):
 
     logger.debug("Admin search table construction complete!")
     logger.debug("Writing admin_search table to parquet...")
-    con.table("admin_search").pl().write_parquet(
-        Path("./data/processed/geonames/admin_search.parquet").as_posix(),
-        partition_by=["admin_level"],
+    con.table("admin_search").pl().with_columns(pl.col("alternatenames").str.split(",")).write_parquet(
+        Path("./data/processed/admin_search.parquet").as_posix(),
     )
     logger.debug("Admin search table written to parquet.")
 
@@ -1071,9 +1066,9 @@ def build_places_search_table(con, overwrite=True):
         logger.info(f"  Tier {row['importance_tier']}: {row['count']:,} features")
 
     logger.debug("Writing places_search table to parquet...")
-    con.table("places_search").pl().write_parquet(
-        "./data/processed/geonames/places_search.parquet",
-        partition_by=["importance_tier"],
+    con.table("places_search").pl().with_columns(pl.col("alternatenames").str.split(",")).write_parquet(
+        "./data/processed/place_search.parquet",
+
     )
     logger.debug("Saved places_search table to parquet file")
 
@@ -1082,6 +1077,29 @@ build_places_search_table(con, overwrite=False)
 
 
 # %%
+allCountries =con.table("allCountries").pl()
+
+# %%
+allCountries.filter( ).filter(pl.col("name").str.contains("parliament", literal=True))
+
+# %%
+allCountries = pl.scan_csv(    "./data/raw/geonames/allCountries.txt",
+    separator="\t",
+    has_header=False,
+    schema=schema_all_countries,
+    ).collect()
+
+
+# %%
+allCountries.filter(pl.col("name").str.contains("Parliament", literal=True)).filter(admin0_code="GB")
+
+# %%
+cols = ["name", "asciiname", "feature_class", "feature_code", "admin0_code", "admin1_code", "admin2_code", "admin3_code", "admin4_code", "timezone"]
+
+allCountries.filter(allCountries.select(cs.by_name(cols)).is_duplicated()).sort("modification_date")#.unique(cols, keep="first")
+
+# %%
+pl.read_parquet("data/processed/place_search.parquet").filter(pl.col.geonameId == 6930645)
 
 # %%
 df = (
@@ -1269,6 +1287,16 @@ featureCodes = (
 featureCodes = pl.scan_parquet(
     feature_codes_parquet.as_posix(),
 )
+
+
+# %%
+
+
+
+pl.read_parquet("data/processed/places_search.parquet")
+
+# %%
+pl.read_parquet("data/processed/places_search.parquet").pipe(alt_names_to_list).write_parquet("data/processed/places_search.parquet")
 
 
 # %%
@@ -1479,14 +1507,15 @@ cat_features = cat_features.with_columns(
     ]
 )
 cat_features
-
+allCountries = allCountries.collect().lazy()
+admin_search = admin_search.collect().lazy()
 
 places_search = (
     allCountries.join(admin_search, on=GID, how="anti")
     .filter(
         pl.col("admin0_code").is_not_null(),
         pl.col("feature_class").is_in(["P", "S", "T", "H", "L", "V", "R"]),
-        pl.col("feature_code").str.contains(r"ADM[A-Z]*|PCL[A-Z]*|TERR").not_(),
+        #pl.col("feature_code").str.contains(r"ADM[A-Z]*|PCL[A-Z]*|TERR").not_(),
     )
     .with_columns(
         pop_log1p=pl.col("population").log1p(),
@@ -1516,14 +1545,44 @@ places_search = (
             1
             + (
                 (pl.col.importance_score - pl.col.importance_score.mean())
-                / pl.col.importance_score.std()
+                / pl.col.importance_score.std().fill_null(1)
             )
             .mul(-1.5)
             .exp()
         ),
     )
+    .with_columns(
+        # Define the cumulative percentage thresholds for each tier.
+        # Tier 1: Top ~0.54% of scores
+        # Tier 1-2: Top ~1.80% of scores
+        # Tier 1-3: Top ~5.99% of scores
+        # Tier 1-4: Top ~20.00% of scores
+        # Tier 5: Remaining ~80.00% of scores
+        importance_tier=pl.when(
+            # Check if the score is in the top ~0.54% (quantile for Tier 1)
+            pl.col("importance_score") >= pl.col("importance_score").quantile(1.0 - (59.94 / 11111.0), interpolation="linear")
+        )
+        .then(pl.lit(1, dtype=pl.UInt8)) # Assign to Tier 1
+        .when(
+            # Else, check if the score is in the top ~1.80% (quantile for Tier 2)
+            pl.col("importance_score") >= pl.col("importance_score").quantile(1.0 - (199.8 / 11111.0), interpolation="linear")
+        )
+        .then(pl.lit(2, dtype=pl.UInt8)) # Assign to Tier 2
+        .when(
+            # Else, check if the score is in the top ~5.99% (quantile for Tier 3)
+            pl.col("importance_score") >= pl.col("importance_score").quantile(1.0 - (666.0 / 11111.0), interpolation="linear")
+        )
+        .then(pl.lit(3, dtype=pl.UInt8)) # Assign to Tier 3
+        .when(
+            # Else, check if the score is in the top ~20.00% (quantile for Tier 4)
+            pl.col("importance_score") >= pl.col("importance_score").quantile(1.0 - (2222.0 / 11111.0), interpolation="linear")
+        )
+        .then(pl.lit(4, dtype=pl.UInt8)) # Assign to Tier 4
+        .otherwise(pl.lit(5, dtype=pl.UInt8)) # All other scores fall into Tier 5
+    )
     .filter(
-        pl.col("importance_score").is_not_null(),
+        pl.col("importance_score").is_not_null() |
+        pl.col("importance_tier").is_not_null()
     )
     #.sort("importance_score", descending=True)
     .select(
@@ -1544,13 +1603,37 @@ places_search = (
             "elevation",
             "alternatenames",
             "importance_score",
+            "importance_tier"
         ]
     )
-).sink_parquet(
-    Path("./data/processed/geonames/places_search.parquet").as_posix(),
-
-)
+).collect().lazy()
 time() - t1
+gb = places_search.group_by(
+    "importance_tier",
+).agg(pl.len()).sort("importance_tier").with_columns (pctg = pl.col("len") / pl.col("len").sum() * 100).with_columns(cum_pctg = pl.col("pctg").cum_sum())
+
+
+# %%
+pl.scan_parquet("hberg_data/processed/place_search.parquet").filter( geonameId=6930645).collect() #name="Parliament",
+
+# %%
+
+
+pl.scan_parquet(
+"data/processed/place_search.parquet"
+).filter(name="Parliament").collect()
+
+# %%
+gb.collect()
+
+# %%
+places_search.collect().group_by(
+    "importance_tier",
+).agg(pl.len()).sort("importance_tier").with_columns (pctg = pl.col("len") / pl.col("len").sum() * 100).with_columns(cum_pctg = pl.col("pctg").cum_sum())
+
+
+# %%
+ps.select(pl.col("importance_tier").value_counts(normalize=True)).unnest("importance_tier").sort("importance_tier")
 
 # %%
 pl.collect_all(

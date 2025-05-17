@@ -64,16 +64,16 @@ fn get_category_features() -> Result<LazyFrame> {
         ("historic", 0.5),
         ("religious", 0.5),
         ("transportation", 0.5),
-        ("commercial", 0.3),
-        ("education", 0.3),
-        ("medical", 0.3),
-        ("facilities", 0.2),
-        ("infrastructure", 0.15),
-        ("nature_reserve", 0.2),
-        ("water_features", 0.2),
-        ("mountain_features", 0.2),
+        ("commercial", 0.4),
+        ("education", 0.4),
+        ("medical", 0.4),
+        ("facilities", 0.3),
+        ("infrastructure", 0.25),
+        ("nature_reserve", 0.25),
+        ("water_features", 0.25),
+        ("mountain_features", 0.25),
         ("area", 0.3),
-        ("government", 0.4),
+        ("government", 0.5),
     ]);
 
     let mut category_map = Vec::new();
@@ -182,17 +182,10 @@ pub fn get_place_search_lf(
             },
         )
         .filter(
-            (col("admin0_code").is_not_null())
-                .and(col("feature_class").is_in(lit(Series::new(
-                    "feature_class_to_keep".into(),
-                    ["P", "S", "T", "H", "L", "V", "R"],
-                ))))
-                .and(
-                    col("feature_code")
-                        .str()
-                        .contains(lit(r"^ADM[A-Z]*|PCL[A-Z]*|TERR"), false)
-                        .not(),
-                ),
+            (col("admin0_code").is_not_null()).and(col("feature_class").is_in(lit(Series::new(
+                "feature_class_to_keep".into(),
+                ["P", "S", "T", "H", "L", "V", "R"],
+            )))),
         )
         .with_columns([
             col("population").log1p().alias("pop_log1p"),
@@ -233,6 +226,39 @@ pub fn get_place_search_lf(
                     * lit(-1.5))
                 .exp()))
         .alias("importance_score")])
+        .with_column(
+            // All we are doing is defining the cumulative proportion of items belonging to the top tiers in a way that each successively smaller group of top tiers is approximately 30% the size of the next larger group.
+            // Defining the cumulative percentage thresholds for each tier as:
+            // Tier 1: Top ~0.54% of scores
+            when(
+                col("importance_score").gt(col("importance_score")
+                    .quantile(lit(1.0 - (59.94 / 11111.0)), QuantileMethod::Linear)),
+            )
+            .then(lit(1))
+            // Tier 1-2: Top ~1.80% of scores
+            .when(
+                col("importance_score").gt(col("importance_score")
+                    .quantile(lit(1.0 - (199.8 / 11111.0)), QuantileMethod::Linear)),
+            )
+            .then(lit(2))
+            // Tier 1-3: Top ~5.99% of scores
+            .when(
+                col("importance_score").gt(col("importance_score")
+                    .quantile(lit(1.0 - (666.0 / 11111.0)), QuantileMethod::Linear)),
+            )
+            .then(lit(3))
+            // Tier 1-4: Top ~20.00% of scores
+            .when(
+                col("importance_score").gt(col("importance_score")
+                    .quantile(lit(1.0 - (2222.0 / 11111.0)), QuantileMethod::Linear)),
+            )
+            .then(lit(4))
+            // Tier 5: Remaining ~80.00% of scores
+            .otherwise(lit(5))
+            .fill_null(5)
+            .cast(DataType::UInt8)
+            .alias("importance_tier"),
+        )
         .filter(col("importance_score").is_not_null())
         .select([
             col("geonameId"),
@@ -251,5 +277,6 @@ pub fn get_place_search_lf(
             col("elevation"),
             col("alternatenames"),
             col("importance_score"),
+            col("importance_tier"),
         ]))
 }
