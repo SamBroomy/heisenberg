@@ -333,7 +333,7 @@ pub fn location_search_inner(
 #[derive(Debug)]
 struct BulkQueryState {
     unique_id: usize,
-    original_input_terms: Vec<String>, // For reference/debugging
+    //original_input_terms: Vec<String>, // For reference/debugging
     admin_terms_for_main_sequence: Vec<String>,
     place_candidate_term: Option<String>,
     is_place_candidate_also_last_admin_term_in_sequence: bool,
@@ -346,10 +346,7 @@ struct BulkQueryState {
     results_for_this_query: Vec<DataFrame>,
 }
 
-fn calculate_target_levels_for_query_state(
-    qs: &BulkQueryState,
-    config: &SmartFlexibleSearchConfig,
-) -> Vec<u8> {
+fn calculate_target_levels_for_query_state(qs: &BulkQueryState) -> Vec<u8> {
     if qs.current_admin_term_idx >= qs.admin_terms_for_main_sequence.len() {
         return vec![]; // No more terms to search
     }
@@ -477,7 +474,7 @@ pub fn bulk_location_search_inner(
 
                 query_states.push(BulkQueryState {
                     unique_id: id,
-                    original_input_terms: cleaned_terms, // Keep original for reference
+                    //original_input_terms: cleaned_terms, // Keep original for reference
                     admin_terms_for_main_sequence,
                     place_candidate_term,
                     is_place_candidate_also_last_admin_term_in_sequence,
@@ -529,7 +526,7 @@ pub fn bulk_location_search_inner(
             }
             advanced_any_query_this_pass = true;
             let term_to_search = &qs.admin_terms_for_main_sequence[qs.current_admin_term_idx];
-            let target_levels = calculate_target_levels_for_query_state(qs, config);
+            let target_levels = calculate_target_levels_for_query_state(qs);
 
             if target_levels.is_empty() {
                 continue;
@@ -554,7 +551,7 @@ pub fn bulk_location_search_inner(
             }
             // Check if this query was part of any batch (not strictly necessary here if batching is exhaustive, but good for logic)
             // The primary condition for advancing here is if target_levels was empty.
-            let target_levels = calculate_target_levels_for_query_state(qs, config);
+            let target_levels = calculate_target_levels_for_query_state(qs);
             if target_levels.is_empty() && !qs.admin_terms_for_main_sequence.is_empty() {
                 qs.current_admin_term_idx += 1;
                 if qs.current_admin_term_idx >= qs.admin_terms_for_main_sequence.len() {
@@ -579,7 +576,7 @@ pub fn bulk_location_search_inner(
                 if !qs.admin_sequence_complete
                     && qs.current_admin_term_idx < qs.admin_terms_for_main_sequence.len()
                 {
-                    let target_levels = calculate_target_levels_for_query_state(qs, config);
+                    let target_levels = calculate_target_levels_for_query_state(qs);
                     if target_levels.is_empty() {
                         qs.current_admin_term_idx += 1;
                         made_progress_in_advancing_stuck_queries = true;

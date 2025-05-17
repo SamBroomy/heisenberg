@@ -8,8 +8,6 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::EnvFilter;
 
 fn main() -> Result<()> {
-    let t_start = std::time::Instant::now();
-
     let filter = EnvFilter::try_from_default_env()
         .or_else(|_| EnvFilter::try_new("debug"))?
         .add_directive("tantivy=info".parse()?);

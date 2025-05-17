@@ -2,7 +2,6 @@ use anyhow::{Context, Result};
 use itertools::izip;
 use polars::prelude::{col, LazyFrame};
 use polars::prelude::{DataFrame, DataType};
-use std::path::Path;
 use tantivy::schema::Field;
 use tantivy::{
     collector::TopDocs,
