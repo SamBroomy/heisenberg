@@ -1,11 +1,12 @@
+pub mod backfill;
 pub mod data;
 pub mod index;
 pub mod search;
 use anyhow::Result;
+pub use backfill::{GenericEntry, GeonameEntry, LocationEntry};
 use once_cell::sync::OnceCell;
 pub use search::{
-    AdminSearchParams, GeonameEntry, GeonameFullEntry, LocationSearchService, PlaceSearchParams,
-    SmartFlexibleSearchConfig, TargetLocationAdminCodes,
+    AdminSearchParams, LocationSearchService, PlaceSearchParams, SmartFlexibleSearchConfig,
 };
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{fmt::format::FmtSpan, EnvFilter};

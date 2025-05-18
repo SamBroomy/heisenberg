@@ -1,6 +1,6 @@
 use anyhow::Result;
 use hbergv4::data::get_data;
-use hbergv4::search::location_search::resolve_search_candidates;
+use hbergv4::search::location_search::resolve_search_candidate_batches;
 use hbergv4::search::{GeonameEntry, LocationSearchService, SmartFlexibleSearchConfig};
 use polars::{enable_string_cache, prelude::*};
 use tracing::{debug, info, info_span, warn};
@@ -146,7 +146,7 @@ fn main() -> Result<()> {
         info!(i, df = ?df, "Bulk smart flexible search results");
     }
 
-    let out = resolve_search_candidates::<GeonameEntry>(out_bulk, &get_data()?.0, 10)?;
+    let out = resolve_search_candidate_batches::<GeonameEntry>(out_bulk, &get_data()?.0, 10)?;
 
     for (i, out) in out.iter().enumerate() {
         if out.is_empty() {

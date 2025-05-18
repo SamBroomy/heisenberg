@@ -16,7 +16,7 @@ static PLACE_DF_CACHE: OnceCell<LazyFrame> = OnceCell::new();
 
 fn get_df(path: &Path) -> Result<LazyFrame> {
     info!(
-        path = ?path,
+        path = ?path.file_stem(),
         "Loading and collecting into memory for the first time..."
     );
     let t_load = std::time::Instant::now();

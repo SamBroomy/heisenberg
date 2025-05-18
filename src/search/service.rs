@@ -6,7 +6,13 @@ use super::location_search::{
     admin_search_inner, bulk_location_search_inner, location_search_inner, place_search_inner,
     AdminSearchParams, PlaceSearchParams, SmartFlexibleSearchConfig,
 };
-use crate::index::{AdminIndexDef, FTSIndex, PlacesIndexDef};
+use crate::{
+    backfill::{
+        resolve_search_candidate, resolve_search_candidate_batches, LocationEntry,
+        ResolvedSearchResult,
+    },
+    index::{AdminIndexDef, FTSIndex, PlacesIndexDef},
+};
 
 pub struct LocationSearchService {
     admin_fts_index: FTSIndex<AdminIndexDef>,
@@ -75,11 +81,14 @@ impl LocationSearchService {
         )
     }
 
-    pub fn smart_flexible_search(
+    pub fn smart_flexible_search<Term>(
         &self,
-        input_terms: &[impl AsRef<str>],
+        input_terms: &[Term],
         config: &SmartFlexibleSearchConfig,
-    ) -> Result<Vec<DataFrame>> {
+    ) -> Result<Vec<DataFrame>>
+    where
+        Term: AsRef<str>,
+    {
         let input_terms = input_terms.iter().map(|s| s.as_ref()).collect::<Vec<_>>();
 
         location_search_inner(
@@ -92,14 +101,14 @@ impl LocationSearchService {
         )
     }
 
-    pub fn bulk_smart_flexible_search<Batch, Term>(
+    pub fn bulk_smart_flexible_search<Term, Batch>(
         &self,
         all_raw_input_batches: &[Batch],
         config: &SmartFlexibleSearchConfig,
     ) -> Result<Vec<Vec<DataFrame>>>
     where
-        Batch: AsRef<[Term]> + Sync,
-        Term: AsRef<str> + Sync,
+        Term: AsRef<str>,
+        Batch: AsRef<[Term]>,
     {
         let all_raw_input_batches = all_raw_input_batches
             .iter()
@@ -123,6 +132,42 @@ impl LocationSearchService {
             &self.places_fts_index,
             self.place_data_lf.clone(),
             config,
+        )
+    }
+
+    pub fn resolve_locations<Term, Entry>(
+        &self,
+        input_terms: &[Term],
+        config: &SmartFlexibleSearchConfig,
+        limit_per_query: usize,
+    ) -> Result<Vec<ResolvedSearchResult<Entry>>>
+    where
+        Term: AsRef<str>,
+        Entry: LocationEntry,
+    {
+        let search_results = self.smart_flexible_search(input_terms.as_ref(), config)?;
+
+        resolve_search_candidate(search_results, &self.admin_data_lf, limit_per_query)
+    }
+
+    pub fn resolve_locations_batch<Term, Batch, Entry>(
+        &self,
+        all_raw_input_batches: &[Batch],
+        config: &SmartFlexibleSearchConfig,
+        limit_per_query: usize,
+    ) -> Result<Vec<Vec<ResolvedSearchResult<Entry>>>>
+    where
+        Term: AsRef<str>,
+        Batch: AsRef<[Term]>,
+        Entry: LocationEntry,
+    {
+        let search_results_batches =
+            self.bulk_smart_flexible_search(all_raw_input_batches.as_ref(), config)?;
+
+        resolve_search_candidate_batches(
+            search_results_batches,
+            &self.admin_data_lf,
+            limit_per_query,
         )
     }
 }

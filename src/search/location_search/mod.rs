@@ -1,5 +1,5 @@
 mod admin_search;
-mod enrichment;
+
 mod place_search;
 mod smart_flexible_search;
 
@@ -12,10 +12,6 @@ use std::rc::Rc;
 use tracing::{debug, trace, warn};
 
 pub use admin_search::{admin_search_inner, AdminSearchParams, SearchScoreAdminParams};
-pub use enrichment::{
-    backfill_administrative_context, resolve_search_candidates, Entry, GeonameEntry,
-    GeonameFullEntry, LocationContext, ResolvedSearchResult, TargetLocationAdminCodes,
-};
 pub use place_search::{place_search_inner, PlaceSearchParams, SearchScorePlaceParams};
 pub use smart_flexible_search::{
     bulk_location_search_inner, location_search_inner, SmartFlexibleSearchConfig,

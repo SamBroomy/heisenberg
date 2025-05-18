@@ -189,7 +189,6 @@ impl IndexDefinition for PlacesIndexDef {
         schema_builder.add_text_field("name", text_options.clone());
         schema_builder.add_text_field("asciiname", text_options.clone());
         schema_builder.add_text_field("alternatenames", text_options);
-        // Places search might not have official_name, ISO codes etc.
         schema_builder.build()
     }
 
@@ -296,7 +295,7 @@ impl<D: IndexDefinition> FTSIndex<D> {
                 info!(index = definition.name(), "Up to date");
                 return Ok(FTSIndex { index, definition });
             }
-            info!(index = definition.name(), "Not up to date, reindexing");
+            info!(index = definition.name(), "Not up to date, re-indexing");
         }
 
         if index_path.exists() && overwrite {
@@ -382,9 +381,6 @@ impl<D: IndexDefinition> FTSIndex<D> {
         let gid_field = schema
             .get_field("geonameId")
             .context("geonameId field not in schema")?;
-        // let name_field = schema
-        //     .get_field("name")
-        //     .context("name field not in schema")?;
 
         let default_query_fields = self.definition.default_query_fields(&schema);
         if default_query_fields.is_empty() {
@@ -410,10 +406,6 @@ impl<D: IndexDefinition> FTSIndex<D> {
             } else {
                 warn!(?errors, "Query parsing errors occurred");
             }
-
-            // let general_fts_query = general_query_parser
-            //     .parse_query(query_str)
-            //     .with_context(|| format!("Failed to parse query: '{}'", query_str))?;
 
             let mut query_clauses: Vec<(Occur, Box<dyn Query>)> =
                 vec![(Occur::Should, general_fts_query)];
@@ -493,11 +485,6 @@ impl<D: IndexDefinition> FTSIndex<D> {
             .into_iter()
             .map(|(score, doc_address)| {
                 let received_doc = searcher.doc::<TantivyDocument>(doc_address)?;
-                // let name_val = received_doc
-                //     .get_first(name_field)
-                //     .and_then(|v| v.as_str())
-                //     .unwrap_or("")
-                //     .to_string();
                 let doc_id_val = received_doc
                     .get_first(gid_field)
                     .and_then(|v| v.as_u64())
