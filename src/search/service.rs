@@ -145,12 +145,12 @@ impl LocationSearchService {
         Term: AsRef<str>,
         Entry: LocationEntry,
     {
-        let search_results = self.smart_flexible_search(input_terms.as_ref(), config)?;
+        let search_results = self.smart_flexible_search(input_terms, config)?;
 
         resolve_search_candidate(search_results, &self.admin_data_lf, limit_per_query)
     }
 
-    pub fn resolve_locations_batch<Term, Batch, Entry>(
+    pub fn resolve_locations_batch<Entry, Term, Batch>(
         &self,
         all_raw_input_batches: &[Batch],
         config: &SmartFlexibleSearchConfig,
@@ -162,7 +162,7 @@ impl LocationSearchService {
         Entry: LocationEntry,
     {
         let search_results_batches =
-            self.bulk_smart_flexible_search(all_raw_input_batches.as_ref(), config)?;
+            self.bulk_smart_flexible_search(all_raw_input_batches, config)?;
 
         resolve_search_candidate_batches(
             search_results_batches,

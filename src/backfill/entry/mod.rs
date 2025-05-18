@@ -1,7 +1,6 @@
 use anyhow::Result;
 use itertools::izip;
 use polars::prelude::*;
-use serde::{Deserialize, Serialize};
 
 /// Trait for entities that can be extracted from a search result row.
 pub trait LocationEntry: Sized + Default + Clone + Send + Sync + 'static {
@@ -15,7 +14,7 @@ pub trait LocationEntry: Sized + Default + Clone + Send + Sync + 'static {
 
 /// A generic entry struct that can hold common fields from search results.
 /// This can be used as the type `E` in `ResolvedSearchResult` and `AdministrativeContext`.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct GenericEntry {
     pub geoname_id: u32,
     pub name: String,
@@ -109,7 +108,7 @@ impl LocationEntry for GenericEntry {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct GeonameEntry {
     pub geoname_id: u32,
     pub name: String,

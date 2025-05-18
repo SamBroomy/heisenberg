@@ -1,7 +1,4 @@
-use anyhow::Context;
 use itertools::Itertools;
-use polars::prelude::*;
-use serde::{Deserialize, Serialize};
 
 mod enrichment;
 mod entry;
@@ -9,7 +6,7 @@ pub use enrichment::{resolve_search_candidate, resolve_search_candidate_batches}
 pub use entry::{GenericEntry, GeonameEntry, LocationEntry};
 
 /// Holds the resolved context for a search result, including admin hierarchy and a potential place.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default)]
 pub struct LocationContext<E: LocationEntry> {
     pub admin0: Option<E>,
     pub admin1: Option<E>,
@@ -43,7 +40,7 @@ impl<E: LocationEntry> LocationContext<E> {
 }
 
 /// Represents a search result that has been fully resolved and enriched.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct ResolvedSearchResult<E: LocationEntry> {
     pub context: LocationContext<E>,
     pub score: f64,

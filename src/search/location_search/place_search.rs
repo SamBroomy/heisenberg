@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use itertools::Itertools;
 use polars::prelude::*;
 use std::ops::Mul;
-use tracing::{debug, debug_span, info_span, instrument, trace, trace_span, warn};
+use tracing::{debug, info_span, instrument, trace, trace_span, warn};
 
 const EARTH_RADIUS_KM: f64 = 6371.0;
 
@@ -217,8 +217,6 @@ pub fn place_search_inner(
 
     // --- Determine join columns and filter by previous admin results ---
     let (filtered_data_lf, join_cols_expr) = {
-        let _filter_span = debug_span!("prepare_filtered_data_for_search").entered();
-
         let join_cols_expr = super::get_join_expr_from_previous_result(previous_result.as_ref())
             .context("Failed to get join columns from previous result")?;
 
@@ -276,6 +274,7 @@ pub fn place_search_inner(
     let (fts_gids, fts_scores): (Vec<_>, Vec<_>) = index
         .search_in_subset(term, &gids_vec, &params.fts_search_params)?
         .into_iter()
+        .map(|(gid, score)| (gid as u32, score))
         .unzip();
 
     if fts_gids.is_empty() {

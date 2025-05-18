@@ -1,11 +1,10 @@
 use anyhow::Result;
-use hbergv4::data::get_data;
-use hbergv4::search::location_search::resolve_search_candidate_batches;
-use hbergv4::search::{GeonameEntry, LocationSearchService, SmartFlexibleSearchConfig};
+use heisenberg::backfill::ResolvedSearchResult;
+use heisenberg::{GeonameEntry, LocationSearchService, SmartFlexibleSearchConfig};
 use polars::{enable_string_cache, prelude::*};
 use tracing::{debug, info, info_span, warn};
-use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::EnvFilter;
+use tracing_subscriber::fmt::format::FmtSpan;
 
 fn main() -> Result<()> {
     let filter = EnvFilter::try_from_default_env()
@@ -132,31 +131,22 @@ fn main() -> Result<()> {
 
     let t_bulk = std::time::Instant::now();
     let examples_refs: Vec<&[&str]> = examples.iter().map(|v| v.as_slice()).collect();
-    let out_bulk =
-        search_service.bulk_smart_flexible_search(&examples_refs, &smart_search_config)?;
+    let out_bulk: Vec<Vec<ResolvedSearchResult<GeonameEntry>>> =
+        search_service.resolve_locations_batch(&examples_refs, &smart_search_config, 20)?;
 
     warn!(t_bulk = ?t_bulk.elapsed(), "Bulk smart flexible search took");
     warn!(t_avg_per_example = ?t_bulk.elapsed().as_secs_f32() / examples.len() as f32, "Average time per example");
 
-    for (i, df) in out_bulk.iter().enumerate() {
-        if df.is_empty() {
+    for (i, vec) in out_bulk.iter().enumerate() {
+        if vec.is_empty() {
             warn!(i, "Bulk smart flexible search results {}: empty", i);
             continue;
         }
-        info!(i, df = ?df, "Bulk smart flexible search results");
-    }
 
-    let out = resolve_search_candidate_batches::<GeonameEntry>(out_bulk, &get_data()?.0, 10)?;
-
-    for (i, out) in out.iter().enumerate() {
-        if out.is_empty() {
-            warn!(i, "Bulk smart flexible search results {}: empty", i);
-            continue;
-        }
-        info!(i, out = ?out, "Bulk smart flexible search results");
-        for res in out.iter() {
-            info!(simple = ?res.simple());
-            info!(full = ?res.full());
+        warn!(i, "Bulk smart flexible search results");
+        if let Some((j, res)) = vec.iter().enumerate().next() {
+            info!(i = i, j = j, "Bulk smart flexible search result");
+            info!("{:#?}", res);
         }
     }
 

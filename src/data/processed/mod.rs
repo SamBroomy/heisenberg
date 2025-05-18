@@ -109,10 +109,14 @@ pub fn get_data() -> Result<(LazyFrame, LazyFrame)> {
     let save_exprs = |lf: DataFrame, path: &Path| -> Result<()> {
         let sink_time = std::time::Instant::now();
 
-        lf.lazy()
+        let mut df = lf
+            .lazy()
             .drop_nulls(Some(vec!["geonameId".into()]))
             .sort(["geonameId"], SortMultipleOptions::default())
-            .sink_parquet(&path, ParquetWriteOptions::default(), None)?;
+            .collect()?;
+        let mut file = std::fs::File::create(path)?;
+        ParquetWriter::new(&mut file).finish(&mut df)?;
+
         info!(
             path = ?path.file_stem(),
             sink_time = ?sink_time.elapsed(),

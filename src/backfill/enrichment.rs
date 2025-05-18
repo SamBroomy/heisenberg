@@ -1,18 +1,15 @@
 use anyhow::Result;
 use itertools::izip;
 use polars::prelude::*;
-use rayon::iter::{
-    IndexedParallelIterator, IntoParallelIterator, ParallelIterator,
-};
-use serde::{Deserialize, Serialize};
-use tracing::{debug, instrument, warn};
+use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
+use tracing::{debug, debug_span, instrument, trace, warn};
 
-use super::{entry::LocationEntry, LocationContext, ResolvedSearchResult};
+use super::{LocationContext, ResolvedSearchResult, entry::LocationEntry};
 
 /// Stores the admin codes for a target location, used to backfill its context.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default)]
 pub struct TargetLocationAdminCodes {
-    pub geoname_id: u32,
+    _geoname_id: u32,
     pub admin0_code: Option<String>,
     pub admin1_code: Option<String>,
     pub admin2_code: Option<String>,
@@ -44,7 +41,7 @@ impl TargetLocationAdminCodes {
         )
         .map(
             |(geoname_id, admin0_code, admin1_code, admin2_code, admin3_code, admin4_code)| Self {
-                geoname_id: geoname_id.expect("geonameId should never be None"),
+                _geoname_id: geoname_id.expect("geonameId should never be None"),
                 admin0_code: admin0_code.map(|s| s.to_owned()),
                 admin1_code: admin1_code.map(|s| s.to_owned()),
                 admin2_code: admin2_code.map(|s| s.to_owned()),
@@ -99,7 +96,7 @@ fn backfill_administrative_context<E: LocationEntry>(
             code_hierachys.into_iter().enumerate()
         {
             let Some(current_level_code) = level_code_opt else {
-                debug!(
+                trace!(
                     level = admin_level_idx,
                     "No code provided in TargetLocationAdminCodes for this admin level."
                 );
@@ -134,7 +131,11 @@ fn backfill_administrative_context<E: LocationEntry>(
         .unzip();
 
     // Use collect_all on the flattened vector
-    let collected_frames = collect_all(flat_lazy_frames)?;
+
+    let collected_frames = {
+        let _span = debug_span!("Collecting LazyFrames", num = flat_lazy_frames.len(),).entered();
+        collect_all(flat_lazy_frames)?
+    };
 
     // Rebuild the original structure with the collected frames
     let mut result: Vec<LocationContext<E>> = vec![LocationContext::<E>::default(); final_lf_len];
@@ -155,7 +156,12 @@ fn backfill_administrative_context<E: LocationEntry>(
     Ok(result)
 }
 
-#[instrument(level = "info", skip(search_results, admin_data_lf), fields(num_batches = search_results.len(), limit_per_query))]
+#[instrument(
+    name = "Resolve Search Candidate",
+    level = "info",
+    skip(search_results, admin_data_lf),
+    fields(num_batches = 0, limit_per_query)
+)]
 pub fn resolve_search_candidate<E: LocationEntry>(
     search_results: Vec<DataFrame>,
     admin_data_lf: &LazyFrame,
@@ -173,11 +179,7 @@ pub fn resolve_search_candidate<E: LocationEntry>(
             return Ok(Vec::new());
         }
     };
-
-    debug!(
-        "Processing {} candidates from primary DataFrame.",
-        primary_candidates_df.height()
-    );
+    tracing::Span::current().record("num_batches", primary_candidates_df.height());
 
     let mut primary_candidates_df = primary_candidates_df.head(Some(limit_per_query));
 
@@ -211,7 +213,8 @@ pub fn resolve_search_candidate<E: LocationEntry>(
     Ok(resolved)
 }
 
-#[instrument(level = "info", skip(search_results_batches, admin_data_lf), fields(num_batches = search_results_batches.len(), limit_per_query))]
+#[instrument(name="Resolve Search Candidate Batches",
+    level = "info", skip(search_results_batches, admin_data_lf), fields(num_batches = search_results_batches.len(), limit_per_query))]
 pub fn resolve_search_candidate_batches<E: LocationEntry>(
     search_results_batches: Vec<Vec<DataFrame>>,
     admin_data_lf: &LazyFrame,
@@ -219,7 +222,9 @@ pub fn resolve_search_candidate_batches<E: LocationEntry>(
 ) -> Result<Vec<Vec<ResolvedSearchResult<E>>>> {
     search_results_batches
         .into_par_iter()
-        .map(|search_results| {
+        .enumerate()
+        .map(|(i, search_results)| {
+            let _search_span = debug_span!("Resolve Search Candidate Batches", batch = i).entered();
             resolve_search_candidate::<E>(search_results, admin_data_lf, limit_per_query)
         })
         .collect::<Result<Vec<_>>>()

@@ -1,7 +1,6 @@
 *
 !*/
-# Allow .gitignore itself
-!.gitignore
+.gitignore
 !Cargo.toml
 !src/
 !**/*.rs
