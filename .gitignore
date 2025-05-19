@@ -8,4 +8,5 @@
 /target
 !**/*.py
 !readme.md
+!LICENSE
 !sql/*.sql

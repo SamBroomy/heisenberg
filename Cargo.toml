@@ -2,7 +2,22 @@
 name = "heisenberg"
 version = "0.1.0"
 edition = "2024"
-
+authors = ["Sam B"]
+license = "MIT"
+repository = "https://github.com/SamBroomy/heisenberg"
+homepage = "https://github.com/SamBroomy/heisenberg"
+readme = "README.md"
+description = "Backfill and enrich unstructured location data into structured data using the Geonames Dataset."
+categories = ["science::geo"]
+keywords = [
+    "geonames",
+    "polars",
+    "location-enrichment",
+    "data-processing",
+    "geocoding",
+    "location",
+    "parsing",
+]
 
 [dependencies]
 ahash = "0.8.12"
@@ -41,7 +56,6 @@ tokio = { version = "1", features = [
     "io-util",
 ] }
 futures = "0.3"
-futures-util = "0.3"
 tantivy = "0.24"
 tempfile = "3"
 tracing = "0.1.41"
