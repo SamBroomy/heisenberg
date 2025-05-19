@@ -136,7 +136,7 @@ pub fn admin_search_inner(
     levels: &[u8],
     index: &FTSIndex<AdminIndexDef>,
     data: impl IntoLazy,
-    previous_result: Option<impl IntoLazy>,
+    previous_result: Option<DataFrame>,
     params: &AdminSearchParams,
 ) -> Result<Option<DataFrame>> {
     let data = data.lazy();

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use heisenberg::backfill::ResolvedSearchResult;
 use heisenberg::{GeonameEntry, Heisenberg, SmartFlexibleSearchConfig};
-use polars::{enable_string_cache, prelude::*};
+use polars::prelude::*;
 use tracing::{debug, info, info_span, warn};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::format::FmtSpan;
@@ -22,7 +22,7 @@ fn main() -> Result<()> {
         elapsed_seconds = t_total_setup.elapsed().as_secs_f32(),
         "LocationSearchService setup complete"
     );
-    enable_string_cache();
+
     let _example_search_span = info_span!("manual_search_example").entered();
 
     // Example using the service
@@ -109,7 +109,7 @@ fn main() -> Result<()> {
 
     for input in &examples {
         let t0 = std::time::Instant::now();
-        let output = search_service.smart_flexible_search(input, &smart_search_config)?;
+        let output = search_service.search_smart(input, &smart_search_config)?;
         let elapsed = t0.elapsed().as_secs_f32();
 
         warn!(
@@ -132,7 +132,7 @@ fn main() -> Result<()> {
     let t_bulk = std::time::Instant::now();
     let examples_refs: Vec<&[&str]> = examples.iter().map(|v| v.as_slice()).collect();
     let out_bulk: Vec<Vec<ResolvedSearchResult<GeonameEntry>>> =
-        search_service.resolve_locations_batch(&examples_refs, &smart_search_config, 20)?;
+        search_service.resolve_batch(&examples_refs, &smart_search_config, 20)?;
 
     warn!(t_bulk = ?t_bulk.elapsed(), "Bulk smart flexible search took");
     warn!(t_avg_per_example = ?t_bulk.elapsed().as_secs_f32() / examples.len() as f32, "Average time per example");

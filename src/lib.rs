@@ -7,7 +7,10 @@ pub mod service;
 pub use backfill::{GenericEntry, GeonameEntry, LocationEntry};
 pub use error::HeisenbergError;
 use once_cell::sync::OnceCell;
-pub use search::{AdminSearchParams, PlaceSearchParams, SmartFlexibleSearchConfig};
+pub use search::{
+    AdminSearchParams, PlaceSearchParams, SearchScoreAdminParams, SearchScorePlaceParams,
+    SmartFlexibleSearchConfig,
+};
 pub use service::Heisenberg;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};

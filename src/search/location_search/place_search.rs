@@ -205,7 +205,7 @@ pub fn place_search_inner(
     term: &str,
     index: &FTSIndex<PlacesIndexDef>,
     data: impl IntoLazy,
-    previous_result: Option<impl IntoLazy>,
+    previous_result: Option<DataFrame>,
     params: &PlaceSearchParams,
 ) -> Result<Option<DataFrame>> {
     let data = data.lazy();

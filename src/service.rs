@@ -83,7 +83,7 @@ impl Heisenberg {
         .map_err(From::from)
     }
 
-    pub fn smart_flexible_search<Term>(
+    pub fn search_smart<Term>(
         &self,
         input_terms: &[Term],
         config: &SmartFlexibleSearchConfig,
@@ -104,7 +104,7 @@ impl Heisenberg {
         .map_err(From::from)
     }
 
-    pub fn bulk_smart_flexible_search<Term, Batch>(
+    pub fn search_bulk<Term, Batch>(
         &self,
         all_raw_input_batches: &[Batch],
         config: &SmartFlexibleSearchConfig,
@@ -139,7 +139,7 @@ impl Heisenberg {
         .map_err(From::from)
     }
 
-    pub fn resolve_locations<Term, Entry>(
+    pub fn resolve_location<Term, Entry>(
         &self,
         input_terms: &[Term],
         config: &SmartFlexibleSearchConfig,
@@ -149,13 +149,13 @@ impl Heisenberg {
         Term: AsRef<str>,
         Entry: LocationEntry,
     {
-        let search_results = self.smart_flexible_search(input_terms, config)?;
+        let search_results = self.search_smart(input_terms, config)?;
 
         resolve_search_candidate(search_results, &self.admin_data_lf, limit_per_query)
             .map_err(From::from)
     }
 
-    pub fn resolve_locations_batch<Entry, Term, Batch>(
+    pub fn resolve_batch<Entry, Term, Batch>(
         &self,
         all_raw_input_batches: &[Batch],
         config: &SmartFlexibleSearchConfig,
@@ -166,8 +166,7 @@ impl Heisenberg {
         Batch: AsRef<[Term]>,
         Entry: LocationEntry,
     {
-        let search_results_batches =
-            self.bulk_smart_flexible_search(all_raw_input_batches, config)?;
+        let search_results_batches = self.search_bulk(all_raw_input_batches, config)?;
 
         resolve_search_candidate_batches(
             search_results_batches,
