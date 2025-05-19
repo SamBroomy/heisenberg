@@ -1,4 +1,5 @@
-pub(crate) use error::{IndexError, Result};
+pub(crate) use error::IndexError;
+use error::Result;
 use itertools::izip;
 use polars::prelude::{DataFrame, DataType};
 use polars::prelude::{LazyFrame, col};

@@ -1,5 +1,6 @@
 mod processed;
 mod raw;
+pub(crate) use error::DataError;
 
 pub const DATA_DIR_DEFAULT: &str = "./hberg_data";
 static DATA_DIR: OnceCell<String> = OnceCell::new();

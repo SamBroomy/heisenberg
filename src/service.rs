@@ -1,15 +1,15 @@
-use anyhow::Result;
+use crate::HeisenbergError;
 use polars::prelude::*;
 use tracing::{info, info_span};
 
-use super::location_search::{
-    admin_search_inner, bulk_location_search_inner, location_search_inner, place_search_inner,
-    AdminSearchParams, PlaceSearchParams, SmartFlexibleSearchConfig,
+use crate::search::{
+    AdminSearchParams, PlaceSearchParams, SmartFlexibleSearchConfig, admin_search_inner,
+    bulk_location_search_inner, location_search_inner, place_search_inner,
 };
 use crate::{
     backfill::{
-        resolve_search_candidate, resolve_search_candidate_batches, LocationEntry,
-        ResolvedSearchResult,
+        LocationEntry, ResolvedSearchResult, resolve_search_candidate,
+        resolve_search_candidate_batches,
     },
     index::{AdminIndexDef, FTSIndex, PlacesIndexDef},
 };
@@ -22,7 +22,7 @@ pub struct LocationSearchService {
 }
 
 impl LocationSearchService {
-    pub fn new(overwrite_fts_indexes: bool) -> Result<Self> {
+    pub fn new(overwrite_fts_indexes: bool) -> Result<Self, HeisenbergError> {
         info!("Initializing LocationSearchService...");
         let t_init = std::time::Instant::now();
 
@@ -55,7 +55,7 @@ impl LocationSearchService {
         levels: &[u8],
         previous_result: Option<DataFrame>,
         params: &AdminSearchParams,
-    ) -> Result<Option<DataFrame>> {
+    ) -> Result<Option<DataFrame>, HeisenbergError> {
         admin_search_inner(
             term.as_ref(),
             levels,
@@ -64,6 +64,7 @@ impl LocationSearchService {
             previous_result,
             params,
         )
+        .map_err(From::from)
     }
 
     pub fn place_search(
@@ -71,7 +72,7 @@ impl LocationSearchService {
         term: impl AsRef<str>,
         previous_result: Option<DataFrame>,
         params: &PlaceSearchParams,
-    ) -> Result<Option<DataFrame>> {
+    ) -> Result<Option<DataFrame>, HeisenbergError> {
         place_search_inner(
             term.as_ref(),
             &self.places_fts_index,
@@ -79,13 +80,14 @@ impl LocationSearchService {
             previous_result,
             params,
         )
+        .map_err(From::from)
     }
 
     pub fn smart_flexible_search<Term>(
         &self,
         input_terms: &[Term],
         config: &SmartFlexibleSearchConfig,
-    ) -> Result<Vec<DataFrame>>
+    ) -> Result<Vec<DataFrame>, HeisenbergError>
     where
         Term: AsRef<str>,
     {
@@ -99,13 +101,14 @@ impl LocationSearchService {
             self.place_data_lf.clone(),
             config,
         )
+        .map_err(From::from)
     }
 
     pub fn bulk_smart_flexible_search<Term, Batch>(
         &self,
         all_raw_input_batches: &[Batch],
         config: &SmartFlexibleSearchConfig,
-    ) -> Result<Vec<Vec<DataFrame>>>
+    ) -> Result<Vec<Vec<DataFrame>>, HeisenbergError>
     where
         Term: AsRef<str>,
         Batch: AsRef<[Term]>,
@@ -133,6 +136,7 @@ impl LocationSearchService {
             self.place_data_lf.clone(),
             config,
         )
+        .map_err(From::from)
     }
 
     pub fn resolve_locations<Term, Entry>(
@@ -140,7 +144,7 @@ impl LocationSearchService {
         input_terms: &[Term],
         config: &SmartFlexibleSearchConfig,
         limit_per_query: usize,
-    ) -> Result<Vec<ResolvedSearchResult<Entry>>>
+    ) -> Result<Vec<ResolvedSearchResult<Entry>>, HeisenbergError>
     where
         Term: AsRef<str>,
         Entry: LocationEntry,
@@ -148,6 +152,7 @@ impl LocationSearchService {
         let search_results = self.smart_flexible_search(input_terms, config)?;
 
         resolve_search_candidate(search_results, &self.admin_data_lf, limit_per_query)
+            .map_err(From::from)
     }
 
     pub fn resolve_locations_batch<Entry, Term, Batch>(
@@ -155,7 +160,7 @@ impl LocationSearchService {
         all_raw_input_batches: &[Batch],
         config: &SmartFlexibleSearchConfig,
         limit_per_query: usize,
-    ) -> Result<Vec<Vec<ResolvedSearchResult<Entry>>>>
+    ) -> Result<Vec<Vec<ResolvedSearchResult<Entry>>>, HeisenbergError>
     where
         Term: AsRef<str>,
         Batch: AsRef<[Term]>,
@@ -169,5 +174,6 @@ impl LocationSearchService {
             &self.admin_data_lf,
             limit_per_query,
         )
+        .map_err(From::from)
     }
 }
