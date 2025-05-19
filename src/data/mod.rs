@@ -14,3 +14,24 @@ use std::path::Path;
 
 use once_cell::sync::OnceCell;
 pub use processed::get_data;
+
+mod error {
+    use polars::prelude::PolarsError;
+    use thiserror::Error;
+
+    #[derive(Error, Debug)]
+    pub enum DataError {
+        #[error("IO error: {0}")]
+        Io(#[from] std::io::Error),
+        #[error("Polars error: {0}")]
+        Polars(#[from] PolarsError),
+        #[error("HTTP error: {0}")]
+        Http(#[from] reqwest::Error),
+        #[error("Join error: {0}")]
+        JoinError(#[from] tokio::task::JoinError),
+        #[error("Zip error: {0}")]
+        ZipError(#[from] zip::result::ZipError),
+    }
+
+    pub type Result<T> = std::result::Result<T, DataError>;
+}

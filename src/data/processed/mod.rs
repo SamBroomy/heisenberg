@@ -1,4 +1,4 @@
-use anyhow::Result;
+use super::error::Result;
 use once_cell::sync::OnceCell;
 use polars::prelude::*;
 use std::path::Path;
@@ -23,7 +23,7 @@ fn get_df(path: &Path) -> Result<LazyFrame> {
     let df = LazyFrame::scan_parquet(path, Default::default())?
         .collect()
         .map(|df| df.lazy())
-        .map_err(anyhow::Error::from);
+        .map_err(From::from);
     info!(
         time_collected = ?t_load.elapsed(),
         "Collected into memory"

@@ -1,4 +1,4 @@
-use anyhow::Result;
+use super::Result;
 use itertools::multiunzip;
 use polars::prelude::*;
 use std::collections::HashMap;

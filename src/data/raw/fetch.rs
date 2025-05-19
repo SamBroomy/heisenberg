@@ -1,4 +1,4 @@
-use anyhow::Result;
+use super::Result;
 use futures::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Client;
@@ -17,8 +17,8 @@ pub async fn download_to_temp_file(client: &Client, url: &str) -> Result<NamedTe
 
     let pb = ProgressBar::new(total_size);
     pb.set_style(ProgressStyle::default_bar()
-        .template("{msg}\n{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})")?
-        .progress_chars("#>-"));
+        .template("{msg}\n{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})").expect("Progress bar template")
+        .progress_chars("█░"));
     pb.set_message(format!(
         "Downloading {}",
         url.split('/').next_back().unwrap_or(url)
@@ -65,10 +65,7 @@ fn extract_first_entry_from_zip(zip_file_path: PathBuf, zip_url: &str) -> Result
     let mut archive = ZipArchive::new(zip_fs_file)?;
 
     if archive.is_empty() {
-        return Err(anyhow::anyhow!(
-            "Downloaded ZIP archive is empty: {}",
-            zip_url
-        ));
+        return Err(zip::result::ZipError::FileNotFound.into());
     }
 
     let mut file_in_zip = archive.by_index(0)?;

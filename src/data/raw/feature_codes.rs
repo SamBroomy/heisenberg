@@ -1,4 +1,4 @@
-use anyhow::Result;
+use super::Result;
 use polars::prelude::*;
 use reqwest::Client;
 use std::path::Path;

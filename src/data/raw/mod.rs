@@ -6,7 +6,7 @@ mod feature_codes;
 
 use std::path::Path;
 
-use anyhow::Result;
+pub use super::error:: Result;
 use polars::prelude::LazyFrame;
 use tempfile::NamedTempFile;
 use tracing::instrument;
