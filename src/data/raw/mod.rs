@@ -15,12 +15,19 @@ use tracing::instrument;
 /// returns a tuple of NamedTempFiles: (all_countries_df, country_info_df, feature_codes_df)
 #[instrument(name = "Download GeoNames data", skip_all, level = "info")]
 pub fn get_raw_data() -> Result<(NamedTempFile, NamedTempFile, NamedTempFile)> {
-    let client = reqwest::blocking::Client::builder().build()?;
-    let all_countries_df = all_countries::download_all_countries(&client)?;
-    let country_info_df = country_info::download_country_info(&client)?;
-    let feature_codes_df = feature_codes::download_feature_codes(&client)?;
+    let rt = tokio::runtime::Runtime::new()?;
 
-    Ok((all_countries_df, country_info_df, feature_codes_df))
+    rt.block_on(async {
+        let client = reqwest::Client::new();
+
+        let (all_countries_df, country_info_df, feature_codes_df) = tokio::try_join!(
+            all_countries::download_all_countries(&client),
+            country_info::download_country_info(&client),
+            feature_codes::download_feature_codes(&client),
+        )?;
+
+        Ok((all_countries_df, country_info_df, feature_codes_df))
+    })
 }
 /// Transform the raw data into LazyFrames
 /// returns a tuple of LazyFrames: (all_countries_df, country_info_df, feature_codes_df)

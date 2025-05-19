@@ -9,7 +9,7 @@ pub use search::{
     AdminSearchParams, LocationSearchService, PlaceSearchParams, SmartFlexibleSearchConfig,
 };
 use tracing::level_filters::LevelFilter;
-use tracing_subscriber::{fmt::format::FmtSpan, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};
 
 static PLACES_DF_CACHE: OnceCell<()> = OnceCell::new();
 
@@ -17,7 +17,8 @@ pub fn init_logging(level: impl Into<LevelFilter>) -> Result<&'static ()> {
     PLACES_DF_CACHE.get_or_try_init(|| {
         let filter = EnvFilter::try_from_default_env()
             .or_else(|_| EnvFilter::try_new(level.into().to_string()))?
-            .add_directive("tantivy=info".parse()?);
+            .add_directive("tantivy=warn".parse()?)
+            .add_directive("hyper_util=warn".parse()?);
 
         tracing_subscriber::fmt::fmt()
             .with_env_filter(filter)
