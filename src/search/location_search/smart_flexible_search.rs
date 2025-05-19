@@ -54,7 +54,7 @@ impl Default for SmartFlexibleSearchConfig {
 /// Represents the state of a location search query during processing
 #[derive(Debug, Clone)]
 struct QueryState {
-    unique_id: usize,
+    _unique_id: usize,
     admin_terms_for_main_sequence: Vec<String>,
     place_candidate_term: Option<String>,
     is_place_candidate_also_last_admin_term_in_sequence: bool,
@@ -69,13 +69,13 @@ struct QueryState {
 
 impl QueryState {
     fn new(
-        unique_id: usize,
+        _unique_id: usize, // For debugging and tracking
         admin_terms_for_main_sequence: Vec<String>,
         place_candidate_term: Option<String>,
         is_place_candidate_also_last_admin_term_in_sequence: bool,
     ) -> Self {
         Self {
-            unique_id,
+            _unique_id,
             admin_terms_for_main_sequence,
             place_candidate_term,
             is_place_candidate_also_last_admin_term_in_sequence,
@@ -109,6 +109,54 @@ struct PlaceSearchBatch {
 
 const INVALID_QUERY_ID_PLACEHOLDER: usize = usize::MAX; // Marker for invalid queries
 
+/// Cleans and validates search terms, removing empty entries
+fn clean_search_terms(raw_terms: &[&str]) -> Vec<String> {
+    raw_terms
+        .iter()
+        .filter_map(|s| {
+            let trimmed = s.trim();
+            if !trimmed.is_empty() {
+                Some(trimmed.to_string())
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// Determines which terms should be treated as administrative entities
+fn extract_admin_terms(cleaned_terms: &[String], max_admin_terms: usize) -> Vec<String> {
+    let num_admin_terms = std::cmp::min(cleaned_terms.len(), max_admin_terms);
+    cleaned_terms[0..num_admin_terms].to_vec()
+}
+
+/// Identifies a potential place candidate from remaining terms or last admin term
+fn identify_place_candidate(
+    cleaned_terms: &[String],
+    admin_terms: &[String],
+) -> (Option<String>, bool) {
+    let num_admin_terms = admin_terms.len();
+
+    if cleaned_terms.len() > num_admin_terms {
+        // Extra terms beyond admin terms become place candidate
+        let mut place_term = cleaned_terms[num_admin_terms].clone();
+        if cleaned_terms.len() > num_admin_terms + 1 {
+            let extra_terms = cleaned_terms[(num_admin_terms + 1)..].join(" ");
+            place_term = format!("{} {}", place_term, extra_terms);
+            debug!(
+                "Concatenated extra terms into place candidate: '{}'",
+                place_term
+            );
+        }
+        (Some(place_term), false)
+    } else if !admin_terms.is_empty() {
+        // Use last admin term as place candidate when no extra terms
+        (admin_terms.last().cloned(), true)
+    } else {
+        (None, false)
+    }
+}
+
 /// Prepares search terms by cleaning and categorizing them
 ///
 /// This function:
@@ -121,54 +169,20 @@ const INVALID_QUERY_ID_PLACEHOLDER: usize = usize::MAX; // Marker for invalid qu
 /// * Admin terms for main sequence
 /// * Optional place candidate term
 /// * Boolean indicating if place candidate is also the last admin term
-fn prepare_search_terms(
+pub fn prepare_search_terms(
     search_terms_raw: &[&str],
     max_sequential_admin_terms: usize,
 ) -> Result<(Vec<String>, Option<String>, bool)> {
-    // Clean and filter empty terms
-    let cleaned_terms = search_terms_raw
-        .iter()
-        .filter_map(|s| {
-            let trimmed = s.trim();
-            if !trimmed.is_empty() {
-                Some(trimmed.to_string())
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
+    let cleaned_terms = clean_search_terms(search_terms_raw);
 
     if cleaned_terms.is_empty() {
         warn!("No valid search terms provided after cleaning");
         return Ok((Vec::new(), None, false));
     }
 
-    let num_cleaned_terms = cleaned_terms.len();
-    let num_admin_terms = min(num_cleaned_terms, max_sequential_admin_terms);
-
-    // Extract admin terms
-    let admin_terms: Vec<String> = cleaned_terms[0..num_admin_terms].to_vec();
-
-    let mut place_candidate: Option<String> = None;
-    let mut is_place_candidate_also_last_admin = false;
-
-    if num_cleaned_terms > num_admin_terms {
-        // If there are extra terms beyond admin terms, combine them into place candidate
-        let mut pct = cleaned_terms[num_admin_terms].clone();
-        if num_cleaned_terms > num_admin_terms + 1 {
-            let extra_terms = cleaned_terms[(num_admin_terms + 1)..].join(" ");
-            pct = format!("{} {}", pct, extra_terms);
-            debug!(
-                "Concatenated extra input terms into place candidate: '{}'",
-                pct
-            );
-        }
-        place_candidate = Some(pct);
-    } else if !admin_terms.is_empty() {
-        // If no extra terms but at least one admin term, use last admin term as place candidate
-        place_candidate = admin_terms.last().cloned();
-        is_place_candidate_also_last_admin = true;
-    }
+    let admin_terms = extract_admin_terms(&cleaned_terms, max_sequential_admin_terms);
+    let (place_candidate, is_place_candidate_also_last_admin) =
+        identify_place_candidate(&cleaned_terms, &admin_terms);
 
     debug!("Admin terms for main sequence: {:?}", admin_terms);
     if let Some(ref pct) = place_candidate {
@@ -642,17 +656,7 @@ fn prepare_query_states(
         Vec::with_capacity(all_raw_input_batches.len());
 
     for raw_input_batch in all_raw_input_batches {
-        let cleaned_terms: Vec<String> = raw_input_batch
-            .iter()
-            .filter_map(|s| {
-                let trimmed = s.trim();
-                if !trimmed.is_empty() {
-                    Some(trimmed.to_string())
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let cleaned_terms: Vec<String> = clean_search_terms(raw_input_batch);
 
         if cleaned_terms.is_empty() {
             original_input_to_unique_id.push(INVALID_QUERY_ID_PLACEHOLDER);

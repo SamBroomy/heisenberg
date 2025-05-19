@@ -13,7 +13,7 @@ use tantivy::{
         TextOptions, Value,
     },
 };
-use tracing::{debug, info, instrument, trace, trace_span, warn};
+use tracing::{debug, info, instrument, trace, warn};
 
 pub trait IndexDefinition: std::fmt::Debug + Send + Sync + 'static {
     /// Returns the unique name for this index, used for directory and file naming.
@@ -341,14 +341,15 @@ impl<D: IndexDefinition> FTSIndex<D> {
         self.search_inner(query_str, Some(doc_ids), params)
     }
 
-    #[instrument(name="Search Text Index",
-        skip_all, level = "debug", fields(index_name = self.definition.name(), query = query_str, limit = params.limit, has_subset = doc_ids.is_some()))]
-    fn search_inner(
+    #[instrument(name = "Build Base Query", skip_all, level = "trace")]
+    fn build_base_query(
         &self,
         query_str: &str,
         doc_ids: Option<&[u64]>,
+        schema: &Schema,
+        gid_field: Field,
         params: &FTSIndexSearchParams,
-    ) -> Result<Vec<(u64, f32)>> {
+    ) -> Result<Box<dyn Query>> {
         let query_str = query_str.trim();
         if query_str.is_empty() {
             return Err(anyhow::anyhow!("Query string is empty.").into());
@@ -357,13 +358,7 @@ impl<D: IndexDefinition> FTSIndex<D> {
             return Err(anyhow::anyhow!("Search limit must be greater than zero.").into());
         }
 
-        let reader = self.index.reader()?;
-        let searcher = reader.searcher();
-        let schema = self.index.schema();
-
-        let gid_field = schema.get_field("geonameId")?;
-
-        let default_query_fields = self.definition.default_query_fields(&schema);
+        let default_query_fields = self.definition.default_query_fields(schema);
         if default_query_fields.is_empty() {
             return Err(anyhow::anyhow!(
                 "No default query fields defined for index '{}'",
@@ -372,90 +367,102 @@ impl<D: IndexDefinition> FTSIndex<D> {
             .into());
         }
 
-        let final_query: Box<dyn Query> = {
-            let _span = trace_span!("construct_tantivy_query").entered();
+        let mut general_query_parser = QueryParser::for_index(&self.index, default_query_fields);
+        for (field, boost) in self.definition.field_boosts(schema) {
+            general_query_parser.set_field_boost(field, boost);
+        }
+        let (general_fts_query, errors) = general_query_parser.parse_query_lenient(query_str);
+        if errors.is_empty() {
+            trace!(parsed_query = ?general_fts_query, "General FTS query parsed");
+            trace!("Parsed query: {:?}", general_fts_query);
+        } else {
+            warn!(?errors, "Query parsing errors occurred");
+        }
 
-            let mut general_query_parser =
-                QueryParser::for_index(&self.index, default_query_fields);
-            for (field, boost) in self.definition.field_boosts(&schema) {
-                general_query_parser.set_field_boost(field, boost);
-            }
+        let mut query_clauses: Vec<(Occur, Box<dyn Query>)> =
+            vec![(Occur::Should, general_fts_query)];
 
-            let (general_fts_query, errors) = general_query_parser.parse_query_lenient(query_str);
-            if errors.is_empty() {
-                trace!(parsed_query = ?general_fts_query, "General FTS query parsed");
-                trace!("Parsed query: {:?}", general_fts_query);
-            } else {
-                warn!(?errors, "Query parsing errors occurred");
-            }
+        let is_single_short_token =
+            !query_str.contains(char::is_whitespace) && query_str.len() <= 3;
 
-            let mut query_clauses: Vec<(Occur, Box<dyn Query>)> =
-                vec![(Occur::Should, general_fts_query)];
-
-            let is_single_short_token =
-                !query_str.contains(char::is_whitespace) && query_str.len() <= 3;
-
-            if params.fuzzy_search && !is_single_short_token {
-                let query_terms: Vec<&str> = query_str.split_whitespace().collect();
-                for term_str in query_terms {
-                    if term_str.len() > 2 {
-                        let fuzzy_distance = 1;
-                        let fuzzy_transpositions = true;
-                        for field_name_for_fuzzy in ["name", "asciiname"] {
-                            if let Ok(field_for_fuzzy) = schema.get_field(field_name_for_fuzzy) {
-                                let term = Term::from_field_text(field_for_fuzzy, term_str);
-                                let fuzzy_query =
-                                    FuzzyTermQuery::new(term, fuzzy_distance, fuzzy_transpositions);
-                                query_clauses.push((
-                                    Occur::Should,
-                                    Box::new(BoostQuery::new(Box::new(fuzzy_query), 1.5)),
-                                ));
-                            }
+        if params.fuzzy_search && !is_single_short_token {
+            let query_terms: Vec<&str> = query_str.split_whitespace().collect();
+            for term_str in query_terms {
+                if term_str.len() > 2 {
+                    let fuzzy_distance = 1;
+                    let fuzzy_transpositions = true;
+                    for field_name_for_fuzzy in ["name", "asciiname"] {
+                        if let Ok(field_for_fuzzy) = schema.get_field(field_name_for_fuzzy) {
+                            let term = Term::from_field_text(field_for_fuzzy, term_str);
+                            let fuzzy_query =
+                                FuzzyTermQuery::new(term, fuzzy_distance, fuzzy_transpositions);
+                            query_clauses.push((
+                                Occur::Should,
+                                Box::new(BoostQuery::new(Box::new(fuzzy_query), 1.5)),
+                            ));
                         }
                     }
                 }
             }
+        }
 
-            let code_like_fields = self.definition.code_like_fields_with_boosts(&schema);
-            if is_single_short_token && !code_like_fields.is_empty() {
-                let lower_case_code_query = query_str.to_lowercase();
-                for (field, boost) in code_like_fields {
-                    let term = Term::from_field_text(field, &lower_case_code_query);
-                    let exact_query =
-                        tantivy::query::TermQuery::new(term.clone(), IndexRecordOption::Basic);
-                    query_clauses.push((
-                        Occur::Should,
-                        Box::new(BoostQuery::new(Box::new(exact_query), boost)),
-                    ));
+        let code_like_fields = self.definition.code_like_fields_with_boosts(schema);
+        if is_single_short_token && !code_like_fields.is_empty() {
+            let lower_case_code_query = query_str.to_lowercase();
+            for (field, boost) in code_like_fields {
+                let term = Term::from_field_text(field, &lower_case_code_query);
+                let exact_query =
+                    tantivy::query::TermQuery::new(term.clone(), IndexRecordOption::Basic);
+                query_clauses.push((
+                    Occur::Should,
+                    Box::new(BoostQuery::new(Box::new(exact_query), boost)),
+                ));
+            }
+        }
+
+        let combined_search_query = BooleanQuery::new(query_clauses);
+
+        let final_query = match doc_ids {
+            Some(ids) if !ids.is_empty() => {
+                let doc_id_terms: Vec<Term> = ids
+                    .iter()
+                    .map(|&id| Term::from_field_u64(gid_field, id))
+                    .collect();
+                if doc_id_terms.is_empty() {
+                    // Should not happen if ids is not empty
+                    Box::new(combined_search_query)
+                } else {
+                    let doc_id_filter = TermSetQuery::new(doc_id_terms);
+                    Box::new(BooleanQuery::new(vec![
+                        (Occur::Must, Box::new(combined_search_query)),
+                        (Occur::Must, Box::new(doc_id_filter)),
+                    ]))
                 }
             }
-
-            let combined_search_query = BooleanQuery::new(query_clauses);
-
-            match doc_ids {
-                Some(ids) if !ids.is_empty() => {
-                    let doc_id_terms: Vec<Term> = ids
-                        .iter()
-                        .map(|&id| Term::from_field_u64(gid_field, id))
-                        .collect();
-                    if doc_id_terms.is_empty() {
-                        // Should not happen if ids is not empty
-                        Box::new(combined_search_query)
-                    } else {
-                        let doc_id_filter = TermSetQuery::new(doc_id_terms);
-                        Box::new(BooleanQuery::new(vec![
-                            (Occur::Must, Box::new(combined_search_query)),
-                            (Occur::Must, Box::new(doc_id_filter)),
-                        ]))
-                    }
-                }
-                _ => Box::new(combined_search_query),
-            }
+            _ => Box::new(combined_search_query),
         };
+        trace!(?final_query, "Final query constructed");
+        Ok(final_query)
+    }
 
-        trace!(tantivy_query = ?final_query, "Executing Tantivy query");
+    #[instrument(name="Search Text Index",
+        skip_all, level = "debug", fields(index_name = self.definition.name(), query = query_str, limit = params.limit, has_subset = doc_ids.is_some()))]
+    fn search_inner(
+        &self,
+        query_str: &str,
+        doc_ids: Option<&[u64]>,
+        params: &FTSIndexSearchParams,
+    ) -> Result<Vec<(u64, f32)>> {
+        let schema = self.index.schema();
+        let gid_field = schema.get_field("geonameId")?;
+
+        let query = self.build_base_query(query_str, doc_ids, &schema, gid_field, params)?;
+
+        let reader = self.index.reader()?;
+        let searcher = reader.searcher();
+
         let t_search = std::time::Instant::now();
-        let top_docs = searcher.search(&*final_query, &TopDocs::with_limit(params.limit))?;
+        let top_docs = searcher.search(&*query, &TopDocs::with_limit(params.limit))?;
         let search_duration = t_search.elapsed();
         debug!(
             num_results = top_docs.len(),

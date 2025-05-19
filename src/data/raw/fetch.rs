@@ -50,17 +50,14 @@ pub async fn download_zip_and_extract_first_entry_to_temp_file(
     info!(path = ?zip_temp_file.path(), "ZIP download complete");
 
     let zip_file_path = zip_temp_file.path().to_path_buf();
-    let zip_url_owned = zip_url.to_string();
 
-    let extracted_content_temp_file = tokio::task::spawn_blocking(move || {
-        extract_first_entry_from_zip(zip_file_path, &zip_url_owned)
-    })
-    .await??;
+    let extracted_content_temp_file =
+        tokio::task::spawn_blocking(move || extract_first_entry_from_zip(zip_file_path)).await??;
 
     Ok(extracted_content_temp_file)
 }
 
-fn extract_first_entry_from_zip(zip_file_path: PathBuf, zip_url: &str) -> Result<NamedTempFile> {
+fn extract_first_entry_from_zip(zip_file_path: PathBuf) -> Result<NamedTempFile> {
     let zip_fs_file = fs::File::open(&zip_file_path)?;
     let mut archive = ZipArchive::new(zip_fs_file)?;
 

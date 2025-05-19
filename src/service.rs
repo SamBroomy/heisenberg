@@ -14,14 +14,14 @@ use crate::{
     index::{AdminIndexDef, FTSIndex, PlacesIndexDef},
 };
 
-pub struct LocationSearchService {
+pub struct Heisenberg {
     admin_fts_index: FTSIndex<AdminIndexDef>,
     admin_data_lf: LazyFrame,
     places_fts_index: FTSIndex<PlacesIndexDef>,
     place_data_lf: LazyFrame,
 }
 
-impl LocationSearchService {
+impl Heisenberg {
     pub fn new(overwrite_fts_indexes: bool) -> Result<Self, HeisenbergError> {
         info!("Initializing LocationSearchService...");
         let t_init = std::time::Instant::now();

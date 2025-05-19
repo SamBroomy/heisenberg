@@ -1,5 +1,5 @@
 use super::Result;
-use crate::index::{FTSIndex, FTSIndexSearchParams, IndexError, PlacesIndexDef};
+use crate::index::{FTSIndex, FTSIndexSearchParams, PlacesIndexDef};
 use ahash::AHashMap as HashMap;
 use itertools::Itertools;
 use polars::prelude::*;
@@ -410,7 +410,6 @@ pub fn place_search_inner(
     let final_select_exprs = if params.all_cols {
         vec![col("*")]
     } else {
-        // Define your standard set of columns for place search results
         vec![
             col("geonameId"),
             col("name"),

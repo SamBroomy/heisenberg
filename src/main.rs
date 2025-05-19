@@ -1,6 +1,6 @@
 use anyhow::Result;
 use heisenberg::backfill::ResolvedSearchResult;
-use heisenberg::{GeonameEntry, LocationSearchService, SmartFlexibleSearchConfig};
+use heisenberg::{GeonameEntry, Heisenberg, SmartFlexibleSearchConfig};
 use polars::{enable_string_cache, prelude::*};
 use tracing::{debug, info, info_span, warn};
 use tracing_subscriber::EnvFilter;
@@ -16,7 +16,7 @@ fn main() -> Result<()> {
         .init();
 
     let t_total_setup = std::time::Instant::now();
-    let search_service = LocationSearchService::new(false)?;
+    let search_service = Heisenberg::new(false)?;
 
     debug!(
         elapsed_seconds = t_total_setup.elapsed().as_secs_f32(),
