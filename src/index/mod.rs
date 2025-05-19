@@ -1,16 +1,16 @@
 use anyhow::{Context, Result};
 use itertools::izip;
-use polars::prelude::{col, LazyFrame};
 use polars::prelude::{DataFrame, DataType};
+use polars::prelude::{LazyFrame, col};
 use tantivy::schema::Field;
 use tantivy::{
+    Index, IndexWriter, TantivyDocument, Term,
     collector::TopDocs,
     query::{BooleanQuery, BoostQuery, FuzzyTermQuery, Occur, Query, QueryParser, TermSetQuery},
     schema::{
-        IndexRecordOption, Schema, SchemaBuilder, TextFieldIndexing, TextOptions, Value, FAST,
-        INDEXED, STORED,
+        FAST, INDEXED, IndexRecordOption, STORED, Schema, SchemaBuilder, TextFieldIndexing,
+        TextOptions, Value,
     },
-    Index, IndexWriter, TantivyDocument, Term,
 };
 use tracing::{debug, info, instrument, trace, trace_span, warn};
 
@@ -51,7 +51,7 @@ impl IndexDefinition for AdminIndexDef {
         let mut schema_builder = SchemaBuilder::new();
         let text_indexing = TextFieldIndexing::default()
             .set_tokenizer("default")
-            .set_index_option(IndexRecordOption::WithFreqsAndPositions);
+            .set_index_option(IndexRecordOption::Basic);
         let text_options = TextOptions::default().set_indexing_options(text_indexing);
         let code_options = TextOptions::default() // For exact code matching, no stemming
             .set_indexing_options(
