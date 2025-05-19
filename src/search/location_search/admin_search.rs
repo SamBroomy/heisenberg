@@ -1,6 +1,6 @@
+use super::Result;
 use crate::index::{AdminIndexDef, FTSIndex, FTSIndexSearchParams};
 use ahash::AHashMap as HashMap;
-use anyhow::{Context, Result};
 use polars::prelude::*;
 use std::ops::Mul;
 use tracing::{debug, info_span, instrument, trace, trace_span, warn};
@@ -145,13 +145,11 @@ pub fn admin_search_inner(
     let levels_series = Series::new("levels_filter".into(), levels);
 
     let (filtered_data_lf, join_cols_expr) = {
-        let join_cols_expr = super::get_join_expr_from_previous_result(previous_result.as_ref())
-            .context("Failed to get join columns from previous result")?;
+        let join_cols_expr = super::get_join_expr_from_previous_result(previous_result.as_ref())?;
         let filtered_data = match &previous_result {
             Some(prev_lf) if !join_cols_expr.is_empty() => {
                 let prev_lf = prev_lf.clone().collect()?.lazy();
-                super::filter_data_from_previous_results(data, prev_lf.clone(), &join_cols_expr)
-                    .context("Failed to filter data from previous results")?
+                super::filter_data_from_previous_results(data, prev_lf.clone(), &join_cols_expr)?
             }
             _ => data,
         };
@@ -228,10 +226,7 @@ pub fn admin_search_inner(
         Some(prev_lf_original) if !join_cols_expr.is_empty() => {
             debug!("Processing previous_results for parent scores.");
             let mut prev_lf_processed = prev_lf_original.clone();
-            let prev_schema = prev_lf_processed
-                .clone()
-                .collect_schema()
-                .context("Failed to collect schema from previous_result for renaming")?;
+            let prev_schema = prev_lf_processed.clone().collect_schema()?;
 
             let mut renames_map: HashMap<String, String> = HashMap::new();
             let mut parent_score_col_exprs: Vec<Expr> = Vec::new();
@@ -284,8 +279,7 @@ pub fn admin_search_inner(
                     "Concatenating {} LazyFrames from different parent join paths.",
                     lfs_to_concat.len()
                 );
-                concat(&lfs_to_concat, UnionArgs::default())
-                    .context("Failed to concat LazyFrames for parent scores")?
+                concat(&lfs_to_concat, UnionArgs::default())?
             } else {
                 debug!(
                     "No parent join paths generated, using base FTS results without parent scores."
@@ -344,9 +338,7 @@ pub fn admin_search_inner(
     let output_df = {
         let _collect_span = info_span!("collect_final_admin_search_df").entered();
         let t_collect = std::time::Instant::now();
-        let df = output_lf
-            .collect()
-            .context("Failed to collect final output DataFrame")?;
+        let df = output_lf.collect()?;
         debug!(
             collection_time_seconds = t_collect.elapsed().as_secs_f32(),
             num_results = df.height(),

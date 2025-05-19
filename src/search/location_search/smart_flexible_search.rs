@@ -1,3 +1,4 @@
+use super::Result;
 use crate::index::{AdminIndexDef, FTSIndex, FTSIndexSearchParams, PlacesIndexDef};
 use crate::search::location_search::admin_search::{
     AdminSearchParams, SearchScoreAdminParams, admin_search_inner,
@@ -7,7 +8,6 @@ use crate::search::location_search::place_search::{
 };
 use ahash::AHashMap as HashMap;
 use ahash::AHasher as DefaultHasher;
-use anyhow::{Context, Result};
 use polars::prelude::*;
 use rayon::prelude::*;
 use std::cmp::{max, min};
@@ -470,8 +470,7 @@ pub fn location_search_inner(
     let t_start = std::time::Instant::now();
 
     let (admin_terms, place_candidate_term, is_place_candidate_also_last_admin_term) =
-        prepare_search_terms(search_terms_raw, config.max_sequential_admin_terms)
-            .context("Failed to parse search terms")?;
+        prepare_search_terms(search_terms_raw, config.max_sequential_admin_terms)?;
 
     if admin_terms.is_empty() && place_candidate_term.is_none() {
         warn!("No valid search terms provided after cleaning");
@@ -490,8 +489,7 @@ pub fn location_search_inner(
             admin_data_lf.clone(),
             last_successful_context,
             config,
-        )
-        .context("Failed during admin sequence processing")?;
+        )?;
 
         // Update results and context
         all_results.extend(admin_results);
@@ -516,8 +514,7 @@ pub fn location_search_inner(
                 admin_data_lf.clone(),
                 last_successful_context.clone(),
                 config,
-            )
-            .context("Failed during proactive admin search")?;
+            )?;
 
             // Update results and context if found
             if !proactive_results.is_empty() {
@@ -549,9 +546,7 @@ pub fn location_search_inner(
             places_data_lf,
             last_successful_context,
             config,
-        )
-        .context("Failed during place search")?
-        {
+        )? {
             all_results.push(place_result);
 
             debug!(
@@ -1001,9 +996,7 @@ fn update_admin_filter_for_next_pass(
     let potential_next_active_lf = admin_data_lf.clone().filter(combined_filter);
 
     let t0 = std::time::Instant::now();
-    let potential_next_active_lf = potential_next_active_lf
-        .collect()
-        .with_context(|| "Failed to collect potential_next_active_lf");
+    let potential_next_active_lf = potential_next_active_lf.collect();
     info!("Lf collect took {:.5}s", t0.elapsed().as_secs_f32());
 
     let active_admin_lf_for_pass = match potential_next_active_lf {
@@ -1387,8 +1380,7 @@ pub fn bulk_location_search_inner(
     // --- 1. Deduplication and Initialization ---
     let dedup_start = std::time::Instant::now();
     let (mut query_states, original_input_to_unique_id) =
-        prepare_query_states(all_raw_input_batches, config.max_sequential_admin_terms)
-            .context("Failed to prepare query states")?;
+        prepare_query_states(all_raw_input_batches, config.max_sequential_admin_terms)?;
 
     info!(
         elapsed = ?dedup_start.elapsed(),
@@ -1413,8 +1405,7 @@ pub fn bulk_location_search_inner(
         &admin_data_lf,
         admin_fts_index,
         &admin_search_params,
-    )
-    .context("Failed during main admin sequence processing")?;
+    )?;
     info!(
         elapsed_ms = ?admin_seq_start.elapsed(),
         "Main admin sequence processing complete."
@@ -1430,8 +1421,7 @@ pub fn bulk_location_search_inner(
         &admin_data_lf,
         admin_fts_index,
         &admin_search_params,
-    )
-    .context("Failed during proactive admin search processing")?;
+    )?;
 
     info!(
         elapsed_ms = ?proactive_start.elapsed(),
@@ -1457,8 +1447,7 @@ pub fn bulk_location_search_inner(
         &places_data_lf,
         places_fts_index,
         &place_search_params,
-    )
-    .context("Failed during place search processing")?;
+    )?;
 
     info!(
         elapsed_ms = ?place_search_start.elapsed(),

@@ -3,7 +3,7 @@ mod admin_search;
 mod place_search;
 mod smart_flexible_search;
 
-use anyhow::{Context, Result};
+use super::Result;
 use itertools::izip;
 use polars::prelude::*;
 use rapidfuzz::fuzz::RatioBatchComparator;
@@ -11,11 +11,12 @@ use std::ops::Mul;
 use std::rc::Rc;
 use tracing::{debug, trace, warn};
 
-pub use admin_search::{admin_search_inner, AdminSearchParams, SearchScoreAdminParams};
-pub use place_search::{place_search_inner, PlaceSearchParams, SearchScorePlaceParams};
+pub use admin_search::{AdminSearchParams, SearchScoreAdminParams, admin_search_inner};
+pub use place_search::{PlaceSearchParams, SearchScorePlaceParams, place_search_inner};
 pub use smart_flexible_search::{
-    bulk_location_search_inner, location_search_inner, SmartFlexibleSearchConfig,
+    SmartFlexibleSearchConfig, bulk_location_search_inner, location_search_inner,
 };
+
 fn text_relevance_score(lf: LazyFrame, search_term: &str) -> LazyFrame {
     let search_term_capture = search_term.to_string();
     lf.with_column(
@@ -108,8 +109,7 @@ fn parent_factor(lf: LazyFrame) -> Result<LazyFrame> {
     let parent_score_re = regex::Regex::new(r"^parent_score_admin_[0-4]$").unwrap();
     let parent_score_exprs_for_mean = lf
         .clone()
-        .collect_schema()
-        .context("Failed to collect schema for parent score expressions")?
+        .collect_schema()?
         .iter_names()
         .filter_map(|name| {
             if parent_score_re.is_match(name) {
@@ -122,8 +122,7 @@ fn parent_factor(lf: LazyFrame) -> Result<LazyFrame> {
 
     let lf = if !parent_score_exprs_for_mean.is_empty() {
         lf.with_column(
-            polars::lazy::dsl::mean_horizontal(parent_score_exprs_for_mean, true)
-                .context("Failed to calculate mean for parent score expressions")?
+            polars::lazy::dsl::mean_horizontal(parent_score_exprs_for_mean, true)?
                 .fill_null(0.5_f32)
                 .alias("average_parent_score"),
         )
@@ -146,8 +145,7 @@ fn get_join_keys(previous_result: &LazyFrame) -> Result<Vec<Expr>> {
         .clone()
         .select([col("^admin[0-4]_code$")])
         .unique(None, Default::default())
-        .collect()
-        .context("Failed to collect join keys")?;
+        .collect()?;
 
     let column_names = join_keys
         .get_column_names()
@@ -161,12 +159,9 @@ fn get_join_keys(previous_result: &LazyFrame) -> Result<Vec<Expr>> {
         let has_not_null = jkl
             .clone()
             .select([col_name.clone().is_not_null().any(true).alias("has_any")])
-            .collect()
-            .context("Failed to collect join keys not null")?
-            .column("has_any")
-            .context("Failed to get has_any column")?
-            .bool()
-            .context("Failed to get column as bool column")?
+            .collect()?
+            .column("has_any")?
+            .bool()?
             .get(0)
             .unwrap_or(false);
         if has_not_null {
@@ -189,7 +184,7 @@ fn get_join_expr_from_previous_result(previous_result: Option<&LazyFrame>) -> Re
 fn get_col_name_from_expr(expr: &Expr) -> Result<Rc<str>> {
     match expr {
         Expr::Column(name) => Ok(name.as_str().into()),
-        _ => Err(anyhow::anyhow!("Expected Expr::Column, got {:?}", expr)),
+        _ => Err(anyhow::anyhow!("Expected Expr::Column, got {:?}", expr).into()),
     }
 }
 
@@ -205,16 +200,14 @@ fn filter_data_from_previous_results(
     let join_key_names_arc: Vec<Rc<str>> = join_key_exprs
         .iter()
         .map(get_col_name_from_expr)
-        .collect::<Result<_>>()
-        .context("Failed to extract column names from join_key_exprs")?;
+        .collect::<Result<_>>()?;
     trace!(join_key_names = ?join_key_names_arc);
 
     // Select only the necessary columns for unique paths
     let unique_previous_paths_df = previous_result_df
         .select(join_key_exprs) // Select using the original expressions
         .unique(None, UniqueKeepStrategy::Any) // Get unique admin paths
-        .collect()
-        .context("Failed to collect unique paths from previous_result_df")?;
+        .collect()?;
 
     if unique_previous_paths_df.is_empty() {
         debug!("No unique paths found in previous_result_df to filter by. Returning empty frame.");
@@ -227,22 +220,9 @@ fn filter_data_from_previous_results(
 
         for key_name_arc in &join_key_names_arc {
             let key_name_str = key_name_arc.as_ref();
-            let key_value_series =
-                unique_previous_paths_df
-                    .column(key_name_str)
-                    .with_context(|| {
-                        format!(
-                            "Failed to get column '{}' from unique_previous_paths_df",
-                            key_name_str
-                        )
-                    })?;
+            let key_value_series = unique_previous_paths_df.column(key_name_str)?;
 
-            let val_anyvalue = key_value_series.get(row_idx).with_context(|| {
-                format!(
-                    "Failed to get value at index {} for column '{}'",
-                    row_idx, key_name_str
-                )
-            })?;
+            let val_anyvalue = key_value_series.get(row_idx)?;
 
             if val_anyvalue.is_null() {
                 // If a part of the path in previous_result is null (e.g., admin1_code for an ADM0),
@@ -307,12 +287,17 @@ fn filter_data_from_previous_results(
             // If all keys were null for a path, it means that path is unconstrained.
             // However, get_join_keys ensures keys have *some* non-nulls in previous_result_df.
             // This path should likely not occur if unique_previous_paths_df is not empty.
-            warn!("No filter constructed for path row {}, possibly all keys were null (should not happen if get_join_keys is effective).", row_idx);
+            warn!(
+                "No filter constructed for path row {}, possibly all keys were null (should not happen if get_join_keys is effective).",
+                row_idx
+            );
         }
     }
 
     if lfs_to_concat.is_empty() {
-        trace!("No data matched any constructed filter paths from previous results. Returning empty frame.");
+        trace!(
+            "No data matched any constructed filter paths from previous results. Returning empty frame."
+        );
         Ok(data.limit(0))
     } else {
         trace!(
@@ -320,7 +305,7 @@ fn filter_data_from_previous_results(
             lfs_to_concat.len()
         );
         concat(&lfs_to_concat, UnionArgs::default())
-            .context("Failed to concat LazyFrames from filtered data chunks")
             .map(|lf| lf.unique_stable(Some(vec!["geonameId".into()]), UniqueKeepStrategy::First))
+            .map_err(From::from)
     }
 }

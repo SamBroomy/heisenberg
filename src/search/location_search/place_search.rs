@@ -1,6 +1,6 @@
-use crate::index::{FTSIndex, FTSIndexSearchParams, PlacesIndexDef};
+use super::Result;
+use crate::index::{FTSIndex, FTSIndexSearchParams, IndexError, PlacesIndexDef};
 use ahash::AHashMap as HashMap;
-use anyhow::{Context, Result};
 use itertools::Itertools;
 use polars::prelude::*;
 use std::ops::Mul;
@@ -217,8 +217,7 @@ pub fn place_search_inner(
 
     // --- Determine join columns and filter by previous admin results ---
     let (filtered_data_lf, join_cols_expr) = {
-        let join_cols_expr = super::get_join_expr_from_previous_result(previous_result.as_ref())
-            .context("Failed to get join columns from previous result")?;
+        let join_cols_expr = super::get_join_expr_from_previous_result(previous_result.as_ref())?;
 
         let filtered_data_for_fts = match &previous_result {
             Some(prev_lf) if !join_cols_expr.is_empty() => {
@@ -227,8 +226,7 @@ pub fn place_search_inner(
                     data_filtered_by_tier,
                     prev_lf.clone(),
                     &join_cols_expr,
-                )
-                .context("Failed to filter place data from previous admin results")?
+                )?
             }
             _ => {
                 debug!("No previous admin results to filter by, or no join columns applicable.");
@@ -245,8 +243,7 @@ pub fn place_search_inner(
         let gids_df = filtered_data_lf
             .clone()
             .select([col("geonameId")])
-            .collect()
-            .context("Failed to collect geonameIds for FTS subset search in places")?;
+            .collect()?;
         let gid_series = gids_df.column("geonameId")?;
 
         if gid_series.is_empty() {
@@ -309,9 +306,7 @@ pub fn place_search_inner(
         Some(ref prev_lf_original) if !join_cols_expr.is_empty() => {
             debug!("Place search: Processing previous_results for parent admin scores.");
             let mut prev_lf_processed = prev_lf_original.clone();
-            let prev_schema = prev_lf_processed.clone().collect_schema().context(
-                "Failed to collect schema from previous_result for renaming parent scores",
-            )?;
+            let prev_schema = prev_lf_processed.clone().collect_schema()?;
 
             let mut renames_map: HashMap<String, String> = HashMap::new();
             let score_pattern = regex::Regex::new(r"^score_admin_[0-4]$").unwrap();
@@ -409,8 +404,7 @@ pub fn place_search_inner(
         final_center_lon,
         score_col_name,
         &params.search_score_params,
-    )
-    .context("Failed to score places")?;
+    )?;
 
     // --- Select final columns ---
     let final_select_exprs = if params.all_cols {
@@ -448,9 +442,7 @@ pub fn place_search_inner(
     let output_df = {
         let _collect_span = info_span!("collect_final_admin_search_df").entered();
         let t_collect = std::time::Instant::now();
-        let df = output_lf
-            .collect()
-            .context("Failed to collect final output DataFrame")?;
+        let df = output_lf.collect()?;
         debug!(
             collection_time_seconds = t_collect.elapsed().as_secs_f32(),
             num_results = df.height(),

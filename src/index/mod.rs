@@ -1,5 +1,4 @@
-//use anyhow::{Context, Result};
-use error::Result;
+pub(crate) use error::{IndexError, Result};
 use itertools::izip;
 use polars::prelude::{DataFrame, DataType};
 use polars::prelude::{LazyFrame, col};
@@ -492,7 +491,7 @@ mod error {
         #[error("DataFrame error: {0}")]
         DataFrame(#[from] polars::prelude::PolarsError),
         #[error(transparent)]
-        Other(#[from] anyhow::Error), // source and Display delegate to anyhow::Error
+        Other(#[from] anyhow::Error),
     }
     pub type Result<T> = std::result::Result<T, IndexError>;
 }
