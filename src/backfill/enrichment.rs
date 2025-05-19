@@ -1,10 +1,9 @@
-use anyhow::Result;
 use itertools::izip;
 use polars::prelude::*;
 use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 use tracing::{debug, debug_span, instrument, trace, warn};
 
-use super::{LocationContext, ResolvedSearchResult, entry::LocationEntry};
+use super::{LocationContext, ResolvedSearchResult, Result, entry::LocationEntry};
 
 /// Stores the admin codes for a target location, used to backfill its context.
 #[derive(Debug, Clone, Default)]

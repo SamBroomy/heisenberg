@@ -1,4 +1,4 @@
-use anyhow::Result;
+use super::Result;
 use itertools::izip;
 use polars::prelude::*;
 

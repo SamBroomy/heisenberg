@@ -1,3 +1,4 @@
+use error::Result;
 use itertools::Itertools;
 
 mod enrichment;
@@ -64,4 +65,15 @@ where
             self.context.place.as_ref().map(|e| e.name().to_string()),
         ]
     }
+}
+
+mod error {
+    use thiserror::Error;
+
+    #[derive(Error, Debug)]
+    pub enum BackfillError {
+        #[error("DataFrame error: {0}")]
+        DataFrame(#[from] polars::prelude::PolarsError),
+    }
+    pub type Result<T> = std::result::Result<T, BackfillError>;
 }
