@@ -1,4 +1,5 @@
-use anyhow::{Context, Result};
+//use anyhow::{Context, Result};
+use error::Result;
 use itertools::izip;
 use polars::prelude::{DataFrame, DataType};
 use polars::prelude::{LazyFrame, col};
@@ -286,9 +287,8 @@ impl<D: IndexDefinition> FTSIndex<D> {
 
         if index_path.exists() && !overwrite {
             info!(index = definition.name(), "Already exists. Loading.",);
-            let index = Index::open_in_dir(&index_path).with_context(|| {
-                format!("Failed to open existing index '{}'", definition.name())
-            })?;
+            let index = Index::open_in_dir(&index_path)?;
+
             if index.reader().unwrap().searcher().num_docs() as usize
                 == data.clone().collect()?.shape().0
             {
@@ -300,27 +300,13 @@ impl<D: IndexDefinition> FTSIndex<D> {
 
         if index_path.exists() && overwrite {
             info!(index = definition.name(), "Deleting existing index");
-            std::fs::remove_dir_all(&index_path).with_context(|| {
-                format!("Failed to remove existing index '{}'", definition.name())
-            })?;
+            std::fs::remove_dir_all(&index_path)?;
         }
 
-        std::fs::create_dir_all(index_path.parent().unwrap())
-            .with_context(|| "Failed to create base directory for indexes".to_string())?;
-        std::fs::create_dir_all(&index_path).with_context(|| {
-            format!(
-                "Failed to create directory for index '{}'",
-                definition.name()
-            )
-        })?;
+        std::fs::create_dir_all(&index_path)?;
 
         let schema = definition.schema();
-        let index = Index::create_in_dir(&index_path, schema.clone()).with_context(|| {
-            format!(
-                "Failed to create Tantivy index structure for '{}'",
-                definition.name()
-            )
-        })?;
+        let index = Index::create_in_dir(&index_path, schema.clone())?;
 
         let data = data
             .select(
@@ -330,12 +316,9 @@ impl<D: IndexDefinition> FTSIndex<D> {
                     .map(col)
                     .collect::<Vec<_>>(),
             )
-            .collect()
-            .with_context(|| "Failed to collect DataFrame".to_string())?;
+            .collect()?;
 
-        let mut index_writer: IndexWriter = index.writer(500_000_000).with_context(|| {
-            format!("Failed to create index writer for '{}'", definition.name())
-        })?;
+        let mut index_writer: IndexWriter = index.writer(500_000_000)?;
 
         info!("Populating index '{}'...", definition.name());
         definition.index_data(&mut index_writer, data, &schema)?;
@@ -368,26 +351,25 @@ impl<D: IndexDefinition> FTSIndex<D> {
     ) -> Result<Vec<(u64, f32)>> {
         let query_str = query_str.trim();
         if query_str.is_empty() {
-            return Err(anyhow::anyhow!("Query string cannot be empty."));
+            return Err(anyhow::anyhow!("Query string is empty.").into());
         }
         if params.limit == 0 {
-            return Err(anyhow::anyhow!("Search limit must be greater than zero."));
+            return Err(anyhow::anyhow!("Search limit must be greater than zero.").into());
         }
 
         let reader = self.index.reader()?;
         let searcher = reader.searcher();
         let schema = self.index.schema();
 
-        let gid_field = schema
-            .get_field("geonameId")
-            .context("geonameId field not in schema")?;
+        let gid_field = schema.get_field("geonameId")?;
 
         let default_query_fields = self.definition.default_query_fields(&schema);
         if default_query_fields.is_empty() {
             return Err(anyhow::anyhow!(
                 "No default query fields defined for index '{}'",
                 self.definition.name()
-            ));
+            )
+            .into());
         }
 
         let final_query: Box<dyn Query> = {
@@ -488,9 +470,29 @@ impl<D: IndexDefinition> FTSIndex<D> {
                 let doc_id_val = received_doc
                     .get_first(gid_field)
                     .and_then(|v| v.as_u64())
-                    .context("Failed to get geonameId as u64 from document")?;
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("Failed to get geonameId from document: {:?}", received_doc)
+                    })?;
+
                 Ok((doc_id_val, score))
             })
             .collect::<Result<Vec<_>>>()
     }
+}
+
+mod error {
+    use thiserror::Error;
+
+    #[derive(Error, Debug)]
+    pub enum IndexError {
+        #[error("IO error: {0}")]
+        Io(#[from] std::io::Error),
+        #[error("Tantivy error: {0}")]
+        Tantivy(#[from] tantivy::TantivyError),
+        #[error("DataFrame error: {0}")]
+        DataFrame(#[from] polars::prelude::PolarsError),
+        #[error(transparent)]
+        Other(#[from] anyhow::Error), // source and Display delegate to anyhow::Error
+    }
+    pub type Result<T> = std::result::Result<T, IndexError>;
 }
