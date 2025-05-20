@@ -4,12 +4,12 @@ pub mod index;
 pub mod search;
 pub mod service;
 
-pub use backfill::{GenericEntry, GeonameEntry, LocationEntry};
+pub use backfill::{BasicEntry, GenericEntry, LocationEntry, ResolveConfig};
 pub use error::HeisenbergError;
 use once_cell::sync::OnceCell;
 pub use search::{
-    AdminSearchParams, PlaceSearchParams, SearchScoreAdminParams, SearchScorePlaceParams,
-    SmartFlexibleSearchConfig,
+    AdminSearchParams, PlaceSearchParams, SearchConfig, SearchScoreAdminParams,
+    SearchScorePlaceParams,
 };
 pub use service::Heisenberg;
 use tracing::level_filters::LevelFilter;

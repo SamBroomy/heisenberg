@@ -1,5 +1,5 @@
 use anyhow::Result;
-use heisenberg::{GeonameEntry, Heisenberg, HeisenbergError, SmartFlexibleSearchConfig};
+use heisenberg::{BasicEntry, Heisenberg, HeisenbergError};
 use tracing::Level;
 
 fn main() -> Result<(), HeisenbergError> {
@@ -8,9 +8,6 @@ fn main() -> Result<(), HeisenbergError> {
 
     // Create search service
     let search_service = Heisenberg::new(false)?;
-
-    // Define search configuration
-    let config = SmartFlexibleSearchConfig::default();
 
     // Define example queries
     let examples = [
@@ -31,8 +28,7 @@ fn main() -> Result<(), HeisenbergError> {
         let start_time = std::time::Instant::now();
 
         // Resolve locations with GeonameEntry type and limit of 3 results per query
-        let resolved_results =
-            search_service.resolve_location::<_, GeonameEntry>(query, &config, 3)?;
+        let resolved_results = search_service.resolve_location::<_, BasicEntry>(query)?;
 
         // Calculate elapsed time
         let elapsed = start_time.elapsed();
@@ -93,7 +89,7 @@ fn main() -> Result<(), HeisenbergError> {
 
     // Resolve locations in bulk
     let bulk_resolved_results =
-        search_service.resolve_batch::<GeonameEntry, _, _>(&examples_refs, &config, 3)?;
+        search_service.resolve_location_batch::<BasicEntry, _, _>(&examples_refs)?;
 
     // Calculate elapsed time
     let bulk_elapsed = bulk_start_time.elapsed();

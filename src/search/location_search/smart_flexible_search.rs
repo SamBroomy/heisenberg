@@ -16,7 +16,7 @@ use tracing::{debug, info, instrument, warn};
 const MAX_ADMIN_LEVELS: usize = 5; // Admin levels 0 through 4
 
 #[derive(Debug, Clone)]
-pub struct SmartFlexibleSearchConfig {
+pub struct SearchConfig {
     pub limit: usize,
     pub all_cols: bool,
     pub max_sequential_admin_terms: usize,
@@ -28,7 +28,7 @@ pub struct SmartFlexibleSearchConfig {
     pub place_min_importance_tier: u8,
 }
 
-impl Default for SmartFlexibleSearchConfig {
+impl Default for SearchConfig {
     fn default() -> Self {
         let default_limit = 20;
         Self {
@@ -218,7 +218,7 @@ fn process_admin_sequence(
     admin_fts_index: &FTSIndex<AdminIndexDef>,
     admin_data_lf: LazyFrame,
     initial_context: Option<DataFrame>,
-    config: &SmartFlexibleSearchConfig,
+    config: &SearchConfig,
 ) -> Result<(Vec<DataFrame>, Option<DataFrame>)> {
     let mut results = Vec::new();
     let mut last_context = initial_context;
@@ -325,7 +325,7 @@ fn process_proactive_admin_search(
     admin_fts_index: &FTSIndex<AdminIndexDef>,
     admin_data_lf: LazyFrame,
     last_context: Option<DataFrame>,
-    config: &SmartFlexibleSearchConfig,
+    config: &SearchConfig,
 ) -> Result<(Vec<DataFrame>, Option<DataFrame>)> {
     let additional_admin_start_level = admin_terms_count as u8;
 
@@ -406,7 +406,7 @@ fn process_place_search(
     places_fts_index: &FTSIndex<PlacesIndexDef>,
     places_data_lf: LazyFrame,
     last_context: Option<DataFrame>,
-    config: &SmartFlexibleSearchConfig,
+    config: &SearchConfig,
 ) -> Result<Option<DataFrame>> {
     debug!(
         "Searching for place candidate '{}' as PLACE entity using context",
@@ -479,7 +479,7 @@ pub fn location_search_inner(
     admin_data_lf: LazyFrame,
     places_fts_index: &FTSIndex<PlacesIndexDef>,
     places_data_lf: LazyFrame,
-    config: &SmartFlexibleSearchConfig,
+    config: &SearchConfig,
 ) -> Result<Vec<DataFrame>> {
     let t_start = std::time::Instant::now();
 
@@ -1153,7 +1153,7 @@ fn process_main_admin_sequence(
 /// 4. Updates query states with the results
 fn process_proactive_admin_searches(
     query_states: &mut [QueryState],
-    config: &SmartFlexibleSearchConfig,
+    config: &SearchConfig,
     admin_data_lf: &LazyFrame,
     admin_fts_index: &FTSIndex<AdminIndexDef>,
     admin_search_params: &AdminSearchParams,
@@ -1370,7 +1370,7 @@ pub fn bulk_location_search_inner(
     admin_data_lf: impl IntoLazy,
     places_fts_index: &FTSIndex<PlacesIndexDef>,
     places_data_lf: impl IntoLazy,
-    config: &SmartFlexibleSearchConfig,
+    config: &SearchConfig,
 ) -> Result<Vec<Vec<DataFrame>>> {
     let t_start = std::time::Instant::now();
     // Convert to LazyFrames once to avoid repeated conversion

@@ -2,7 +2,7 @@
 use anyhow::Result;
 use heisenberg::{
     Heisenberg, HeisenbergError, SearchScoreAdminParams, SearchScorePlaceParams,
-    SmartFlexibleSearchConfig,
+    SearchConfig,
 };
 use tracing::Level;
 
@@ -16,7 +16,7 @@ fn main() -> Result<(), HeisenbergError> {
     // 1. Create a custom SmartFlexibleSearchConfig
     println!("Creating custom search configuration...");
 
-    let custom_config = SmartFlexibleSearchConfig {
+    let custom_config = SearchConfig {
         limit: 15,                     // Return more results
         all_cols: true,                // Include all columns in results
         max_sequential_admin_terms: 4, // Maximum admin terms to process sequentially
@@ -43,7 +43,7 @@ fn main() -> Result<(), HeisenbergError> {
     println!("🔍 Searching for: {:?} with custom configuration", query);
 
     // Perform search with custom configuration
-    let results = search_service.search_smart(&query, &custom_config)?;
+    let results = search_service.search_with_config(&query, &custom_config)?;
 
     println!(
         "✅ Search completed with {} result DataFrames",
@@ -54,7 +54,7 @@ fn main() -> Result<(), HeisenbergError> {
     println!("\nComparing with default configuration...");
 
     let default_results =
-        search_service.search_smart(&query, &SmartFlexibleSearchConfig::default())?;
+        search_service.search_with_config(&query, &SearchConfig::default())?;
 
     println!(
         "✅ Default search completed with {} result DataFrames",

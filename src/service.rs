@@ -1,18 +1,27 @@
-use crate::HeisenbergError;
+use crate::{HeisenbergError, ResolveConfig};
 use polars::prelude::*;
 use tracing::{info, info_span};
 
 use crate::search::{
-    AdminSearchParams, PlaceSearchParams, SmartFlexibleSearchConfig, admin_search_inner,
+    AdminSearchParams, PlaceSearchParams, SearchConfig, admin_search_inner,
     bulk_location_search_inner, location_search_inner, place_search_inner,
 };
 use crate::{
     backfill::{
-        LocationEntry, ResolvedSearchResult, resolve_search_candidate,
-        resolve_search_candidate_batches,
+        LocationEntry, LocationResults, resolve_search_candidate, resolve_search_candidate_batches,
     },
     index::{AdminIndexDef, FTSIndex, PlacesIndexDef},
 };
+
+pub type StringSlice<'a> = &'a [&'a str];
+pub type SearchResults = Vec<DataFrame>;
+pub type SearchResultsBatch = Vec<Vec<DataFrame>>;
+
+#[derive(Debug, Clone, Default)]
+pub struct ResolveSearchConfig {
+    pub search_config: SearchConfig,
+    pub resolve_config: ResolveConfig,
+}
 
 pub struct Heisenberg {
     admin_fts_index: FTSIndex<AdminIndexDef>,
@@ -48,7 +57,7 @@ impl Heisenberg {
             place_data_lf,
         })
     }
-
+    // === Low-level searches (unchanged but with custom return types) ===
     pub fn admin_search(
         &self,
         term: impl AsRef<str>,
@@ -83,11 +92,20 @@ impl Heisenberg {
         .map_err(From::from)
     }
 
-    pub fn search_smart<Term>(
+    // === Simplified mid-level search methods ===
+
+    pub fn search<Term>(&self, input_terms: &[Term]) -> Result<SearchResults, HeisenbergError>
+    where
+        Term: AsRef<str>,
+    {
+        self.search_with_config(input_terms, &SearchConfig::default())
+    }
+
+    pub fn search_with_config<Term>(
         &self,
         input_terms: &[Term],
-        config: &SmartFlexibleSearchConfig,
-    ) -> Result<Vec<DataFrame>, HeisenbergError>
+        config: &SearchConfig,
+    ) -> Result<SearchResults, HeisenbergError>
     where
         Term: AsRef<str>,
     {
@@ -107,8 +125,19 @@ impl Heisenberg {
     pub fn search_bulk<Term, Batch>(
         &self,
         all_raw_input_batches: &[Batch],
-        config: &SmartFlexibleSearchConfig,
-    ) -> Result<Vec<Vec<DataFrame>>, HeisenbergError>
+    ) -> Result<SearchResultsBatch, HeisenbergError>
+    where
+        Term: AsRef<str>,
+        Batch: AsRef<[Term]>,
+    {
+        self.search_bulk_with_config(all_raw_input_batches, &SearchConfig::default())
+    }
+
+    pub fn search_bulk_with_config<Term, Batch>(
+        &self,
+        all_raw_input_batches: &[Batch],
+        config: &SearchConfig,
+    ) -> Result<SearchResultsBatch, HeisenbergError>
     where
         Term: AsRef<str>,
         Batch: AsRef<[Term]>,
@@ -125,7 +154,7 @@ impl Heisenberg {
             .collect::<Vec<_>>();
         let all_raw_input_batches = all_raw_input_batches
             .iter()
-            .map(|inner_vec| inner_vec.as_slice()) // Convert each Vec<&str> to &[&str]
+            .map(|inner_vec| inner_vec.as_slice())
             .collect::<Vec<_>>();
 
         bulk_location_search_inner(
@@ -139,39 +168,94 @@ impl Heisenberg {
         .map_err(From::from)
     }
 
+    pub fn resolve<Entry: LocationEntry>(
+        &self,
+        search_results: SearchResults,
+    ) -> Result<LocationResults<Entry>, HeisenbergError> {
+        self.resolve_with_config(search_results, &ResolveConfig::default())
+    }
+    pub fn resolve_with_config<Entry: LocationEntry>(
+        &self,
+        search_results: SearchResults,
+        config: &ResolveConfig,
+    ) -> Result<LocationResults<Entry>, HeisenbergError> {
+        resolve_search_candidate(search_results, &self.admin_data_lf, config).map_err(From::from)
+    }
+    pub fn resolve_batch<Entry: LocationEntry>(
+        &self,
+        search_results_batches: SearchResultsBatch,
+    ) -> Result<Vec<LocationResults<Entry>>, HeisenbergError> {
+        self.resolve_batch_with_config(search_results_batches, &ResolveConfig::default())
+    }
+    pub fn resolve_batch_with_config<Entry: LocationEntry>(
+        &self,
+        search_results_batches: SearchResultsBatch,
+        config: &ResolveConfig,
+    ) -> Result<Vec<LocationResults<Entry>>, HeisenbergError> {
+        resolve_search_candidate_batches(search_results_batches, &self.admin_data_lf, config)
+            .map_err(From::from)
+    }
+
+    // === High-level search and resolve methods ===
+
     pub fn resolve_location<Term, Entry>(
         &self,
         input_terms: &[Term],
-        config: &SmartFlexibleSearchConfig,
-        limit_per_query: usize,
-    ) -> Result<Vec<ResolvedSearchResult<Entry>>, HeisenbergError>
+    ) -> Result<LocationResults<Entry>, HeisenbergError>
     where
         Term: AsRef<str>,
         Entry: LocationEntry,
     {
-        let search_results = self.search_smart(input_terms, config)?;
+        self.resolve_location_with_config(input_terms, &ResolveSearchConfig::default())
+    }
 
-        resolve_search_candidate(search_results, &self.admin_data_lf, limit_per_query)
+    pub fn resolve_location_with_config<Term, Entry>(
+        &self,
+        input_terms: &[Term],
+        config: &ResolveSearchConfig,
+    ) -> Result<LocationResults<Entry>, HeisenbergError>
+    where
+        Term: AsRef<str>,
+        Entry: LocationEntry,
+    {
+        let search_results = self.search_with_config(input_terms, &config.search_config)?;
+
+        resolve_search_candidate(search_results, &self.admin_data_lf, &config.resolve_config)
             .map_err(From::from)
     }
 
-    pub fn resolve_batch<Entry, Term, Batch>(
+    pub fn resolve_location_batch<Entry, Term, Batch>(
         &self,
         all_raw_input_batches: &[Batch],
-        config: &SmartFlexibleSearchConfig,
-        limit_per_query: usize,
-    ) -> Result<Vec<Vec<ResolvedSearchResult<Entry>>>, HeisenbergError>
+    ) -> Result<Vec<LocationResults<Entry>>, HeisenbergError>
     where
         Term: AsRef<str>,
         Batch: AsRef<[Term]>,
         Entry: LocationEntry,
     {
-        let search_results_batches = self.search_bulk(all_raw_input_batches, config)?;
+        self.resolve_location_batch_with_config(
+            all_raw_input_batches,
+            &ResolveSearchConfig::default(),
+        )
+    }
+
+    pub fn resolve_location_batch_with_config<Entry, Term, Batch>(
+        &self,
+        all_raw_input_batches: &[Batch],
+        config: &ResolveSearchConfig,
+    ) -> Result<Vec<LocationResults<Entry>>, HeisenbergError>
+    where
+        Term: AsRef<str>,
+        Batch: AsRef<[Term]>,
+        Entry: LocationEntry,
+    {
+        let search_results_batches =
+            self.search_bulk_with_config(all_raw_input_batches, &config.search_config)?;
 
         resolve_search_candidate_batches(
             search_results_batches,
             &self.admin_data_lf,
-            limit_per_query,
+            &config.resolve_config,
         )
         .map_err(From::from)
     }

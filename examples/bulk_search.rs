@@ -1,6 +1,6 @@
 // examples/bulk_search.rs
 use anyhow::Result;
-use heisenberg::{Heisenberg, HeisenbergError, SmartFlexibleSearchConfig};
+use heisenberg::{Heisenberg, HeisenbergError, SearchConfig};
 use tracing::Level;
 
 fn main() -> Result<(), HeisenbergError> {
@@ -11,7 +11,7 @@ fn main() -> Result<(), HeisenbergError> {
     let search_service = Heisenberg::new(false)?;
 
     // Create configuration with higher limits for bulk processing
-    let config = SmartFlexibleSearchConfig {
+    let config = SearchConfig {
         limit: 10,
         all_cols: true, // Include all columns in results
         ..Default::default()
@@ -68,7 +68,7 @@ fn main() -> Result<(), HeisenbergError> {
     let start_time = std::time::Instant::now();
 
     // Execute bulk search
-    let bulk_results = search_service.search_bulk(&batch_refs, &config)?;
+    let bulk_results = search_service.search_bulk_with_config(&batch_refs, &config)?;
 
     // Calculate elapsed time
     let elapsed = start_time.elapsed();

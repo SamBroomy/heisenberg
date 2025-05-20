@@ -13,9 +13,7 @@ use tracing::{debug, trace, warn};
 
 pub use admin_search::{AdminSearchParams, SearchScoreAdminParams, admin_search_inner};
 pub use place_search::{PlaceSearchParams, SearchScorePlaceParams, place_search_inner};
-pub use smart_flexible_search::{
-    SmartFlexibleSearchConfig, bulk_location_search_inner, location_search_inner,
-};
+pub use smart_flexible_search::{SearchConfig, bulk_location_search_inner, location_search_inner};
 
 fn text_relevance_score(lf: LazyFrame, search_term: &str) -> LazyFrame {
     let search_term_capture = search_term.to_string();

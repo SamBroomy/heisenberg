@@ -1,6 +1,6 @@
 // examples/smart_flexible_search.rs
 use anyhow::Result;
-use heisenberg::{Heisenberg, HeisenbergError, SmartFlexibleSearchConfig};
+use heisenberg::{Heisenberg, HeisenbergError, SearchConfig};
 use tracing::Level;
 
 fn main() -> Result<(), HeisenbergError> {
@@ -11,7 +11,7 @@ fn main() -> Result<(), HeisenbergError> {
     let search_service = Heisenberg::new(false)?;
 
     // Create a default configuration
-    let config = SmartFlexibleSearchConfig::default();
+    let config = SearchConfig::default();
 
     // Define some example location queries
     let examples = [
@@ -40,7 +40,7 @@ fn main() -> Result<(), HeisenbergError> {
         let start_time = std::time::Instant::now();
 
         // Perform smart flexible search
-        let results = search_service.search_smart(query, &config)?;
+        let results = search_service.search_with_config(query, &config)?;
 
         // Calculate elapsed time
         let elapsed = start_time.elapsed();

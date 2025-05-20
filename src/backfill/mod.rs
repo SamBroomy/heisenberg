@@ -1,10 +1,12 @@
 use error::Result;
 use itertools::Itertools;
-mod enrichment;
 mod entry;
-pub use enrichment::{resolve_search_candidate, resolve_search_candidate_batches};
-pub use entry::{GenericEntry, GeonameEntry, LocationEntry};
+mod resolve;
+pub use entry::{BasicEntry, GenericEntry, LocationEntry};
 pub(crate) use error::BackfillError;
+pub use resolve::{
+    LocationResults, ResolveConfig, resolve_search_candidate, resolve_search_candidate_batches,
+};
 
 /// Holds the resolved context for a search result, including admin hierarchy and a potential place.
 #[derive(Debug, Clone, Default)]

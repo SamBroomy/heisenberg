@@ -1,6 +1,7 @@
 use anyhow::Result;
 use heisenberg::backfill::ResolvedSearchResult;
-use heisenberg::{GeonameEntry, Heisenberg, SmartFlexibleSearchConfig};
+use heisenberg::service::ResolveSearchConfig;
+use heisenberg::{BasicEntry, Heisenberg, SearchConfig};
 use polars::prelude::*;
 use tracing::{debug, info, info_span, warn};
 use tracing_subscriber::EnvFilter;
@@ -105,11 +106,11 @@ fn main() -> Result<()> {
         ],
     ];
     let mut times = vec![];
-    let smart_search_config = SmartFlexibleSearchConfig::default();
+    let smart_search_config = SearchConfig::default();
 
     for input in &examples {
         let t0 = std::time::Instant::now();
-        let output = search_service.search_smart(input, &smart_search_config)?;
+        let output = search_service.search_with_config(input, &smart_search_config)?;
         let elapsed = t0.elapsed().as_secs_f32();
 
         warn!(
@@ -128,11 +129,15 @@ fn main() -> Result<()> {
         total_time = times.iter().sum::<f32>(),
         "Total smart flexible search time"
     );
+    let resolve_search_config = ResolveSearchConfig {
+        search_config: smart_search_config.clone(),
+        ..Default::default()
+    };
 
     let t_bulk = std::time::Instant::now();
     let examples_refs: Vec<&[&str]> = examples.iter().map(|v| v.as_slice()).collect();
-    let out_bulk: Vec<Vec<ResolvedSearchResult<GeonameEntry>>> =
-        search_service.resolve_batch(&examples_refs, &smart_search_config, 20)?;
+    let out_bulk: Vec<Vec<ResolvedSearchResult<BasicEntry>>> = search_service
+        .resolve_location_batch_with_config(&examples_refs, &resolve_search_config)?;
 
     warn!(t_bulk = ?t_bulk.elapsed(), "Bulk smart flexible search took");
     warn!(t_avg_per_example = ?t_bulk.elapsed().as_secs_f32() / examples.len() as f32, "Average time per example");

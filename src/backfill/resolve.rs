@@ -5,6 +5,20 @@ use tracing::{debug, debug_span, instrument, trace, warn};
 
 use super::{LocationContext, ResolvedSearchResult, Result, entry::LocationEntry};
 
+pub type LocationResults<E> = Vec<ResolvedSearchResult<E>>;
+
+#[derive(Debug, Clone)]
+pub struct ResolveConfig {
+    pub limit_per_query: usize,
+}
+impl Default for ResolveConfig {
+    fn default() -> Self {
+        Self {
+            limit_per_query: 10,
+        }
+    }
+}
+
 /// Stores the admin codes for a target location, used to backfill its context.
 #[derive(Debug, Clone, Default)]
 pub struct TargetLocationAdminCodes {
@@ -159,13 +173,13 @@ fn backfill_administrative_context<E: LocationEntry>(
     name = "Resolve Search Candidate",
     level = "info",
     skip(search_results, admin_data_lf),
-    fields(num_batches = 0, limit_per_query)
+    fields(num_batches = 0, limit_per_query = config.limit_per_query)
 )]
 pub fn resolve_search_candidate<E: LocationEntry>(
     search_results: Vec<DataFrame>,
     admin_data_lf: &LazyFrame,
-    limit_per_query: usize,
-) -> Result<Vec<ResolvedSearchResult<E>>> {
+    config: &ResolveConfig,
+) -> Result<LocationResults<E>> {
     if search_results.is_empty() {
         debug!("No search results found.");
         return Ok(Vec::new());
@@ -180,7 +194,7 @@ pub fn resolve_search_candidate<E: LocationEntry>(
     };
     tracing::Span::current().record("num_batches", primary_candidates_df.height());
 
-    let mut primary_candidates_df = primary_candidates_df.head(Some(limit_per_query));
+    let mut primary_candidates_df = primary_candidates_df.head(Some(config.limit_per_query));
 
     let target_codes = TargetLocationAdminCodes::from_df(&primary_candidates_df)?;
     // Used to determine if the primary candidate is a place or not?
@@ -213,18 +227,18 @@ pub fn resolve_search_candidate<E: LocationEntry>(
 }
 
 #[instrument(name="Resolve Search Candidate Batches",
-    level = "info", skip(search_results_batches, admin_data_lf), fields(num_batches = search_results_batches.len(), limit_per_query))]
+    level = "info", skip(search_results_batches, admin_data_lf), fields(num_batches = search_results_batches.len(), limit_per_query = config.limit_per_query))]
 pub fn resolve_search_candidate_batches<E: LocationEntry>(
     search_results_batches: Vec<Vec<DataFrame>>,
     admin_data_lf: &LazyFrame,
-    limit_per_query: usize,
-) -> Result<Vec<Vec<ResolvedSearchResult<E>>>> {
+    config: &ResolveConfig,
+) -> Result<Vec<LocationResults<E>>> {
     search_results_batches
         .into_par_iter()
         .enumerate()
         .map(|(i, search_results)| {
             let _search_span = debug_span!("Resolve Search Candidate Batches", batch = i).entered();
-            resolve_search_candidate::<E>(search_results, admin_data_lf, limit_per_query)
+            resolve_search_candidate::<E>(search_results, admin_data_lf, config)
         })
         .collect::<Result<Vec<_>>>()
 }
