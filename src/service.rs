@@ -1,4 +1,4 @@
-use crate::{HeisenbergError, ResolveConfig};
+use crate::{ResolveConfig, error::HeisenbergError};
 use polars::prelude::*;
 use tracing::{info, info_span};
 
@@ -13,7 +13,6 @@ use crate::{
     index::{AdminIndexDef, FTSIndex, PlacesIndexDef},
 };
 
-pub type StringSlice<'a> = &'a [&'a str];
 pub type SearchResults = Vec<DataFrame>;
 pub type SearchResultsBatch = Vec<Vec<DataFrame>>;
 

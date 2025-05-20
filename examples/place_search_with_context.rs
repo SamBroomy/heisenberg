@@ -1,5 +1,5 @@
 use anyhow::Result;
-use heisenberg::{Heisenberg, HeisenbergError, PlaceSearchParams};
+use heisenberg::{Heisenberg, PlaceSearchParams, error::HeisenbergError};
 use polars::prelude::*;
 use tracing::Level;
 

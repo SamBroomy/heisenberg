@@ -1,8 +1,8 @@
 // examples/custom_configuration.rs
 use anyhow::Result;
 use heisenberg::{
-    Heisenberg, HeisenbergError, SearchScoreAdminParams, SearchScorePlaceParams,
-    SearchConfig,
+    Heisenberg, SearchConfig, SearchScoreAdminParams, SearchScorePlaceParams,
+    error::HeisenbergError,
 };
 use tracing::Level;
 
@@ -53,8 +53,7 @@ fn main() -> Result<(), HeisenbergError> {
     // 3. Compare with default configuration
     println!("\nComparing with default configuration...");
 
-    let default_results =
-        search_service.search_with_config(&query, &SearchConfig::default())?;
+    let default_results = search_service.search_with_config(&query, &SearchConfig::default())?;
 
     println!(
         "✅ Default search completed with {} result DataFrames",

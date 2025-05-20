@@ -1,6 +1,6 @@
 // examples/smart_flexible_search.rs
 use anyhow::Result;
-use heisenberg::{Heisenberg, HeisenbergError, SearchConfig};
+use heisenberg::{Heisenberg, SearchConfig, error::HeisenbergError};
 use tracing::Level;
 
 fn main() -> Result<(), HeisenbergError> {

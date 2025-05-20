@@ -328,10 +328,6 @@ impl<D: IndexDefinition> FTSIndex<D> {
         Ok(FTSIndex { index, definition })
     }
 
-    pub fn search(&self, query: &str, params: &FTSIndexSearchParams) -> Result<Vec<(u64, f32)>> {
-        self.search_inner(query, None, params)
-    }
-
     pub fn search_in_subset(
         &self,
         query_str: &str,

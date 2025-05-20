@@ -52,7 +52,7 @@ fn search_score_place(
     params: &SearchScorePlaceParams,
 ) -> Result<LazyFrame> {
     // ===== 1. Text relevance score (FTS) =====
-    let lf = super::text_relevance_score(lf, search_term).with_columns([
+    let lf = super::common::text_relevance_score(lf, search_term).with_columns([
         // ===== 2. Importance score (pre-calculated) =====
         col("importance_score")
             .clip(lit(0.0_f32), lit(1.0_f32))
@@ -132,7 +132,7 @@ fn search_score_place(
     };
 
     // ===== 5. Parent Admin Score Factor =====
-    let lf = super::parent_factor(lf)?
+    let lf = super::common::parent_factor(lf)?
         // ===== 6. Final score calculation =====
         .with_column(
             (col("text_score").mul(lit(params.text_weight))
@@ -217,12 +217,13 @@ pub fn place_search_inner(
 
     // --- Determine join columns and filter by previous admin results ---
     let (filtered_data_lf, join_cols_expr) = {
-        let join_cols_expr = super::get_join_expr_from_previous_result(previous_result.as_ref())?;
+        let join_cols_expr =
+            super::common::get_join_expr_from_previous_result(previous_result.as_ref())?;
 
         let filtered_data_for_fts = match &previous_result {
             Some(prev_lf) if !join_cols_expr.is_empty() => {
                 debug!("Filtering place data based on previous admin results.");
-                super::filter_data_from_previous_results(
+                super::common::filter_data_from_previous_results(
                     data_filtered_by_tier,
                     prev_lf.clone(),
                     &join_cols_expr,
@@ -433,7 +434,7 @@ pub fn place_search_inner(
         ]
     };
 
-    let output_lf = scored_lf // Already sorted by search_score_place
+    let output_lf = scored_lf
         .unique_stable(Some(vec!["geonameId".into()]), UniqueKeepStrategy::First) // Keep best score for each place
         .limit(params.limit as u32)
         .select(&final_select_exprs);

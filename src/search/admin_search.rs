@@ -43,7 +43,7 @@ fn search_score_admin(
     params: &SearchScoreAdminParams,
 ) -> Result<LazyFrame> {
     // ===== 1. Text relevance score =====
-    let lf = super::text_relevance_score(lf, search_term).with_columns([
+    let lf = super::common::text_relevance_score(lf, search_term).with_columns([
         // ===== 2. Population importance =====
         when(col("population").gt(0))
             .then(lit(1.0) - lit(1.0) / (lit(1.0) + (col("population").log(10.0) / lit(3))))
@@ -81,7 +81,7 @@ fn search_score_admin(
     ]);
 
     // ===== 5. Parent score influence =====
-    let lf = super::parent_factor(lf)?
+    let lf = super::common::parent_factor(lf)?
         // ====== 6. Final score calculation =====
         .with_column(
             (col("text_score").mul(lit(params.text_weight))
@@ -145,11 +145,16 @@ pub fn admin_search_inner(
     let levels_series = Series::new("levels_filter".into(), levels);
 
     let (filtered_data_lf, join_cols_expr) = {
-        let join_cols_expr = super::get_join_expr_from_previous_result(previous_result.as_ref())?;
+        let join_cols_expr =
+            super::common::get_join_expr_from_previous_result(previous_result.as_ref())?;
         let filtered_data = match &previous_result {
             Some(prev_lf) if !join_cols_expr.is_empty() => {
                 let prev_lf = prev_lf.clone().collect()?.lazy();
-                super::filter_data_from_previous_results(data, prev_lf.clone(), &join_cols_expr)?
+                super::common::filter_data_from_previous_results(
+                    data,
+                    prev_lf.clone(),
+                    &join_cols_expr,
+                )?
             }
             _ => data,
         };

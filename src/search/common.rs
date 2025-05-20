@@ -1,8 +1,3 @@
-mod admin_search;
-
-mod place_search;
-mod smart_flexible_search;
-
 use super::Result;
 use itertools::izip;
 use polars::prelude::*;
@@ -11,11 +6,7 @@ use std::ops::Mul;
 use std::rc::Rc;
 use tracing::{debug, trace, warn};
 
-pub use admin_search::{AdminSearchParams, SearchScoreAdminParams, admin_search_inner};
-pub use place_search::{PlaceSearchParams, SearchScorePlaceParams, place_search_inner};
-pub use smart_flexible_search::{SearchConfig, bulk_location_search_inner, location_search_inner};
-
-fn text_relevance_score(lf: LazyFrame, search_term: &str) -> LazyFrame {
+pub(super) fn text_relevance_score(lf: LazyFrame, search_term: &str) -> LazyFrame {
     let search_term_capture = search_term.to_string();
     lf.with_column(
         ((col("fts_score") - col("fts_score").mean())
@@ -103,7 +94,7 @@ fn text_relevance_score(lf: LazyFrame, search_term: &str) -> LazyFrame {
     )
 }
 
-fn parent_factor(lf: LazyFrame) -> Result<LazyFrame> {
+pub(super) fn parent_factor(lf: LazyFrame) -> Result<LazyFrame> {
     let parent_score_re = regex::Regex::new(r"^parent_score_admin_[0-4]$").unwrap();
     let parent_score_exprs_for_mean = lf
         .clone()
@@ -172,21 +163,23 @@ fn get_join_keys(previous_result: &LazyFrame) -> Result<Vec<Expr>> {
     Ok(join_on_cols_str)
 }
 
-fn get_join_expr_from_previous_result(previous_result: Option<&LazyFrame>) -> Result<Vec<Expr>> {
+pub(super) fn get_join_expr_from_previous_result(
+    previous_result: Option<&LazyFrame>,
+) -> Result<Vec<Expr>> {
     match previous_result {
         Some(prev_lf) => get_join_keys(prev_lf),
         None => Ok(vec![]),
     }
 }
 
-fn get_col_name_from_expr(expr: &Expr) -> Result<Rc<str>> {
+pub(super) fn get_col_name_from_expr(expr: &Expr) -> Result<Rc<str>> {
     match expr {
         Expr::Column(name) => Ok(name.as_str().into()),
         _ => Err(anyhow::anyhow!("Expected Expr::Column, got {:?}", expr).into()),
     }
 }
 
-fn filter_data_from_previous_results(
+pub(super) fn filter_data_from_previous_results(
     data: LazyFrame,
     previous_result_df: LazyFrame,
     join_key_exprs: &[Expr],

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use heisenberg::{BasicEntry, Heisenberg, HeisenbergError};
+use heisenberg::{BasicEntry, Heisenberg, error::HeisenbergError};
 use tracing::Level;
 
 fn main() -> Result<(), HeisenbergError> {

@@ -1,6 +1,6 @@
 use anyhow::Result;
-use heisenberg::backfill::ResolvedSearchResult;
-use heisenberg::service::ResolveSearchConfig;
+use heisenberg::ResolveSearchConfig;
+use heisenberg::ResolvedSearchResult;
 use heisenberg::{BasicEntry, Heisenberg, SearchConfig};
 use polars::prelude::*;
 use tracing::{debug, info, info_span, warn};

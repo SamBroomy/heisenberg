@@ -1,23 +1,25 @@
-pub mod backfill;
-pub mod data;
-pub mod index;
-pub mod search;
-pub mod service;
-
-pub use backfill::{BasicEntry, GenericEntry, LocationEntry, ResolveConfig};
-pub use error::HeisenbergError;
 use once_cell::sync::OnceCell;
+use tracing::level_filters::LevelFilter;
+use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};
+
+mod backfill;
+mod data;
+mod index;
+mod search;
+mod service;
+extern crate polars;
+
+pub use backfill::{BasicEntry, GenericEntry, LocationEntry, ResolveConfig, ResolvedSearchResult};
+pub use index::FTSIndexSearchParams;
 pub use search::{
     AdminSearchParams, PlaceSearchParams, SearchConfig, SearchScoreAdminParams,
     SearchScorePlaceParams,
 };
-pub use service::Heisenberg;
-use tracing::level_filters::LevelFilter;
-use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};
+pub use service::{Heisenberg, ResolveSearchConfig};
 
 static PLACES_DF_CACHE: OnceCell<()> = OnceCell::new();
 
-pub fn init_logging(level: impl Into<LevelFilter>) -> Result<&'static (), HeisenbergError> {
+pub fn init_logging(level: impl Into<LevelFilter>) -> Result<&'static (), error::HeisenbergError> {
     PLACES_DF_CACHE.get_or_try_init(|| {
         let filter = EnvFilter::try_from_default_env()
             .or_else(|_| EnvFilter::try_new(level.into().to_string()))?
@@ -32,7 +34,7 @@ pub fn init_logging(level: impl Into<LevelFilter>) -> Result<&'static (), Heisen
     })
 }
 
-mod error {
+pub mod error {
     use thiserror::Error;
 
     #[derive(Error, Debug)]

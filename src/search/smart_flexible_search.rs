@@ -1,11 +1,7 @@
 use super::Result;
+use super::admin_search::{AdminSearchParams, SearchScoreAdminParams, admin_search_inner};
+use super::place_search::{PlaceSearchParams, SearchScorePlaceParams, place_search_inner};
 use crate::index::{AdminIndexDef, FTSIndex, FTSIndexSearchParams, PlacesIndexDef};
-use crate::search::location_search::admin_search::{
-    AdminSearchParams, SearchScoreAdminParams, admin_search_inner,
-};
-use crate::search::location_search::place_search::{
-    PlaceSearchParams, SearchScorePlaceParams, place_search_inner,
-};
 use ahash::AHashMap as HashMap;
 use ahash::AHasher as DefaultHasher;
 use polars::prelude::*;
@@ -13,6 +9,7 @@ use rayon::prelude::*;
 use std::cmp::{max, min};
 use std::hash::{Hash, Hasher};
 use tracing::{debug, info, instrument, warn};
+
 const MAX_ADMIN_LEVELS: usize = 5; // Admin levels 0 through 4
 
 #[derive(Debug, Clone)]

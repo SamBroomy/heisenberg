@@ -1,6 +1,6 @@
 // examples/manual_admin_search.rs
 use anyhow::Result;
-use heisenberg::{AdminSearchParams, Heisenberg, HeisenbergError};
+use heisenberg::{AdminSearchParams, Heisenberg, error::HeisenbergError};
 use polars::prelude::*;
 use tracing::Level;
 

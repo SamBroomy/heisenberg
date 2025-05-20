@@ -1,11 +1,14 @@
 pub(crate) use error::SearchError;
-pub mod location_search;
+mod admin_search;
+mod common;
+mod place_search;
+mod smart_flexible_search;
+
+pub use admin_search::{AdminSearchParams, SearchScoreAdminParams, admin_search_inner};
+pub use place_search::{PlaceSearchParams, SearchScorePlaceParams, place_search_inner};
+pub use smart_flexible_search::{SearchConfig, bulk_location_search_inner, location_search_inner};
+
 use error::Result;
-pub use location_search::{
-    AdminSearchParams, PlaceSearchParams, SearchConfig, SearchScoreAdminParams,
-    SearchScorePlaceParams, admin_search_inner, bulk_location_search_inner, location_search_inner,
-    place_search_inner,
-};
 
 mod error {
     use thiserror::Error;
