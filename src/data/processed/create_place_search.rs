@@ -182,10 +182,16 @@ pub fn get_place_search_lf(
             },
         )
         .filter(
-            (col("admin0_code").is_not_null()).and(col("feature_class").is_in(lit(Series::new(
-                "feature_class_to_keep".into(),
-                ["P", "S", "T", "H", "L", "V", "R"],
-            )))),
+            (col("admin0_code").is_not_null()).and(
+                col("feature_class").is_in(
+                    lit(Series::new(
+                        "feature_class_to_keep".into(),
+                        ["P", "S", "T", "H", "L", "V", "R"],
+                    ))
+                    .implode(),
+                    false,
+                ),
+            ),
         )
         .with_columns([
             col("population").log1p().alias("pop_log1p"),
@@ -274,7 +280,6 @@ pub fn get_place_search_lf(
             col("latitude"),
             col("longitude"),
             col("population"),
-            col("elevation"),
             col("alternatenames"),
             col("importance_score"),
             col("importance_tier"),

@@ -1,14 +1,16 @@
 use super::Result;
 
 use polars::prelude::*;
+#[cfg(feature = "serde")]
+use serde::Serialize;
 mod basic;
 mod generic;
 
 pub use basic::BasicEntry;
 pub use generic::GenericEntry;
 
-/// Trait for entities that can be extracted from a search result row.
-pub trait LocationEntry: Sized + Default + Clone + Send + Sync + 'static {
+/// Trait for entities that can be extracted from a search result row.search_bulk
+pub trait LocationEntryCore: Sized + Default + Clone + Send + Sync + 'static {
     fn from_df(df: &DataFrame) -> Result<Vec<Self>>;
     /// Returns the geonameId of the entity.
     fn geoname_id(&self) -> u32;
@@ -16,6 +18,20 @@ pub trait LocationEntry: Sized + Default + Clone + Send + Sync + 'static {
     fn name(&self) -> &str;
     fn field_names() -> Vec<&'static str>;
 }
+/// Trait for entities that can be extracted from a search result row.
+/// It conditionally includes `serde::Serialize` as a supertrait.
+#[cfg(feature = "serde")]
+pub trait LocationEntry: LocationEntryCore + Serialize {}
+#[cfg(not(feature = "serde"))]
+pub trait LocationEntry: LocationEntryCore {}
+
+// Blanket implementation:
+// If a type T implements LocationEntryCore (and Serialize if the "serde" feature is enabled),
+// then T automatically implements LocationEntry.
+#[cfg(feature = "serde")]
+impl<T: LocationEntryCore + Serialize> LocationEntry for T {}
+#[cfg(not(feature = "serde"))]
+impl<T: LocationEntryCore> LocationEntry for T {}
 
 // impl From<GeonameFullEntry> for GeonameEntry {
 //     fn from(target_codes: GeonameFullEntry) -> Self {

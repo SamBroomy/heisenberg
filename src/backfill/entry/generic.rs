@@ -1,9 +1,13 @@
-use super::{LocationEntry, Result};
+use std::fmt;
+
+use super::{LocationEntryCore, Result};
 use itertools::izip;
 use polars::prelude::*;
 
 /// A generic entry struct that can hold common fields from search results.
 /// This can be used as the type `E` in `ResolvedSearchResult` and `AdministrativeContext`.
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[cfg_attr(feature = "python", pyo3::pyclass(get_all, name = "GenericEntry"))]
 #[derive(Debug, Clone, Default)]
 pub struct GenericEntry {
     pub geoname_id: u32,
@@ -19,7 +23,7 @@ pub struct GenericEntry {
     pub longitude: Option<f32>,
     pub population: Option<i64>,
 }
-impl LocationEntry for GenericEntry {
+impl LocationEntryCore for GenericEntry {
     fn from_df(df: &DataFrame) -> Result<Vec<Self>> {
         let cols = df.select(Self::field_names())?.take_columns();
 
@@ -95,5 +99,30 @@ impl LocationEntry for GenericEntry {
             "longitude",
             "population",
         ]
+    }
+}
+
+impl fmt::Display for GenericEntry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "GenericEntry {{ geoname_id: {}, name: \"{}\", admin_level: {} }}",
+            self.geoname_id, self.name, self.admin_level
+        )
+    }
+}
+
+#[cfg(feature = "python")]
+#[pyo3::pymethods]
+impl GenericEntry {
+    fn __repr__(&self) -> String {
+        format!("{:#?}", self)
+    }
+
+    fn __str__(&self) -> String {
+        self.to_string()
+    }
+    fn to_dict<'py>(&self, py: pyo3::Python<'py>) -> pyo3::PyResult<pyo3::Bound<'py, pyo3::PyAny>> {
+        Ok(pythonize::pythonize(py, self)?)
     }
 }

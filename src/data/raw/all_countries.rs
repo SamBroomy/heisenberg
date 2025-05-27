@@ -1,17 +1,7 @@
 use super::Result;
 
 use polars::prelude::*;
-use reqwest::Client;
 use std::path::Path;
-use tempfile::NamedTempFile;
-
-use super::fetch::download_zip_and_extract_first_entry_to_temp_file;
-
-const ALL_COUNTRIES_URL: &str = "https://download.geonames.org/export/dump/allCountries.zip";
-
-pub async fn download_all_countries(client: &Client) -> Result<NamedTempFile> {
-    download_zip_and_extract_first_entry_to_temp_file(client, ALL_COUNTRIES_URL).await
-}
 
 const ALL_COUNTRIES_SCHEMA: [(PlSmallStr, DataType); 19] = [
     (PlSmallStr::from_static("geonameId"), DataType::UInt32),

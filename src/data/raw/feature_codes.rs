@@ -1,15 +1,7 @@
 use super::Result;
+
 use polars::prelude::*;
-use reqwest::Client;
 use std::path::Path;
-use tempfile::NamedTempFile;
-
-use super::fetch::download_to_temp_file;
-
-const FEATURE_CODES_URL: &str = "https://download.geonames.org/export/dump/featureCodes_en.txt";
-pub async fn download_feature_codes(client: &Client) -> Result<NamedTempFile> {
-    download_to_temp_file(client, FEATURE_CODES_URL).await
-}
 
 const FEATURE_CODES_SCHEMA: [(PlSmallStr, DataType); 3] = [
     (PlSmallStr::from_static("code"), DataType::String),

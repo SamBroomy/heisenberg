@@ -22,6 +22,7 @@ pub struct ResolveSearchConfig {
     pub resolve_config: ResolveConfig,
 }
 
+#[derive(Clone)]
 pub struct Heisenberg {
     admin_fts_index: FTSIndex<AdminIndexDef>,
     admin_data_lf: LazyFrame,

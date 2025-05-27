@@ -7,8 +7,8 @@ mod data;
 mod index;
 mod search;
 mod service;
-extern crate polars;
 
+pub extern crate polars;
 pub use backfill::{BasicEntry, GenericEntry, LocationEntry, ResolveConfig, ResolvedSearchResult};
 pub use index::FTSIndexSearchParams;
 pub use search::{
@@ -16,6 +16,9 @@ pub use search::{
     SearchScorePlaceParams,
 };
 pub use service::{Heisenberg, ResolveSearchConfig};
+
+#[cfg(feature = "python")]
+pub mod python;
 
 static PLACES_DF_CACHE: OnceCell<()> = OnceCell::new();
 

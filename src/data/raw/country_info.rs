@@ -1,15 +1,7 @@
 use super::Result;
+
 use polars::prelude::*;
-use reqwest::Client;
 use std::path::Path;
-use tempfile::NamedTempFile;
-
-use super::fetch::download_to_temp_file;
-
-const COUNTRY_INFO_URL: &str = "https://download.geonames.org/export/dump/countryInfo.txt";
-pub async fn download_country_info(client: &Client) -> Result<NamedTempFile> {
-    download_to_temp_file(client, COUNTRY_INFO_URL).await
-}
 
 const COUNTRY_INFO_SCHEMA: [(PlSmallStr, DataType); 19] = [
     (PlSmallStr::from_static("ISO"), DataType::String),

@@ -6,10 +6,45 @@ use std::fs;
 use std::path::PathBuf;
 use tempfile::NamedTempFile;
 use tokio::io::AsyncWriteExt;
-use tracing::info;
+use tracing::{info, instrument};
 use zip::ZipArchive;
 
-pub async fn download_to_temp_file(client: &Client, url: &str) -> Result<NamedTempFile> {
+#[instrument(name = "Download GeoNames data", skip_all, level = "info")]
+pub fn download_raw_data() -> Result<(NamedTempFile, NamedTempFile, NamedTempFile)> {
+    let rt = tokio::runtime::Runtime::new()?;
+
+    rt.block_on(async {
+        let client = reqwest::Client::new();
+
+        let (all_countries_df, country_info_df, feature_codes_df) = tokio::try_join!(
+            download_all_countries(&client),
+            download_country_info(&client),
+            download_feature_codes(&client),
+        )?;
+
+        Ok((all_countries_df, country_info_df, feature_codes_df))
+    })
+}
+
+const ALL_COUNTRIES_URL: &str = "https://download.geonames.org/export/dump/allCountries.zip";
+/// Downloads the all countries file from GeoNames and extracts it to a temporary file.
+async fn download_all_countries(client: &Client) -> Result<NamedTempFile> {
+    download_zip_and_extract_first_entry_to_temp_file(client, ALL_COUNTRIES_URL).await
+}
+
+const COUNTRY_INFO_URL: &str = "https://download.geonames.org/export/dump/countryInfo.txt";
+/// Downloads the country info file from GeoNames and extracts it to a temporary file.
+async fn download_country_info(client: &Client) -> Result<NamedTempFile> {
+    download_to_temp_file(client, COUNTRY_INFO_URL).await
+}
+
+const FEATURE_CODES_URL: &str = "https://download.geonames.org/export/dump/featureCodes_en.txt";
+/// Downloads the feature codes file from GeoNames and extracts it to a temporary file.
+async fn download_feature_codes(client: &Client) -> Result<NamedTempFile> {
+    download_to_temp_file(client, FEATURE_CODES_URL).await
+}
+
+async fn download_to_temp_file(client: &Client, url: &str) -> Result<NamedTempFile> {
     info!(url, "Starting download");
     let response = client.get(url).send().await?.error_for_status()?;
 
@@ -40,7 +75,7 @@ pub async fn download_to_temp_file(client: &Client, url: &str) -> Result<NamedTe
     Ok(temp_file)
 }
 
-pub async fn download_zip_and_extract_first_entry_to_temp_file(
+async fn download_zip_and_extract_first_entry_to_temp_file(
     client: &Client,
     zip_url: &str,
 ) -> Result<NamedTempFile> {

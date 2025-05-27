@@ -46,7 +46,7 @@ fn search_score_admin(
     let lf = super::common::text_relevance_score(lf, search_term).with_columns([
         // ===== 2. Population importance =====
         when(col("population").gt(0))
-            .then(lit(1.0) - lit(1.0) / (lit(1.0) + (col("population").log(10.0) / lit(3))))
+            .then(lit(1.0) - lit(1.0) / (lit(1.0) + (col("population").log(10.0) / lit(3.0))))
             .otherwise(lit(0.1))
             .alias("pop_score"),
         // ===== 3. Feature type importance =====
@@ -69,12 +69,18 @@ fn search_score_admin(
             .otherwise(lit(0.5))
             .alias("feature_score"),
         // ===== 4. Country/region prominence =====
-        when(col("admin0_code").is_in(lit(Series::new(
-            "major_countries".into(),
-            &[
-                "US", "GB", "DE", "FR", "JP", "CN", "IN", "BR", "RU", "CA", "AU",
-            ],
-        ))))
+        when(
+            col("admin0_code").is_in(
+                lit(Series::new(
+                    "major_countries".into(),
+                    &[
+                        "US", "GB", "DE", "FR", "JP", "CN", "IN", "BR", "RU", "CA", "AU",
+                    ],
+                ))
+                .implode(),
+                false,
+            ),
+        )
         .then(lit(0.8))
         .otherwise(lit(0.5))
         .alias("country_score"),
@@ -159,7 +165,7 @@ pub fn admin_search_inner(
             _ => data,
         };
         (
-            filtered_data.filter(col("admin_level").is_in(lit(levels_series))),
+            filtered_data.filter(col("admin_level").is_in(lit(levels_series).implode(), false)),
             join_cols_expr,
         )
     };

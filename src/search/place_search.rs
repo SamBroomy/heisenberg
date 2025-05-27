@@ -58,47 +58,98 @@ fn search_score_place(
             .clip(lit(0.0_f32), lit(1.0_f32))
             .alias("importance_norm"),
         // ===== 3. Feature type scoring for places =====
-        when(col("feature_code").is_in(lit(Series::new(
-            "major_capitals".into(),
-            &["PPLC", "PPLA", "PPLA2", "PPLA3", "PPLA4"],
-        ))))
+        when(
+            col("feature_code").is_in(
+                lit(Series::new(
+                    "major_capitals".into(),
+                    &["PPLC", "PPLA", "PPLA2", "PPLA3", "PPLA4"],
+                ))
+                .implode(),
+                false,
+            ),
+        )
         .then(lit(1.0_f32))
-        .when(col("feature_code").is_in(lit(Series::new(
-            "landmarks".into(),
-            &["CSTL", "MNMT", "RUIN", "TOWR"],
-        ))))
+        .when(
+            col("feature_code").is_in(
+                lit(Series::new(
+                    "landmarks".into(),
+                    &["CSTL", "MNMT", "RUIN", "TOWR"],
+                ))
+                .implode(),
+                false,
+            ),
+        )
         .then(lit(0.95_f32))
-        .when(col("feature_code").is_in(lit(Series::new(
-            "cultural".into(),
-            &["MUS", "THTR", "AMTH", "LIBR", "OPRA"],
-        ))))
+        .when(
+            col("feature_code").is_in(
+                lit(Series::new(
+                    "cultural".into(),
+                    &["MUS", "THTR", "AMTH", "LIBR", "OPRA"],
+                ))
+                .implode(),
+                false,
+            ),
+        )
         .then(lit(0.9_f32))
-        .when(col("feature_code").is_in(lit(Series::new(
-            "populated".into(),
-            &["PPL", "PPLF", "PPLS", "PPLX"],
-        ))))
+        .when(
+            col("feature_code").is_in(
+                lit(Series::new(
+                    "populated".into(),
+                    &["PPL", "PPLF", "PPLS", "PPLX"],
+                ))
+                .implode(),
+                false,
+            ),
+        )
         .then(lit(0.85_f32))
-        .when(col("feature_code").is_in(lit(Series::new(
-            "transport".into(),
-            &["AIRP", "RSTN", "PRT", "MAR"],
-        ))))
+        .when(
+            col("feature_code").is_in(
+                lit(Series::new(
+                    "transport".into(),
+                    &["AIRP", "RSTN", "PRT", "MAR"],
+                ))
+                .implode(),
+                false,
+            ),
+        )
         .then(lit(0.8_f32))
-        .when(col("feature_code").is_in(lit(Series::new(
-            "facilities_edu_med".into(),
-            &["UNIV", "SCH", "HSP", "HTL", "RSRT"],
-        ))))
+        .when(
+            col("feature_code").is_in(
+                lit(Series::new(
+                    "facilities_edu_med".into(),
+                    &["UNIV", "SCH", "HSP", "HTL", "RSRT"],
+                ))
+                .implode(),
+                false,
+            ),
+        )
         .then(lit(0.75_f32))
-        .when(col("feature_code").is_in(lit(Series::new("commercial".into(), &["MALL", "MKT"]))))
+        .when(col("feature_code").is_in(
+            lit(Series::new("commercial".into(), &["MALL", "MKT"])).implode(),
+            false,
+        ))
         .then(lit(0.7_f32))
-        .when(col("feature_code").is_in(lit(Series::new(
-            "religious".into(),
-            &["CH", "MSQE", "TMPL", "SHRN"],
-        ))))
+        .when(
+            col("feature_code").is_in(
+                lit(Series::new(
+                    "religious".into(),
+                    &["CH", "MSQE", "TMPL", "SHRN"],
+                ))
+                .implode(),
+                false,
+            ),
+        )
         .then(lit(0.65_f32))
-        .when(col("feature_code").is_in(lit(Series::new(
-            "natural".into(),
-            &["MT", "PK", "VLC", "ISL", "BCH", "LK", "BAY"],
-        ))))
+        .when(
+            col("feature_code").is_in(
+                lit(Series::new(
+                    "natural".into(),
+                    &["MT", "PK", "VLC", "ISL", "BCH", "LK", "BAY"],
+                ))
+                .implode(),
+                false,
+            ),
+        )
         .then(lit(0.6_f32))
         .otherwise(lit(0.3_f32))
         .alias("feature_score"),

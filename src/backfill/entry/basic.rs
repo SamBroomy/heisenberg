@@ -1,13 +1,17 @@
-use super::{LocationEntry, Result};
+use std::fmt;
+
+use super::{LocationEntryCore, Result};
 use itertools::izip;
 use polars::prelude::*;
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[cfg_attr(feature = "python", pyo3::pyclass(get_all, name = "BasicEntry"))]
 #[derive(Debug, Clone, Default)]
 pub struct BasicEntry {
     pub geoname_id: u32,
     pub name: String,
 }
-impl LocationEntry for BasicEntry {
+impl LocationEntryCore for BasicEntry {
     fn from_df(df: &DataFrame) -> Result<Vec<Self>> {
         let cols = df.select(Self::field_names())?.take_columns();
 
@@ -27,5 +31,31 @@ impl LocationEntry for BasicEntry {
     }
     fn field_names() -> Vec<&'static str> {
         vec!["geonameId", "name"]
+    }
+}
+
+impl fmt::Display for BasicEntry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "BasicEntry {{ geoname_id: {}, name: \"{}\" }}",
+            self.geoname_id, self.name
+        )
+    }
+}
+
+#[cfg(feature = "python")]
+#[pyo3::pymethods]
+impl BasicEntry {
+    fn __repr__(&self) -> String {
+        format!("{:#?}", self)
+    }
+
+    fn __str__(&self) -> String {
+        self.to_string()
+    }
+
+    fn to_dict<'py>(&self, py: pyo3::Python<'py>) -> pyo3::PyResult<pyo3::Bound<'py, pyo3::PyAny>> {
+        Ok(pythonize::pythonize(py, self)?)
     }
 }
