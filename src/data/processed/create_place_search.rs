@@ -226,11 +226,18 @@ pub fn get_place_search_lf(
             + (col("name_boost") * lit(0.2)))
         .alias("importance_score")])
         .with_columns([(lit(1.0)
-            / (lit(1.0)
-                + (((col("importance_score") - col("importance_score").mean())
-                    / col("importance_score").std(1))
-                    * lit(-1.5))
-                .exp()))
+            / (
+                lit(1.0)
+                    + when(col("importance_score").std(1).gt(lit(1e-8)))
+                        .then(
+                            (((col("importance_score") - col("importance_score").mean())
+                                / col("importance_score").std(1))
+                                * lit(-1.5))
+                            .exp(),
+                        )
+                        .otherwise(lit(1.0))
+                // When std is 0 (single row), use neutral scaling
+            ))
         .alias("importance_score")])
         .with_column(
             // All we are doing is defining the cumulative proportion of items belonging to the top tiers in a way that each successively smaller group of top tiers is approximately 30% the size of the next larger group.
