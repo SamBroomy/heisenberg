@@ -52,13 +52,13 @@ impl IndexDefinition for AdminIndexDef {
         let mut schema_builder = SchemaBuilder::new();
         let text_indexing = TextFieldIndexing::default()
             .set_tokenizer("default")
-            .set_index_option(IndexRecordOption::Basic);
+            .set_index_option(IndexRecordOption::WithFreqsAndPositions);
         let text_options = TextOptions::default().set_indexing_options(text_indexing);
         let code_options = TextOptions::default() // For exact code matching, no stemming
             .set_indexing_options(
                 TextFieldIndexing::default()
                     .set_tokenizer("raw")
-                    .set_index_option(IndexRecordOption::Basic),
+                    .set_index_option(IndexRecordOption::WithFreqsAndPositions),
             );
 
         schema_builder.add_u64_field("geonameId", STORED | INDEXED | FAST);
@@ -183,7 +183,7 @@ impl IndexDefinition for PlacesIndexDef {
         let mut schema_builder = SchemaBuilder::new();
         let text_indexing = TextFieldIndexing::default()
             .set_tokenizer("default")
-            .set_index_option(IndexRecordOption::Basic);
+            .set_index_option(IndexRecordOption::WithFreqsAndPositions);
         let text_options = TextOptions::default().set_indexing_options(text_indexing);
 
         schema_builder.add_u64_field("geonameId", STORED | INDEXED | FAST);

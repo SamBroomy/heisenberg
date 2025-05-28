@@ -300,8 +300,8 @@ pub fn place_search_inner(
 
         if gid_series.is_empty() {
             warn!(
-                "Place search: gid_series is empty after filtering. Term: '{}'",
-                term
+                term = term,
+                "Place search: No geonameId found in filtered data"
             );
             return Ok(None);
         }

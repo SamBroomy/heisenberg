@@ -4,34 +4,15 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
-classifiers = [
-    "Programming Language :: Rust",
-    "Programming Language :: Python :: Implementation :: CPython",
-    "Programming Language :: Python :: Implementation :: PyPy",
-]
-dependencies = [
-    "duckdb>=1.2.2",
-    "geocoder>=1.38.1",
-    "kuzu>=0.9.0",
-    "loguru>=0.7.3",
-    "maturin>=1.8.6",
-    "numpy>=2.2.5",
-    "polars>=1.29.0",
-    "polars-distance>=0.5.3",
-    "pyarrow>=20.0.0",
-    "result>=0.17.0",
-    "tantivy>=0.22.2",
-    "usearch>=2.17.7",
-]
+classifiers = ["Programming Language :: Rust"]
+dependencies = ["maturin>=1.8.6", "polars>=1"]
 
 [dependency-groups]
 dev = [
     "ipykernel>=6.29.5",
     "ipywidgets>=8.1.6",
-    "jupytext>=1.17.1",
-    "nbconvert>=7.16.6",
-    "pandas>=2.2.3",
-    "ruff>=0.11.8",
+    "pytest>=8.3.5",
+    "ruff>=0.11.11",
 ]
 [build-system]
 requires = ["maturin>=1,<2"]
@@ -40,3 +21,4 @@ build-backend = "maturin"
 [tool.maturin]
 bindings = "pyo3"
 features = ["python"]
+python-source = "python"

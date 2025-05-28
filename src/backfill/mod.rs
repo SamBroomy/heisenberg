@@ -195,16 +195,13 @@ pub mod python_wrappers {
                         .transpose()
                 }
 
-                fn __repr__(&self, py: Python) -> String {
+                fn __repr__(&self) -> String {
                     format!("{:#?}", self.inner)
                 }
                 fn __str__(&self) -> String {
                     self.inner.to_string()
                 }
-                fn to_dict<'py>(
-                    &self,
-                    py: pyo3::Python<'py>,
-                ) -> pyo3::PyResult<pyo3::Bound<'py, pyo3::PyAny>> {
+                fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
                     Ok(pythonize::pythonize(py, &self.inner)?)
                 }
             }
@@ -247,7 +244,7 @@ pub mod python_wrappers {
                     self.inner.full()
                 }
 
-                fn __repr__(&self, py: Python) -> String {
+                fn __repr__(&self) -> String {
                     // To get context repr, you'd need to call __repr__ on the PyLocationContext* object
                     // This requires getting it as a PyObject and then calling its repr.
                     // For simplicity here, we'll just indicate its presence or use its score.
@@ -257,10 +254,7 @@ pub mod python_wrappers {
                     self.inner.to_string() // Uses the Display trait of ResolvedSearchResult<E>
                 }
 
-                fn to_dict<'py>(
-                    &self,
-                    py: pyo3::Python<'py>,
-                ) -> pyo3::PyResult<pyo3::Bound<'py, pyo3::PyAny>> {
+                fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
                     Ok(pythonize::pythonize(py, &self.inner)?)
                 }
             }
@@ -293,4 +287,25 @@ pub mod python_wrappers {
         PyLocationContextGeneric,
         "ResolvedGenericSearchResult"
     );
+    macro_rules! impl_python_methods {
+        ($struct_name:ident) => {
+            #[pyo3::pymethods]
+            impl $struct_name {
+                fn __repr__(&self) -> String {
+                    format!("{:#?}", self)
+                }
+
+                fn __str__(&self) -> String {
+                    self.to_string()
+                }
+
+                fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+                    Ok(pythonize::pythonize(py, self)?)
+                }
+            }
+        };
+    }
+
+    impl_python_methods!(BasicEntry);
+    impl_python_methods!(GenericEntry);
 }

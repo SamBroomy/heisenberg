@@ -111,18 +111,3 @@ impl fmt::Display for GenericEntry {
         )
     }
 }
-
-#[cfg(feature = "python")]
-#[pyo3::pymethods]
-impl GenericEntry {
-    fn __repr__(&self) -> String {
-        format!("{:#?}", self)
-    }
-
-    fn __str__(&self) -> String {
-        self.to_string()
-    }
-    fn to_dict<'py>(&self, py: pyo3::Python<'py>) -> pyo3::PyResult<pyo3::Bound<'py, pyo3::PyAny>> {
-        Ok(pythonize::pythonize(py, self)?)
-    }
-}

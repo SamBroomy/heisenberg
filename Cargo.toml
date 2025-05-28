@@ -24,6 +24,7 @@ name = "heisenberg"
 crate-type = ["cdylib", "rlib"]
 
 [features]
+all = ["download_data", "python"]
 default = ["download_data"]
 download_data = ["reqwest", "tokio", "indicatif", "futures"]
 python = [
@@ -59,15 +60,14 @@ polars = { version = "0.48", features = [
     "csv",
     "semi_anti_join",
     "cse",
-
-    #"performant",
+    "performant",
     "dtype-i128",
     #"streaming",
 ] }
-rapidfuzz = "0.5.0"
-rayon = "1.10.0"
-regex = "1.11.1"
-reqwest = { version = "0.12.15", features = ["stream"], optional = true }
+rapidfuzz = "0.5"
+rayon = "1.10"
+regex = "1.11"
+reqwest = { version = "0.12", features = ["stream"], optional = true }
 tokio = { version = "1", features = [
     "rt-multi-thread",
     "fs",
@@ -77,7 +77,7 @@ tokio = { version = "1", features = [
 futures = { version = "0.3", optional = true }
 tantivy = "0.24"
 tempfile = "3"
-tracing = { version = "0.1.41", features = ["log"] }
+tracing = { version = "0.1", features = ["log"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 zip = "4"
 thiserror = "2.0"

@@ -1,7 +1,5 @@
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
 use pyo3_polars::PyDataFrame;
-use pythonize::pythonize;
 
 use crate::backfill::python_wrappers::*;
 use crate::service::Heisenberg as RustHeisenberg;
@@ -35,24 +33,24 @@ impl PyHeisenberg {
         levels: Vec<u8>,
         previous_result: Option<PyDataFrame>,
     ) -> PyResult<Option<PyDataFrame>> {
-        // py.allow_threads(|| {
-        // Convert Python optional DataFrame to Rust optional DataFrame
+        py.allow_threads(|| {
+            // Convert Python optional DataFrame to Rust optional DataFrame
 
-        let prev_df = previous_result.map(|df| df.into());
+            let prev_df = previous_result.map(|df| df.into());
 
-        // Call the Rust function
-        match self
-            .inner
-            .admin_search(term, &levels, prev_df, &Default::default())
-        {
-            Ok(Some(df)) => Ok(Some(PyDataFrame(df))),
-            Ok(None) => Ok(None),
-            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-                "Admin search error: {}",
-                e
-            ))),
-        }
-        //})
+            // Call the Rust function
+            match self
+                .inner
+                .admin_search(term, &levels, prev_df, &Default::default())
+            {
+                Ok(Some(df)) => Ok(Some(PyDataFrame(df))),
+                Ok(None) => Ok(None),
+                Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                    "Admin search error: {}",
+                    e
+                ))),
+            }
+        })
     }
 
     /// Flexible search with multiple terms
@@ -154,6 +152,9 @@ impl PyHeisenberg {
 #[pymodule]
 fn heisenberg(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     pyo3_log::init();
+
+    m.add("__version__", env!("CARGO_PKG_VERSION"))?;
+
     m.add_class::<PyHeisenberg>()?;
     m.add_class::<BasicEntry>()?;
     m.add_class::<GenericEntry>()?;
