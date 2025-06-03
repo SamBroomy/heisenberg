@@ -4,7 +4,7 @@ use polars::prelude::*;
 use tracing::{info, info_span};
 
 use crate::search::{
-    AdminSearchParams, PlaceSearchParams, SearchConfig, admin_search_inner,
+    AdminSearchParams, PlaceSearchParams, SearchConfig, SearchResult, admin_search_inner,
     bulk_location_search_inner, location_search_inner, place_search_inner,
 };
 use crate::{
@@ -14,8 +14,8 @@ use crate::{
     index::{AdminIndexDef, FTSIndex, PlacesIndexDef},
 };
 
-pub type SearchResults = Vec<DataFrame>;
-pub type SearchResultsBatch = Vec<Vec<DataFrame>>;
+pub type SearchResults = Vec<SearchResult>;
+pub type SearchResultsBatch = Vec<Vec<SearchResult>>;
 
 #[derive(Debug, Clone, Default)]
 pub struct ResolveSearchConfig {
@@ -77,9 +77,10 @@ impl LocationSearcher {
             levels,
             &self.admin_fts_index,
             self.data.admin_search_df()?.clone(),
-            previous_result,
+            previous_result.map(From::from),
             params,
         )
+        .map(|result| result.map(From::from))
         .map_err(From::from)
     }
 
@@ -93,9 +94,10 @@ impl LocationSearcher {
             term.as_ref(),
             &self.places_fts_index,
             self.data.place_search_df()?.clone(),
-            previous_result,
+            previous_result.map(From::from),
             params,
         )
+        .map(|result| result.map(From::from))
         .map_err(From::from)
     }
 

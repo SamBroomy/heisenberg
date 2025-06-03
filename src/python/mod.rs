@@ -82,7 +82,10 @@ impl PyLocationSearcher {
     fn search(&self, py: Python, input_terms: Vec<String>) -> PyResult<Vec<PyDataFrame>> {
         py.allow_threads(|| match self.inner.search(&input_terms) {
             Ok(results) => {
-                let py_results = results.into_iter().map(PyDataFrame).collect();
+                let py_results = results
+                    .into_iter()
+                    .map(|df| PyDataFrame(df.into_df()))
+                    .collect();
                 Ok(py_results)
             }
             Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
@@ -102,7 +105,10 @@ impl PyLocationSearcher {
         py.allow_threads(
             || match self.inner.search_with_config(&input_terms, &config.inner) {
                 Ok(results) => {
-                    let py_results = results.into_iter().map(PyDataFrame).collect();
+                    let py_results = results
+                        .into_iter()
+                        .map(|df| PyDataFrame(df.into_df()))
+                        .collect();
                     Ok(py_results)
                 }
                 Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
@@ -127,7 +133,12 @@ impl PyLocationSearcher {
             })?;
             let py_results = results
                 .into_iter()
-                .map(|df_vec| df_vec.into_iter().map(PyDataFrame).collect())
+                .map(|df_vec| {
+                    df_vec
+                        .into_iter()
+                        .map(|df| PyDataFrame(df.into_df()))
+                        .collect()
+                })
                 .collect();
             Ok(py_results)
         })
@@ -152,7 +163,12 @@ impl PyLocationSearcher {
                 })?;
             let py_results = results
                 .into_iter()
-                .map(|df_vec| df_vec.into_iter().map(PyDataFrame).collect())
+                .map(|df_vec| {
+                    df_vec
+                        .into_iter()
+                        .map(|df| PyDataFrame(df.into_df()))
+                        .collect()
+                })
                 .collect();
             Ok(py_results)
         })

@@ -3,6 +3,8 @@ use polars::prelude::*;
 use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 use tracing::{debug, debug_span, instrument, trace, warn};
 
+use crate::search::SearchResult;
+
 use super::{LocationContext, ResolvedSearchResult, Result, entry::LocationEntry};
 
 pub type LocationResults<E> = Vec<ResolvedSearchResult<E>>;
@@ -153,7 +155,6 @@ fn backfill_administrative_context<E: LocationEntry>(
     // Rebuild the original structure with the collected frames
     let mut result: Vec<LocationContext<E>> = vec![LocationContext::<E>::default(); final_lf_len];
     for ((batch_idx, admin_level), df) in izip!(position_map, collected_frames) {
-        let context = &mut result[batch_idx];
         if df.is_empty() {
             debug!(
                 "No data found for admin level {} in batch {}. Skipping.",
@@ -161,6 +162,7 @@ fn backfill_administrative_context<E: LocationEntry>(
             );
             continue;
         }
+        let context = &mut result[batch_idx];
         assert_eq!(df.shape().0, 1);
         let mut entity_list = E::from_df(&df)?;
         let entity = entity_list.pop();
@@ -183,7 +185,7 @@ fn backfill_administrative_context<E: LocationEntry>(
     fields(num_batches = 0, limit_per_query = config.limit_per_query)
 )]
 pub fn resolve_search_candidate<E: LocationEntry>(
-    search_results: Vec<DataFrame>,
+    search_results: Vec<SearchResult>,
     admin_data_lf: &LazyFrame,
     config: &ResolveConfig,
 ) -> Result<LocationResults<E>> {
@@ -191,9 +193,8 @@ pub fn resolve_search_candidate<E: LocationEntry>(
         debug!("No search results found.");
         return Ok(Vec::new());
     }
-    // The last DataFrame in the list contains the primary candidates we want to resolve
     let primary_candidates_df = match search_results.last() {
-        Some(df) if !df.is_empty() => df,
+        Some(df) if !df.is_empty() => df.clone(),
         _ => {
             debug!("No suitable primary candidate DataFrame or it's empty.");
             return Ok(Vec::new());
@@ -201,17 +202,17 @@ pub fn resolve_search_candidate<E: LocationEntry>(
     };
     tracing::Span::current().record("num_batches", primary_candidates_df.height());
 
-    let mut primary_candidates_df = primary_candidates_df.head(Some(config.limit_per_query));
+    let mut primary_candidates_df =
+        primary_candidates_df.map(|df| df.head(Some(config.limit_per_query)));
 
     let target_codes = TargetLocationAdminCodes::from_df(&primary_candidates_df)?;
+    let final_contexts = backfill_administrative_context::<E>(&target_codes, admin_data_lf)?;
     // Used to determine if the primary candidate is a place or not?
-    let candidate_entities = E::from_df(&primary_candidates_df)?;
+    let candidate_entities: Vec<E> = E::from_df(&primary_candidates_df)?;
     let scores = primary_candidates_df
         .pop()
         .expect("Last column should be the score column");
     let scores = scores.f64()?;
-
-    let final_contexts = backfill_administrative_context::<E>(&target_codes, admin_data_lf)?;
 
     let mut resolved = izip!(final_contexts, candidate_entities, scores)
         .map(|(mut final_context, original_candidate, score)| {
@@ -220,7 +221,7 @@ pub fn resolve_search_candidate<E: LocationEntry>(
             }
             ResolvedSearchResult {
                 context: final_context,
-                score: score.expect("Score should not be None"),
+                score: score.unwrap_or(0.0),
             }
         })
         .collect::<Vec<_>>();
@@ -236,7 +237,7 @@ pub fn resolve_search_candidate<E: LocationEntry>(
 #[instrument(name="Resolve Search Candidate Batches",
     level = "info", skip(search_results_batches, admin_data_lf), fields(num_batches = search_results_batches.len(), limit_per_query = config.limit_per_query))]
 pub fn resolve_search_candidate_batches<E: LocationEntry>(
-    search_results_batches: Vec<Vec<DataFrame>>,
+    search_results_batches: Vec<Vec<SearchResult>>,
     admin_data_lf: &LazyFrame,
     config: &ResolveConfig,
 ) -> Result<Vec<LocationResults<E>>> {

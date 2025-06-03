@@ -6,7 +6,6 @@ mod backfill;
 mod config;
 mod core;
 mod data;
-mod heisenberg;
 mod index;
 mod search;
 
@@ -16,8 +15,8 @@ pub use config::SearchConfigBuilder;
 pub use core::{LocationSearcher, ResolveSearchConfig};
 pub use index::FTSIndexSearchParams;
 pub use search::{
-    AdminSearchParams, PlaceSearchParams, SearchConfig, SearchScoreAdminParams,
-    SearchScorePlaceParams,
+    AdminFrame, AdminSearchParams, PlaceFrame, PlaceSearchParams, SearchConfig, SearchResult,
+    SearchScoreAdminParams, SearchScorePlaceParams,
 };
 
 #[cfg(feature = "python")]

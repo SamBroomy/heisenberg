@@ -363,7 +363,10 @@ mod tests {
         // Test quality places preset values
         let quality_config = SearchConfigBuilder::quality_places().build();
         assert_eq!(quality_config.place_min_importance_tier, 2);
-        assert_eq!(quality_config.place_search_score_params.importance_weight, 0.35);
+        assert_eq!(
+            quality_config.place_search_score_params.importance_weight,
+            0.35
+        );
         assert_eq!(quality_config.place_search_score_params.text_weight, 0.3);
     }
 
@@ -382,20 +385,23 @@ mod tests {
 
         // Both should have the same values regardless of order
         assert_eq!(config1.limit, config2.limit);
-        assert_eq!(config1.place_min_importance_tier, config2.place_min_importance_tier);
+        assert_eq!(
+            config1.place_min_importance_tier,
+            config2.place_min_importance_tier
+        );
     }
 
     #[test]
     fn test_search_config_builder_override_presets() {
         // Test that preset values can be overridden
         let config = SearchConfigBuilder::fast()
-            .limit(100)  // Override the fast preset limit
-            .place_importance_threshold(1)  // Override the fast preset threshold
+            .limit(100) // Override the fast preset limit
+            .place_importance_threshold(1) // Override the fast preset threshold
             .build();
 
-        assert_eq!(config.limit, 100);  // Should use overridden value
-        assert_eq!(config.place_min_importance_tier, 1);  // Should use overridden value
-        assert_eq!(config.max_sequential_admin_terms, 3);  // Should keep fast preset value
+        assert_eq!(config.limit, 100); // Should use overridden value
+        assert_eq!(config.place_min_importance_tier, 1); // Should use overridden value
+        assert_eq!(config.max_sequential_admin_terms, 3); // Should keep fast preset value
     }
 
     #[test]
@@ -410,8 +416,14 @@ mod tests {
         let cloned = original.clone();
 
         assert_eq!(original.limit, cloned.limit);
-        assert_eq!(original.place_min_importance_tier, cloned.place_min_importance_tier);
-        assert_eq!(original.max_sequential_admin_terms, cloned.max_sequential_admin_terms);
+        assert_eq!(
+            original.place_min_importance_tier,
+            cloned.place_min_importance_tier
+        );
+        assert_eq!(
+            original.max_sequential_admin_terms,
+            cloned.max_sequential_admin_terms
+        );
         assert_eq!(original.all_cols, cloned.all_cols);
     }
 
@@ -419,9 +431,9 @@ mod tests {
     fn test_edge_case_values() {
         // Test with minimum reasonable values
         let config = SearchConfigBuilder::new()
-            .limit(1)  // Minimum limit
-            .place_importance_threshold(1)  // Minimum threshold
-            .max_admin_terms(1)  // Minimum admin terms
+            .limit(1) // Minimum limit
+            .place_importance_threshold(1) // Minimum threshold
+            .max_admin_terms(1) // Minimum admin terms
             .build();
 
         assert_eq!(config.limit, 1);
@@ -458,9 +470,7 @@ mod tests {
         assert_eq!(default_config.all_cols, false);
 
         // When enabled, should be true
-        let all_columns_config = SearchConfigBuilder::new()
-            .include_all_columns()
-            .build();
+        let all_columns_config = SearchConfigBuilder::new().include_all_columns().build();
         assert_eq!(all_columns_config.all_cols, true);
 
         // Should work with other settings

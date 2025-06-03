@@ -1,13 +1,90 @@
-use super::Result;
+use super::{Result, admin_search::AdminFrame};
 use crate::index::{FTSIndex, FTSIndexSearchParams, PlacesIndexDef};
 use ahash::AHashMap as HashMap;
 use itertools::Itertools;
 use polars::prelude::*;
-use std::ops::Mul;
+use std::ops::{Deref, DerefMut, Mul};
 use tracing::{debug, info_span, instrument, trace, trace_span, warn};
 
 const EARTH_RADIUS_KM: f64 = 6371.0;
 
+#[derive(Debug, Clone)]
+pub struct PlaceFrame(DataFrame);
+
+impl PlaceFrame {
+    /// Creates a new PlaceFrame from a DataFrame.
+    /// This will panic if the DataFrame does not have the expected columns.
+    pub fn new(df: DataFrame) -> Self {
+        PlaceFrame::from(df)
+    }
+    pub fn map<F>(self, f: F) -> Self
+    where
+        F: FnOnce(DataFrame) -> DataFrame,
+    {
+        PlaceFrame(f(self.0))
+    }
+    /// Returns the underlying DataFrame.
+    pub fn into_inner(self) -> DataFrame {
+        self.0
+    }
+    pub fn lazy(self) -> LazyFrame {
+        self.0.lazy()
+    }
+}
+
+impl Deref for PlaceFrame {
+    type Target = DataFrame;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl DerefMut for PlaceFrame {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+impl From<DataFrame> for PlaceFrame {
+    fn from(df: DataFrame) -> Self {
+        // Ensure the DataFrame has the expected columns for admin search
+
+        let expected_columns = [
+            "importance_score",
+            "importance_tier",
+            "geonameId",
+            "name",
+            "asciiname",
+            "admin0_code",
+            "admin1_code",
+            "admin2_code",
+            "admin3_code",
+            "admin4_code",
+            "feature_class",
+            "feature_code",
+            "latitude",
+            "longitude",
+            "population",
+            "alternatenames",
+        ];
+        let df_cols = df
+            .get_column_names()
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>();
+
+        for col in expected_columns {
+            if !df_cols.contains(&col) {
+                panic!("DataFrame is missing expected column: {}", col);
+            }
+        }
+        Self(df)
+    }
+}
+impl From<PlaceFrame> for DataFrame {
+    fn from(admin_frame: PlaceFrame) -> Self {
+        admin_frame.0
+    }
+}
 /// Parameters for scoring places based on various factors.
 /// The weights for each factor can be adjusted to change the scoring behaviors.
 /// The weights should sum to 1.0 for a balanced score.
@@ -256,9 +333,9 @@ pub fn place_search_inner(
     term: &str,
     index: &FTSIndex<PlacesIndexDef>,
     data: impl IntoLazy,
-    previous_result: Option<DataFrame>,
+    previous_result: Option<AdminFrame>,
     params: &PlaceSearchParams,
-) -> Result<Option<DataFrame>> {
+) -> Result<Option<PlaceFrame>> {
     let data = data.lazy();
     let previous_result = previous_result.map(|df| df.lazy());
 
@@ -508,6 +585,6 @@ pub fn place_search_inner(
         );
         Ok(None)
     } else {
-        Ok(Some(output_df))
+        Ok(Some(PlaceFrame(output_df)))
     }
 }

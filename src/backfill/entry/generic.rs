@@ -12,7 +12,6 @@ use polars::prelude::*;
 pub struct GenericEntry {
     pub geoname_id: u32,
     pub name: String,
-    pub admin_level: u8,
     pub admin0_code: Option<String>,
     pub admin1_code: Option<String>,
     pub admin2_code: Option<String>,
@@ -31,26 +30,24 @@ impl LocationEntryCore for GenericEntry {
         Ok(izip!(
             cols[0].u32()?,
             cols[1].str()?,
-            cols[2].u8()?,
+            cols[2].str()?,
             cols[3].str()?,
             cols[4].str()?,
             cols[5].str()?,
             cols[6].str()?,
             cols[7].str()?,
-            cols[8].str()?,
         )
         .zip(
-            cols[9]
+            cols[8]
                 .f32()?
                 .iter()
-                .zip(cols[10].f32()?.iter().zip(cols[11].i64()?.iter())),
+                .zip(cols[9].f32()?.iter().zip(cols[10].i64()?.iter())),
         )
         .map(
             |(
                 (
                     geoname_id,
                     name,
-                    admin_level,
                     admin0_code,
                     admin1_code,
                     admin2_code,
@@ -62,7 +59,6 @@ impl LocationEntryCore for GenericEntry {
             )| Self {
                 geoname_id: geoname_id.expect("geonameId should never be None"),
                 name: name.expect("name should never be None").to_string(),
-                admin_level: admin_level.expect("admin_level should never be None"),
                 admin0_code: admin0_code.map(|s| s.to_string()),
                 admin1_code: admin1_code.map(|s| s.to_string()),
                 admin2_code: admin2_code.map(|s| s.to_string()),
@@ -88,7 +84,6 @@ impl LocationEntryCore for GenericEntry {
         vec![
             "geonameId",
             "name",
-            "admin_level",
             "admin0_code",
             "admin1_code",
             "admin2_code",
@@ -106,8 +101,8 @@ impl fmt::Display for GenericEntry {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "GenericEntry {{ geoname_id: {}, name: \"{}\", admin_level: {} }}",
-            self.geoname_id, self.name, self.admin_level
+            "GenericEntry {{ geoname_id: {}, name: \"{}\" }}",
+            self.geoname_id, self.name
         )
     }
 }

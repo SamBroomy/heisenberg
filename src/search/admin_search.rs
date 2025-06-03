@@ -2,8 +2,85 @@ use super::Result;
 use crate::index::{AdminIndexDef, FTSIndex, FTSIndexSearchParams};
 use ahash::AHashMap as HashMap;
 use polars::prelude::*;
-use std::ops::Mul;
+use std::ops::{Deref, DerefMut, Mul};
 use tracing::{debug, info_span, instrument, trace, trace_span, warn};
+
+#[derive(Debug, Clone)]
+pub struct AdminFrame(DataFrame);
+
+impl AdminFrame {
+    /// Creates a new AdminFrame from a DataFrame.
+    /// This will panic if the DataFrame does not have the expected columns.
+    pub fn new(df: DataFrame) -> Self {
+        AdminFrame::from(df)
+    }
+    pub fn map<F>(self, f: F) -> AdminFrame
+    where
+        F: FnOnce(DataFrame) -> DataFrame,
+    {
+        AdminFrame(f(self.0))
+    }
+
+    /// Returns the underlying DataFrame.
+    pub fn into_inner(self) -> DataFrame {
+        self.0
+    }
+    pub fn lazy(self) -> LazyFrame {
+        self.0.lazy()
+    }
+}
+
+impl Deref for AdminFrame {
+    type Target = DataFrame;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl DerefMut for AdminFrame {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+impl From<DataFrame> for AdminFrame {
+    fn from(df: DataFrame) -> Self {
+        // Ensure the DataFrame has the expected columns for admin search
+        let expected_columns = [
+            "admin_level",
+            "geonameId",
+            "name",
+            "asciiname",
+            "admin_level",
+            "admin0_code",
+            "admin1_code",
+            "admin2_code",
+            "admin3_code",
+            "admin4_code",
+            "feature_class",
+            "feature_code",
+            "population",
+            "latitude",
+            "longitude",
+        ];
+        let df_cols = df
+            .get_column_names()
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>();
+
+        for col in expected_columns {
+            if !df_cols.contains(&col) {
+                panic!("DataFrame is missing expected column: {}", col);
+            }
+        }
+        Self(df)
+    }
+}
+impl From<AdminFrame> for DataFrame {
+    fn from(admin_frame: AdminFrame) -> Self {
+        admin_frame.0
+    }
+}
 
 /// Parameters for scoring places based on various factors.
 /// The weights for each factor can be adjusted to change the scoring behaviors.
@@ -142,9 +219,9 @@ pub fn admin_search_inner(
     levels: &[u8],
     index: &FTSIndex<AdminIndexDef>,
     data: impl IntoLazy,
-    previous_result: Option<DataFrame>,
+    previous_result: Option<AdminFrame>,
     params: &AdminSearchParams,
-) -> Result<Option<DataFrame>> {
+) -> Result<Option<AdminFrame>> {
     let data = data.lazy();
     let previous_result = previous_result.map(|df| df.lazy());
 
@@ -365,6 +442,6 @@ pub fn admin_search_inner(
         );
         Ok(None)
     } else {
-        Ok(Some(output_df))
+        Ok(Some(AdminFrame(output_df)))
     }
 }

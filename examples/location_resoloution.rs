@@ -30,7 +30,7 @@ fn main() -> Result<(), HeisenbergError> {
         let start_time = std::time::Instant::now();
 
         // Resolve locations with GeonameEntry type and limit of 3 results per query
-        let resolved_results = search_service.resolve_location::<_, BasicEntry>(query)?;
+        let resolved_results = search_service.resolve_location::<_, GenericEntry>(query)?;
 
         // Calculate elapsed time
         let elapsed = start_time.elapsed();
@@ -76,7 +76,7 @@ fn main() -> Result<(), HeisenbergError> {
             }
 
             // Print simple representation
-            println!("   🔍 Simple representation: {:?}", result.simple());
+            println!("   🔍 Simple representation: {:?}", result.full());
         }
     }
 
@@ -113,13 +113,14 @@ fn main() -> Result<(), HeisenbergError> {
 
         if !results.is_empty() {
             // Get top result
-            let top_result = &results[0];
-
-            // Print simple representation of top result
-            println!(
-                "   Top result simple representation: {:?}",
-                top_result.simple()
-            );
+            for (i, result) in results.iter().enumerate() {
+                println!(
+                    "   {} result: {:?} (Score: {:.4})",
+                    i + 1,
+                    result.full(),
+                    result.score
+                );
+            }
         }
     }
 

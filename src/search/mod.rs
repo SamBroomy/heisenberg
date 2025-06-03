@@ -4,9 +4,11 @@ mod common;
 mod place_search;
 mod smart_flexible_search;
 
-pub use admin_search::{AdminSearchParams, SearchScoreAdminParams, admin_search_inner};
-pub use place_search::{PlaceSearchParams, SearchScorePlaceParams, place_search_inner};
-pub use smart_flexible_search::{SearchConfig, bulk_location_search_inner, location_search_inner};
+pub use admin_search::{AdminFrame, AdminSearchParams, SearchScoreAdminParams, admin_search_inner};
+pub use place_search::{PlaceFrame, PlaceSearchParams, SearchScorePlaceParams, place_search_inner};
+pub use smart_flexible_search::{
+    SearchConfig, SearchResult, bulk_location_search_inner, location_search_inner,
+};
 
 use error::Result;
 
