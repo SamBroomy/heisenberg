@@ -2,22 +2,24 @@ use pyo3::prelude::*;
 use pyo3_polars::PyDataFrame;
 
 use crate::backfill::python_wrappers::*;
-use crate::service::Heisenberg as RustHeisenberg;
+use crate::config::SearchConfigBuilder;
+use crate::core::LocationSearcher;
+use crate::search::SearchConfig;
 
-#[pyclass(name = "Heisenberg")]
+#[pyclass(name = "LocationSearcher")]
 #[derive(Clone)]
-struct PyHeisenberg {
-    inner: RustHeisenberg,
+struct PyLocationSearcher {
+    inner: LocationSearcher,
 }
 
 #[pymethods]
-impl PyHeisenberg {
+impl PyLocationSearcher {
     #[new]
     fn py_new(py: Python, overwrite_indexes: bool) -> PyResult<Self> {
-        py.allow_threads(|| match RustHeisenberg::new(overwrite_indexes) {
-            Ok(inner) => Ok(PyHeisenberg { inner }),
+        py.allow_threads(|| match LocationSearcher::new(overwrite_indexes) {
+            Ok(inner) => Ok(PyLocationSearcher { inner }),
             Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-                "Failed to initialize Heisenberg: {}",
+                "Failed to initialize LocationSearcher: {}",
                 e
             ))),
         })
@@ -53,6 +55,29 @@ impl PyHeisenberg {
         })
     }
 
+    /// Search for places
+    #[pyo3(name = "place_search")]
+    #[pyo3(signature = (term, previous_result=None))]
+    fn py_place_search(
+        &self,
+        py: Python,
+        term: &str,
+        previous_result: Option<PyDataFrame>,
+    ) -> PyResult<Option<PyDataFrame>> {
+        py.allow_threads(|| {
+            let prev_df = previous_result.map(|df| df.into());
+
+            match self.inner.place_search(term, prev_df, &Default::default()) {
+                Ok(Some(df)) => Ok(Some(PyDataFrame(df))),
+                Ok(None) => Ok(None),
+                Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                    "Place search error: {}",
+                    e
+                ))),
+            }
+        })
+    }
+
     /// Flexible search with multiple terms
     fn search(&self, py: Python, input_terms: Vec<String>) -> PyResult<Vec<PyDataFrame>> {
         py.allow_threads(|| match self.inner.search(&input_terms) {
@@ -65,6 +90,27 @@ impl PyHeisenberg {
                 e
             ))),
         })
+    }
+
+    /// Flexible search with custom configuration
+    fn search_with_config(
+        &self,
+        py: Python,
+        input_terms: Vec<String>,
+        config: &PySearchConfig,
+    ) -> PyResult<Vec<PyDataFrame>> {
+        py.allow_threads(
+            || match self.inner.search_with_config(&input_terms, &config.inner) {
+                Ok(results) => {
+                    let py_results = results.into_iter().map(PyDataFrame).collect();
+                    Ok(py_results)
+                }
+                Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                    "Search with config error: {}",
+                    e
+                ))),
+            },
+        )
     }
 
     fn search_bulk(
@@ -86,6 +132,32 @@ impl PyHeisenberg {
             Ok(py_results)
         })
     }
+
+    /// Batch search with custom configuration
+    fn search_bulk_with_config(
+        &self,
+        py: Python,
+        input_terms: Vec<Vec<String>>,
+        config: &PySearchConfig,
+    ) -> PyResult<Vec<Vec<PyDataFrame>>> {
+        py.allow_threads(|| {
+            let results = self
+                .inner
+                .search_bulk_with_config(&input_terms, &config.inner)
+                .map_err(|e| {
+                    PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                        "Batch search with config error: {}",
+                        e
+                    ))
+                })?;
+            let py_results = results
+                .into_iter()
+                .map(|df_vec| df_vec.into_iter().map(PyDataFrame).collect())
+                .collect();
+            Ok(py_results)
+        })
+    }
+
     #[pyo3(name = "resolve_location", signature = (input_terms))]
     fn resolve_location(
         &self,
@@ -114,39 +186,225 @@ impl PyHeisenberg {
         }
     }
 
-    // #[pyo3(name = "resolve_location")]
-    // fn py_resolve_location<'py>(
-    //     &self,
-    //     py: Python<'py>,
-    //     input_terms: Vec<String>,
-    // ) -> PyResult<Vec<Bound<'py, PyAny>>> {
-    //     let resolved = py.allow_threads(|| {
-    //         self.inner
-    //             .resolve_location::<_, crate::GenericEntry>(&input_terms)
-    //     });
-    //     match resolved {
-    //         Ok(resolved) => {
-    //             let results = resolved
-    //                 .into_iter()
-    //                 .map(|result| {
-    //                     let p: Bound<'py, PyAny> = pythonize(py, &result).unwrap();
-    //                     //let dict = p.downcast_into::<PyDict>().unwrap();
+    /// Resolve location with custom configuration
+    #[pyo3(name = "resolve_location_with_config", signature = (input_terms, config))]
+    fn resolve_location_with_config(
+        &self,
+        py: Python,
+        input_terms: Vec<String>,
+        config: &PySearchConfig,
+    ) -> PyResult<Vec<PyResolvedGenericSearchResult>> {
+        use crate::core::ResolveSearchConfig;
 
-    //                     Ok(p)
-    //                 })
-    //                 .collect::<PyResult<Vec<_>>>()?;
+        let resolve_config = ResolveSearchConfig {
+            search_config: config.inner.clone(),
+            resolve_config: Default::default(),
+        };
 
-    //             Ok(results)
-    //         }
-    //         Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-    //             "Resolve location error: {}",
-    //             e
-    //         ))),
-    //     }
-    // }
+        let resolved_results_rust = py.allow_threads(|| {
+            self.inner
+                .resolve_location_with_config::<_, crate::backfill::GenericEntry>(
+                    &input_terms,
+                    &resolve_config,
+                )
+        });
 
-    // Add more methods as needed
+        match resolved_results_rust {
+            Ok(resolved_vec) => {
+                let py_results = resolved_vec
+                    .into_iter()
+                    .map(PyResolvedGenericSearchResult::from)
+                    .collect();
+                Ok(py_results)
+            }
+            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                "Resolve location with config error: {}",
+                e
+            ))),
+        }
+    }
+
+    /// Resolve locations in batch
+    #[pyo3(name = "resolve_location_batch", signature = (input_terms_batch))]
+    fn resolve_location_batch(
+        &self,
+        py: Python,
+        input_terms_batch: Vec<Vec<String>>,
+    ) -> PyResult<Vec<Vec<PyResolvedGenericSearchResult>>> {
+        let resolved_results_rust = py.allow_threads(|| {
+            self.inner
+                .resolve_location_batch::<crate::backfill::GenericEntry, _, _>(&input_terms_batch)
+        });
+
+        match resolved_results_rust {
+            Ok(resolved_batches) => {
+                let py_results = resolved_batches
+                    .into_iter()
+                    .map(|batch| {
+                        batch
+                            .into_iter()
+                            .map(PyResolvedGenericSearchResult::from)
+                            .collect()
+                    })
+                    .collect();
+                Ok(py_results)
+            }
+            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                "Resolve location batch error: {}",
+                e
+            ))),
+        }
+    }
+
+    /// Resolve locations in batch with custom configuration
+    #[pyo3(name = "resolve_location_batch_with_config", signature = (input_terms_batch, config))]
+    fn resolve_location_batch_with_config(
+        &self,
+        py: Python,
+        input_terms_batch: Vec<Vec<String>>,
+        config: &PySearchConfig,
+    ) -> PyResult<Vec<Vec<PyResolvedGenericSearchResult>>> {
+        use crate::core::ResolveSearchConfig;
+
+        let resolve_config = ResolveSearchConfig {
+            search_config: config.inner.clone(),
+            resolve_config: Default::default(),
+        };
+
+        let resolved_results_rust = py.allow_threads(|| {
+            self.inner
+                .resolve_location_batch_with_config::<crate::backfill::GenericEntry, _, _>(
+                    &input_terms_batch,
+                    &resolve_config,
+                )
+        });
+
+        match resolved_results_rust {
+            Ok(resolved_batches) => {
+                let py_results = resolved_batches
+                    .into_iter()
+                    .map(|batch| {
+                        batch
+                            .into_iter()
+                            .map(PyResolvedGenericSearchResult::from)
+                            .collect()
+                    })
+                    .collect();
+                Ok(py_results)
+            }
+            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                "Resolve location batch with config error: {}",
+                e
+            ))),
+        }
+    }
 }
+
+/// Python wrapper for SearchConfig
+#[pyclass(name = "SearchConfig")]
+#[derive(Clone)]
+struct PySearchConfig {
+    inner: SearchConfig,
+}
+
+#[pymethods]
+impl PySearchConfig {
+    #[new]
+    fn py_new() -> Self {
+        PySearchConfig {
+            inner: SearchConfig::default(),
+        }
+    }
+}
+
+/// Python wrapper for SearchConfigBuilder
+#[pyclass(name = "SearchConfigBuilder")]
+#[derive(Clone)]
+struct PySearchConfigBuilder {
+    inner: SearchConfigBuilder,
+}
+
+#[pymethods]
+impl PySearchConfigBuilder {
+    #[new]
+    fn py_new() -> Self {
+        PySearchConfigBuilder {
+            inner: SearchConfigBuilder::new(),
+        }
+    }
+
+    /// Create a fast preset configuration
+    #[staticmethod]
+    fn fast() -> Self {
+        PySearchConfigBuilder {
+            inner: SearchConfigBuilder::fast(),
+        }
+    }
+
+    /// Create a comprehensive preset configuration
+    #[staticmethod]
+    fn comprehensive() -> Self {
+        PySearchConfigBuilder {
+            inner: SearchConfigBuilder::comprehensive(),
+        }
+    }
+
+    /// Create a quality places preset configuration
+    #[staticmethod]
+    fn quality_places() -> Self {
+        PySearchConfigBuilder {
+            inner: SearchConfigBuilder::quality_places(),
+        }
+    }
+
+    /// Set result limit
+    fn limit(mut slf: PyRefMut<Self>, limit: usize) -> PyRefMut<Self> {
+        slf.inner = slf.inner.clone().limit(limit);
+        slf
+    }
+
+    /// Set place importance threshold
+    fn place_importance_threshold(mut slf: PyRefMut<Self>, threshold: u8) -> PyRefMut<Self> {
+        slf.inner = slf.inner.clone().place_importance_threshold(threshold);
+        slf
+    }
+
+    /// Enable or disable proactive admin search
+    fn proactive_admin_search(mut slf: PyRefMut<Self>, enabled: bool) -> PyRefMut<Self> {
+        slf.inner = slf.inner.clone().proactive_admin_search(enabled);
+        slf
+    }
+
+    /// Set max admin terms
+    fn max_admin_terms(mut slf: PyRefMut<Self>, max_terms: usize) -> PyRefMut<Self> {
+        slf.inner = slf.inner.clone().max_admin_terms(max_terms);
+        slf
+    }
+
+    /// Include all columns in results
+    fn include_all_columns(mut slf: PyRefMut<Self>) -> PyRefMut<Self> {
+        slf.inner = slf.inner.clone().include_all_columns();
+        slf
+    }
+
+    /// Configure text search parameters
+    fn text_search(
+        mut slf: PyRefMut<Self>,
+        fuzzy: bool,
+        limit_multiplier: usize,
+    ) -> PyRefMut<Self> {
+        slf.inner = slf.inner.clone().text_search(fuzzy, limit_multiplier);
+        slf
+    }
+
+    /// Build the final configuration
+    fn build(&self) -> PySearchConfig {
+        PySearchConfig {
+            inner: self.inner.clone().build(),
+        }
+    }
+}
+
 //Define the Python module
 
 #[pymodule]
@@ -155,7 +413,9 @@ fn heisenberg(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
 
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
 
-    m.add_class::<PyHeisenberg>()?;
+    m.add_class::<PyLocationSearcher>()?;
+    m.add_class::<PySearchConfig>()?;
+    m.add_class::<PySearchConfigBuilder>()?;
     m.add_class::<BasicEntry>()?;
     m.add_class::<GenericEntry>()?;
     m.add_class::<PyLocationContextBasic>()?;

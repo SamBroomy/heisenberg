@@ -3,19 +3,22 @@ use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};
 
 mod backfill;
+mod config;
+mod core;
 mod data;
+mod heisenberg;
 mod index;
 mod search;
-mod service;
 
 pub extern crate polars;
 pub use backfill::{BasicEntry, GenericEntry, LocationEntry, ResolveConfig, ResolvedSearchResult};
+pub use config::SearchConfigBuilder;
+pub use core::{LocationSearcher, ResolveSearchConfig};
 pub use index::FTSIndexSearchParams;
 pub use search::{
     AdminSearchParams, PlaceSearchParams, SearchConfig, SearchScoreAdminParams,
     SearchScorePlaceParams,
 };
-pub use service::{Heisenberg, ResolveSearchConfig};
 
 #[cfg(feature = "python")]
 pub mod python;
@@ -52,6 +55,8 @@ pub mod error {
         SearchError(#[from] crate::search::SearchError),
         #[error("DataFrame error: {0}")]
         DataFrame(#[from] polars::prelude::PolarsError),
+        #[error("Configuration error: {0}")]
+        ConfigError(String),
         #[error(transparent)]
         Other(#[from] anyhow::Error),
         #[error("Init Logging error: {0}")]

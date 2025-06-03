@@ -1,6 +1,6 @@
 // examples/smart_flexible_search.rs
 use anyhow::Result;
-use heisenberg::{Heisenberg, SearchConfig, error::HeisenbergError};
+use heisenberg::{LocationSearcher, SearchConfig, error::HeisenbergError};
 use tracing::Level;
 
 fn main() -> Result<(), HeisenbergError> {
@@ -8,7 +8,7 @@ fn main() -> Result<(), HeisenbergError> {
     heisenberg::init_logging(Level::INFO)?;
 
     // Create search service
-    let search_service = Heisenberg::new(false)?;
+    let search_service = LocationSearcher::new(false)?;
 
     // Create a default configuration
     let config = SearchConfig::default();

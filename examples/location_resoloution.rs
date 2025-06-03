@@ -1,5 +1,5 @@
 use anyhow::Result;
-use heisenberg::{BasicEntry, Heisenberg, error::HeisenbergError};
+use heisenberg::{BasicEntry, GenericEntry, LocationSearcher, error::HeisenbergError};
 use tracing::Level;
 
 fn main() -> Result<(), HeisenbergError> {
@@ -7,13 +7,15 @@ fn main() -> Result<(), HeisenbergError> {
     heisenberg::init_logging(Level::INFO)?;
 
     // Create search service
-    let search_service = Heisenberg::new(false)?;
+    let search_service = LocationSearcher::new(false)?;
 
     // Define example queries
     let examples = [
         vec!["California", "Golden Gate Bridge"],
         vec!["London", "British Museum"],
         vec!["Paris", "Louvre Museum"],
+        vec!["USA", "Washington D.C.", "Capitol Hill"],
+        vec!["USA"],
     ];
 
     // Process each query individually with full resolution
@@ -89,7 +91,7 @@ fn main() -> Result<(), HeisenbergError> {
 
     // Resolve locations in bulk
     let bulk_resolved_results =
-        search_service.resolve_location_batch::<BasicEntry, _, _>(&examples_refs)?;
+        search_service.resolve_location_batch::<GenericEntry, _, _>(&examples_refs)?;
 
     // Calculate elapsed time
     let bulk_elapsed = bulk_start_time.elapsed();

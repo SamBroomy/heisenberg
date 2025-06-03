@@ -1,6 +1,6 @@
 // examples/manual_admin_search.rs
 use anyhow::Result;
-use heisenberg::{AdminSearchParams, Heisenberg, error::HeisenbergError};
+use heisenberg::{AdminSearchParams, LocationSearcher, error::HeisenbergError};
 use polars::prelude::*;
 use tracing::Level;
 
@@ -9,7 +9,7 @@ fn main() -> Result<(), HeisenbergError> {
     heisenberg::init_logging(Level::INFO)?;
 
     // Create search service
-    let search_service = Heisenberg::new(false)?;
+    let search_service = LocationSearcher::new(false)?;
 
     // Start with a country search (level 0)
     let admin0 = "The united states of america";

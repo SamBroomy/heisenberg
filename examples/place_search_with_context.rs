@@ -1,5 +1,5 @@
 use anyhow::Result;
-use heisenberg::{Heisenberg, PlaceSearchParams, error::HeisenbergError};
+use heisenberg::{LocationSearcher, PlaceSearchParams, error::HeisenbergError};
 use polars::prelude::*;
 use tracing::Level;
 
@@ -8,7 +8,7 @@ fn main() -> Result<(), HeisenbergError> {
     heisenberg::init_logging(Level::INFO)?;
 
     // Create search service
-    let search_service = Heisenberg::new(false)?;
+    let search_service = LocationSearcher::new(false)?;
 
     println!("Building administrative context for place search...");
 

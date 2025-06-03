@@ -1,3 +1,4 @@
+use crate::data::LocationSearchData;
 use crate::{ResolveConfig, error::HeisenbergError};
 use polars::prelude::*;
 use tracing::{info, info_span};
@@ -23,27 +24,34 @@ pub struct ResolveSearchConfig {
 }
 
 #[derive(Clone)]
-pub struct Heisenberg {
+pub struct LocationSearcher {
     admin_fts_index: FTSIndex<AdminIndexDef>,
-    admin_data_lf: LazyFrame,
     places_fts_index: FTSIndex<PlacesIndexDef>,
-    place_data_lf: LazyFrame,
+    data: LocationSearchData,
 }
 
-impl Heisenberg {
+impl LocationSearcher {
     pub fn new(overwrite_fts_indexes: bool) -> Result<Self, HeisenbergError> {
         info!("Initializing LocationSearchService...");
         let t_init = std::time::Instant::now();
 
-        let (admin_data_lf, place_data_lf) = crate::data::get_data()?;
+        let data = crate::data::LocationSearchData::new()?;
 
         let admin_fts_index = {
             let _ = info_span!("load_service_admin_index").entered();
-            FTSIndex::new(AdminIndexDef, admin_data_lf.clone(), overwrite_fts_indexes)?
+            FTSIndex::new(
+                AdminIndexDef,
+                data.admin_search_df()?.clone(),
+                overwrite_fts_indexes,
+            )?
         };
         let places_fts_index = {
             let _ = info_span!("load_service_places_index").entered();
-            FTSIndex::new(PlacesIndexDef, place_data_lf.clone(), overwrite_fts_indexes)?
+            FTSIndex::new(
+                PlacesIndexDef,
+                data.place_search_df()?.clone(),
+                overwrite_fts_indexes,
+            )?
         };
 
         info!(
@@ -52,9 +60,8 @@ impl Heisenberg {
         );
         Ok(Self {
             admin_fts_index,
-            admin_data_lf,
             places_fts_index,
-            place_data_lf,
+            data,
         })
     }
     // === Low-level searches (unchanged but with custom return types) ===
@@ -69,7 +76,7 @@ impl Heisenberg {
             term.as_ref(),
             levels,
             &self.admin_fts_index,
-            self.admin_data_lf.clone(),
+            self.data.admin_search_df()?.clone(),
             previous_result,
             params,
         )
@@ -85,7 +92,7 @@ impl Heisenberg {
         place_search_inner(
             term.as_ref(),
             &self.places_fts_index,
-            self.place_data_lf.clone(),
+            self.data.place_search_df()?.clone(),
             previous_result,
             params,
         )
@@ -114,9 +121,9 @@ impl Heisenberg {
         location_search_inner(
             &input_terms,
             &self.admin_fts_index,
-            self.admin_data_lf.clone(),
+            self.data.admin_search_df()?.clone(),
             &self.places_fts_index,
-            self.place_data_lf.clone(),
+            self.data.place_search_df()?.clone(),
             config,
         )
         .map_err(From::from)
@@ -160,9 +167,9 @@ impl Heisenberg {
         bulk_location_search_inner(
             &all_raw_input_batches,
             &self.admin_fts_index,
-            self.admin_data_lf.clone(),
+            self.data.admin_search_df()?.clone(),
             &self.places_fts_index,
-            self.place_data_lf.clone(),
+            self.data.place_search_df()?.clone(),
             config,
         )
         .map_err(From::from)
@@ -179,7 +186,12 @@ impl Heisenberg {
         search_results: SearchResults,
         config: &ResolveConfig,
     ) -> Result<LocationResults<Entry>, HeisenbergError> {
-        resolve_search_candidate(search_results, &self.admin_data_lf, config).map_err(From::from)
+        resolve_search_candidate(
+            search_results,
+            &self.data.admin_search_df()?.clone(),
+            config,
+        )
+        .map_err(From::from)
     }
     pub fn resolve_batch<Entry: LocationEntry>(
         &self,
@@ -192,8 +204,12 @@ impl Heisenberg {
         search_results_batches: SearchResultsBatch,
         config: &ResolveConfig,
     ) -> Result<Vec<LocationResults<Entry>>, HeisenbergError> {
-        resolve_search_candidate_batches(search_results_batches, &self.admin_data_lf, config)
-            .map_err(From::from)
+        resolve_search_candidate_batches(
+            search_results_batches,
+            &self.data.admin_search_df()?.clone(),
+            config,
+        )
+        .map_err(From::from)
     }
 
     // === High-level search and resolve methods ===
@@ -220,8 +236,12 @@ impl Heisenberg {
     {
         let search_results = self.search_with_config(input_terms, &config.search_config)?;
 
-        resolve_search_candidate(search_results, &self.admin_data_lf, &config.resolve_config)
-            .map_err(From::from)
+        resolve_search_candidate(
+            search_results,
+            &self.data.admin_search_df()?.clone(),
+            &config.resolve_config,
+        )
+        .map_err(From::from)
     }
 
     pub fn resolve_location_batch<Entry, Term, Batch>(
@@ -254,7 +274,7 @@ impl Heisenberg {
 
         resolve_search_candidate_batches(
             search_results_batches,
-            &self.admin_data_lf,
+            &self.data.admin_search_df()?.clone(),
             &config.resolve_config,
         )
         .map_err(From::from)

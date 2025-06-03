@@ -10,3 +10,4 @@
 !readme.md
 !LICENSE
 !sql/*.sql
+!rust-toolchain

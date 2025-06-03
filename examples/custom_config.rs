@@ -1,7 +1,7 @@
 // examples/custom_configuration.rs
 use anyhow::Result;
 use heisenberg::{
-    Heisenberg, SearchConfig, SearchScoreAdminParams, SearchScorePlaceParams,
+    LocationSearcher, SearchConfig, SearchScoreAdminParams, SearchScorePlaceParams,
     error::HeisenbergError,
 };
 use tracing::Level;
@@ -11,7 +11,7 @@ fn main() -> Result<(), HeisenbergError> {
     heisenberg::init_logging(Level::INFO)?;
 
     // Create search service
-    let search_service = Heisenberg::new(false)?;
+    let search_service = LocationSearcher::new(false)?;
 
     // 1. Create a custom SmartFlexibleSearchConfig
     println!("Creating custom search configuration...");

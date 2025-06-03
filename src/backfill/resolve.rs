@@ -154,6 +154,13 @@ fn backfill_administrative_context<E: LocationEntry>(
     let mut result: Vec<LocationContext<E>> = vec![LocationContext::<E>::default(); final_lf_len];
     for ((batch_idx, admin_level), df) in izip!(position_map, collected_frames) {
         let context = &mut result[batch_idx];
+        if df.is_empty() {
+            debug!(
+                "No data found for admin level {} in batch {}. Skipping.",
+                admin_level, batch_idx
+            );
+            continue;
+        }
         assert_eq!(df.shape().0, 1);
         let mut entity_list = E::from_df(&df)?;
         let entity = entity_list.pop();
