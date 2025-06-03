@@ -1,4 +1,4 @@
-from heisenberg import Heisenberg
+from heisenberg import LocationSearcher
 import random
 import polars as pl
 import polars.selectors as cs
@@ -6,9 +6,9 @@ import polars.selectors as cs
 pdf = pl.read_parquet("hberg_data/processed/place_search.parquet")
 adf = pl.read_parquet("hberg_data/processed/admin_search.parquet")
 
-hberg = Heisenberg(True)
+hberg = LocationSearcher(True)
 
-re = hberg.search(
+re = hberg.find(
     [
         "US",
         "Fl",
@@ -16,7 +16,7 @@ re = hberg.search(
     ]
 )
 
-print(re[0].head(5))
+print(re)
 
 re = hberg.resolve_location(["US", "Fl", "Lakeland"])
 
@@ -170,4 +170,4 @@ def unzip(
 
 gids, names = unzip(rows)
 
-out = hberg.resolve_location(names)
+out = hberg.find_batch(names)

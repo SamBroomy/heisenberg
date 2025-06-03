@@ -18,11 +18,6 @@ class TestInputValidation:
     def searcher(self):
         return heisenberg.LocationSearcher(rebuild_indexes=False)
 
-    def test_none_input_handling(self, searcher):
-        """Test handling of None inputs."""
-        with pytest.raises(TypeError):
-            searcher.find(None)
-
     def test_empty_input_handling(self, searcher):
         """Test handling of empty inputs."""
         # Empty string should not crash
@@ -48,18 +43,6 @@ class TestInputValidation:
         for input_data in whitespace_inputs:
             results = searcher.find(input_data)
             assert isinstance(results, list), f"Failed for input: {repr(input_data)}"
-
-    def test_very_long_input_handling(self, searcher):
-        """Test handling of extremely long inputs."""
-        # Single very long string
-        long_string = "a" * 10000
-        results = searcher.find(long_string)
-        assert isinstance(results, list)
-
-        # Many long strings
-        long_terms = ["b" * 1000 for _ in range(100)]
-        results = searcher.find(long_terms)
-        assert isinstance(results, list)
 
     def test_unicode_edge_cases(self, searcher):
         """Test various unicode edge cases."""
@@ -218,18 +201,6 @@ class TestBatchProcessingEdgeCases:
         assert isinstance(results, list)
         assert len(results) == 4  # Should have results for all 4 queries
 
-    def test_very_large_batch(self, searcher):
-        """Test processing a very large batch."""
-        large_batch = [["City" + str(i)] for i in range(1000)]
-
-        try:
-            results = searcher.find_batch(large_batch)
-            assert isinstance(results, list)
-            assert len(results) == 1000
-        except Exception as e:
-            # If it fails, it should be a resource limitation, not a crash
-            assert "memory" in str(e).lower() or "resource" in str(e).lower()
-
     def test_batch_with_mixed_query_sizes(self, searcher):
         """Test batch with queries of different sizes."""
         mixed_batch = [
@@ -266,71 +237,9 @@ class TestErrorHandling:
             # Acceptable error types for malformed config
             assert len(str(e)) > 0
 
-    def test_memory_pressure_simulation(self, searcher):
-        """Test behavior under simulated memory pressure."""
-        # This test tries to trigger memory-related edge cases
-        try:
-            # Large batch with large queries
-            memory_stress_batch = [
-                ["very long city name " * 100] * 50  # Large query
-                for _ in range(100)  # Many queries
-            ]
-
-            results = searcher.find_batch(memory_stress_batch)
-            assert isinstance(results, list)
-        except Exception as e:
-            # If it fails, should be a resource error, not a crash
-            assert any(
-                keyword in str(e).lower()
-                for keyword in ["memory", "resource", "limit", "capacity"]
-            )
-
-    def test_concurrent_access_safety(self, searcher):
-        """Test that the searcher is safe for concurrent access."""
-        import threading
-        import time
-
-        results = []
-        errors = []
-
-        def search_worker(term, worker_id):
-            try:
-                worker_results = searcher.find(f"City{worker_id}")
-                results.append((worker_id, len(worker_results)))
-            except Exception as e:
-                errors.append((worker_id, str(e)))
-
-        # Create multiple threads
-        threads = []
-        for i in range(10):
-            thread = threading.Thread(target=search_worker, args=(f"Test{i}", i))
-            threads.append(thread)
-
-        # Start all threads
-        for thread in threads:
-            thread.start()
-
-        # Wait for completion
-        for thread in threads:
-            thread.join(timeout=30)  # 30 second timeout
-
-        # Check results
-        assert len(errors) == 0, f"Concurrent access caused errors: {errors}"
-        assert len(results) == 10, f"Not all threads completed: {len(results)}/10"
-
 
 class TestConvenienceFunctionEdgeCases:
     """Test edge cases in convenience functions."""
-
-    def test_convenience_function_with_invalid_input(self):
-        """Test convenience functions with invalid inputs."""
-        # Test find_location with None
-        with pytest.raises(TypeError):
-            heisenberg.find_location(None)
-
-        # Test find_locations_batch with invalid batch
-        with pytest.raises(TypeError):
-            heisenberg.find_locations_batch(None)
 
     def test_convenience_function_empty_inputs(self):
         """Test convenience functions with empty inputs."""

@@ -160,7 +160,8 @@ class SearchResult:
         cls, resolved: ResolvedGenericSearchResult
     ) -> "SearchResult":
         """Create SearchResult from a ResolvedGenericSearchResult."""
-        context = resolved.get_context()
+        # Get context??
+        context = resolved.get_context()  # Error in find: 'builtins.ResolvedGenericSearchResult' object has no attribute 'get_context'
 
         # Try to get the best entry (place first, then highest admin level)
         entry = None

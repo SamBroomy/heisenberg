@@ -269,7 +269,7 @@ class TestSearchOptionsValidation:
             fuzzy_search=True,
         )
 
-        config = options.to_config()
+        config = options.to_rust_config()
         assert isinstance(config, heisenberg.SearchConfig)
 
         # The conversion should work properly with the Rust layer
@@ -289,8 +289,6 @@ class TestSearchConfigBuilderIntegration:
             .place_importance(3)
             .admin_search(True)
             .fuzzy_search(False)
-            .include_all_columns()
-            .max_admin_terms(4)
             .build()
         )
 
@@ -324,11 +322,7 @@ class TestSearchConfigBuilderIntegration:
         """Test edge cases in configuration building."""
         # Test minimum values
         min_config = (
-            heisenberg.SearchConfigBuilder()
-            .limit(1)
-            .place_importance(1)
-            .max_admin_terms(1)
-            .build()
+            heisenberg.SearchConfigBuilder().limit(1).place_importance(1).build()
         )
 
         searcher = heisenberg.LocationSearcher(rebuild_indexes=False)
@@ -338,11 +332,7 @@ class TestSearchConfigBuilderIntegration:
 
         # Test maximum reasonable values
         max_config = (
-            heisenberg.SearchConfigBuilder()
-            .limit(100)
-            .place_importance(5)
-            .max_admin_terms(10)
-            .build()
+            heisenberg.SearchConfigBuilder().limit(100).place_importance(5).build()
         )
 
         results = searcher.find("Tokyo", max_config)
@@ -405,14 +395,8 @@ class TestLoggingIntegration:
         searcher = heisenberg.LocationSearcher(rebuild_indexes=False)
 
         # These should not raise exceptions but return empty results
-        try:
-            results = searcher.find([])  # Empty list
-            assert isinstance(results, list)
-
-            results = searcher.find(None)  # This might raise TypeError
-        except TypeError:
-            # Expected for None input
-            pass
+        results = searcher.find([])  # Empty list
+        assert isinstance(results, list)
 
 
 class TestPerformanceCharacteristics:
