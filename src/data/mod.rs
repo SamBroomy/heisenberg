@@ -14,7 +14,7 @@ pub fn get_data_dir() -> &'static Path {
 use std::path::Path;
 
 use once_cell::sync::OnceCell;
-pub use processed::get_data;
+pub use processed::LocationSearchData;
 
 mod error {
     use polars::prelude::PolarsError;
