@@ -1,16 +1,23 @@
+//! Location context resolution and administrative hierarchy backfilling.
+//!
+//! This module takes raw search results and enriches them with full administrative
+//! context by looking up parent administrative entities. It resolves partial location
+//! information into complete location hierarchies with country, state, county, etc.
+
 use itertools::izip;
 use polars::prelude::*;
 use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 use tracing::{debug, debug_span, instrument, trace, warn};
 
 use crate::search::SearchResult;
-
 use super::{LocationContext, ResolvedSearchResult, Result, entry::LocationEntry};
 
 pub type LocationResults<E> = Vec<ResolvedSearchResult<E>>;
 
+/// Configuration for the location resolution process.
 #[derive(Debug, Clone)]
 pub struct ResolveConfig {
+    /// Maximum number of candidates to resolve per query
     pub limit_per_query: usize,
 }
 impl Default for ResolveConfig {
@@ -21,7 +28,11 @@ impl Default for ResolveConfig {
     }
 }
 
-/// Stores the admin codes for a target location, used to backfill its context.
+/// Administrative codes extracted from a location for context building.
+///
+/// Contains all the administrative hierarchy codes (admin0 through admin4)
+/// that will be used to look up parent administrative entities and build
+/// the complete location context.
 #[derive(Debug, Clone, Default)]
 pub struct TargetLocationAdminCodes {
     _geoname_id: u32,
@@ -78,6 +89,11 @@ impl TargetLocationAdminCodes {
     }
 }
 
+/// Query administrative data to find entities at specific hierarchy levels.
+///
+/// Uses the administrative codes to build precise filters that find the
+/// administrative entity at each level (country, state, county, etc.) that
+/// corresponds to the target location.
 #[instrument(level = "trace", skip(admin_data_lf, filter_expr), fields(filter = format!("{:?}", filter_expr)))]
 fn query_admin_level_entity_lazy<E: LocationEntry>(
     admin_data_lf: &LazyFrame,
@@ -91,6 +107,11 @@ fn query_admin_level_entity_lazy<E: LocationEntry>(
         .limit(1) // Expecting only one match for a full code path at a specific level.
 }
 
+/// Build complete administrative context by querying for entities at each level.
+///
+/// Takes the administrative codes from target locations and builds complete
+/// LocationContext objects by looking up the actual administrative entities
+/// (countries, states, etc.) that correspond to those codes.
 #[instrument(level = "trace", skip(admin_data_lf), fields(num_target_codes = ?target_codes.len()))]
 fn backfill_administrative_context<E: LocationEntry>(
     target_codes: &[TargetLocationAdminCodes],
@@ -178,6 +199,11 @@ fn backfill_administrative_context<E: LocationEntry>(
     Ok(result)
 }
 
+/// Main entry point for resolving search candidates into complete location information.
+///
+/// Takes raw search results and enriches them with administrative hierarchy context.
+/// This is where search results get transformed from simple matches into complete
+/// location records with country, state, city context.
 #[instrument(
     name = "Resolve Search Candidate",
     level = "info",
@@ -234,6 +260,10 @@ pub fn resolve_search_candidate<E: LocationEntry>(
     Ok(resolved)
 }
 
+/// Batch version of search candidate resolution.
+///
+/// Efficiently processes multiple resolution requests in parallel,
+/// making it ideal for bulk data processing scenarios.
 #[instrument(name="Resolve Search Candidate Batches",
     level = "info", skip(search_results_batches, admin_data_lf), fields(num_batches = search_results_batches.len(), limit_per_query = config.limit_per_query))]
 pub fn resolve_search_candidate_batches<E: LocationEntry>(

@@ -1,3 +1,10 @@
+//! Full-text search indexing system for geographic location data.
+//!
+//! This module provides a flexible indexing framework built on top of Tantivy
+//! for efficient text search across geographic datasets. It supports different
+//! index types for administrative entities and places, with customizable
+//! field weights and search parameters.
+
 pub(crate) use error::IndexError;
 use error::Result;
 use itertools::izip;
@@ -15,6 +22,11 @@ use tantivy::{
 };
 use tracing::{debug, info, instrument, trace, warn};
 
+/// Trait defining how to build and search a specific type of location index.
+///
+/// This trait allows different location datasets (admin entities vs places) to define
+/// their own indexing strategies, field mappings, and search configurations while
+/// sharing the same underlying search infrastructure.
 pub trait IndexDefinition: std::fmt::Debug + Send + Sync + 'static {
     /// Returns the unique name for this index, used for directory and file naming.
     fn name(&self) -> &'static str;
@@ -40,6 +52,10 @@ pub trait IndexDefinition: std::fmt::Debug + Send + Sync + 'static {
     fn code_like_fields_with_boosts(&self, schema: &Schema) -> Vec<(Field, f32)>;
 }
 
+/// Index definition for administrative entities (countries, states, provinces, etc.).
+///
+/// Optimized for searching administrative hierarchies with support for official names,
+/// alternate names, and various country/region codes (ISO, FIPS, etc.).
 #[derive(Debug, Clone, Default)]
 pub struct AdminIndexDef;
 
@@ -50,11 +66,15 @@ impl IndexDefinition for AdminIndexDef {
 
     fn schema(&self) -> Schema {
         let mut schema_builder = SchemaBuilder::new();
+
+        // Configure text indexing with stemming and position tracking
         let text_indexing = TextFieldIndexing::default()
             .set_tokenizer("default")
             .set_index_option(IndexRecordOption::WithFreqsAndPositions);
         let text_options = TextOptions::default().set_indexing_options(text_indexing);
-        let code_options = TextOptions::default() // For exact code matching, no stemming
+
+        // Configure exact matching for codes (no stemming)
+        let code_options = TextOptions::default()
             .set_indexing_options(
                 TextFieldIndexing::default()
                     .set_tokenizer("raw")
@@ -171,6 +191,11 @@ impl IndexDefinition for AdminIndexDef {
     }
 }
 
+/// Index definition for places (cities, towns, landmarks, points of interest).
+///
+/// Optimized for place name searching with focus on primary names, ASCII variants,
+/// and alternate names. Lighter weight than admin index since places typically
+/// don't have complex code systems.
 #[derive(Debug, Clone, Default)]
 pub struct PlacesIndexDef;
 
@@ -254,12 +279,13 @@ impl IndexDefinition for PlacesIndexDef {
     }
 }
 
+/// Parameters controlling full-text search behavior and performance.
 #[derive(Debug, Clone, Copy)]
 pub struct FTSIndexSearchParams {
     /// The maximum number of results to return.
     pub limit: usize,
-    /// Whether to enable fuzzy search, is more expensive, but can be useful for typos.
-    /// Fuzzy search is only applied to the name and asciiname fields.
+    /// Whether to enable fuzzy search for handling typos and variations.
+    /// More expensive but useful for handling user input errors.
     pub fuzzy_search: bool,
 }
 
@@ -272,6 +298,14 @@ impl Default for FTSIndexSearchParams {
     }
 }
 
+/// Generic full-text search index supporting different location datasets.
+///
+/// Wraps Tantivy indexing with location-specific optimizations and provides
+/// efficient search capabilities with support for:
+/// - Multi-field text search with custom weights
+/// - Fuzzy matching for typo tolerance
+/// - Exact code matching for identifiers
+/// - Subset searching within filtered document sets
 #[derive(Debug, Clone)]
 pub struct FTSIndex<D: IndexDefinition> {
     index: Index,
@@ -279,6 +313,10 @@ pub struct FTSIndex<D: IndexDefinition> {
 }
 
 impl<D: IndexDefinition> FTSIndex<D> {
+    /// Create or load a full-text search index.
+    ///
+    /// If the index exists and is up-to-date, loads the existing index.
+    /// Otherwise, builds a new index from the provided data.
     #[instrument(name = "Create Index", skip(definition, data), fields(index_name = definition.name()))]
     pub fn new(definition: D, data: LazyFrame, overwrite: bool) -> Result<Self> {
         let index_path = crate::data::get_data_dir()
@@ -328,6 +366,10 @@ impl<D: IndexDefinition> FTSIndex<D> {
         Ok(FTSIndex { index, definition })
     }
 
+    /// Search within a specific subset of documents.
+    ///
+    /// More efficient than general search when you know which documents are relevant,
+    /// such as when filtering by administrative hierarchy or geographic bounds.
     pub fn search_in_subset(
         &self,
         query_str: &str,
@@ -337,6 +379,13 @@ impl<D: IndexDefinition> FTSIndex<D> {
         self.search_inner(query_str, Some(doc_ids), params)
     }
 
+    /// Build the complete search query combining text search, fuzzy matching, and exact code matching.
+    ///
+    /// Creates a sophisticated query that:
+    /// - Searches across all configured text fields with appropriate weights
+    /// - Adds fuzzy matching for longer terms to handle typos
+    /// - Includes exact code matching for short terms (likely abbreviations/codes)
+    /// - Filters to document subset if provided
     #[instrument(name = "Build Base Query", skip_all, level = "trace")]
     fn build_base_query(
         &self,
@@ -441,6 +490,7 @@ impl<D: IndexDefinition> FTSIndex<D> {
         Ok(final_query)
     }
 
+    /// Internal search implementation handling both general and subset search.
     #[instrument(name="Search Text Index",
         skip_all, level = "debug", fields(index_name = self.definition.name(), query = query_str, limit = params.limit, has_subset = doc_ids.is_some()))]
     fn search_inner(

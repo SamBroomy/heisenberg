@@ -1,3 +1,8 @@
+//! Python bindings for the Heisenberg location search library.
+//!
+//! This module provides the main Python interface to the Rust implementation,
+//! wrapping the core functionality in Python-friendly types and methods.
+
 use pyo3::prelude::*;
 use pyo3_polars::PyDataFrame;
 
@@ -6,6 +11,10 @@ use crate::config::SearchConfigBuilder;
 use crate::core::LocationSearcher;
 use crate::search::SearchConfig;
 
+/// Python wrapper for the main LocationSearcher.
+///
+/// This class provides access to all location search functionality including
+/// administrative and place searches, as well as high-level resolution methods.
 #[pyclass(name = "LocationSearcher")]
 #[derive(Clone)]
 struct PyLocationSearcher {
@@ -14,6 +23,16 @@ struct PyLocationSearcher {
 
 #[pymethods]
 impl PyLocationSearcher {
+    /// Create a new LocationSearcher instance.
+    ///
+    /// Args:
+    ///     overwrite_indexes: Whether to rebuild search indexes from scratch.
+    ///
+    /// Returns:
+    ///     A new LocationSearcher instance.
+    ///
+    /// Raises:
+    ///     RuntimeError: If initialization fails.
     #[new]
     fn py_new(py: Python, overwrite_indexes: bool) -> PyResult<Self> {
         py.allow_threads(|| match LocationSearcher::new(overwrite_indexes) {
@@ -25,7 +44,18 @@ impl PyLocationSearcher {
         })
     }
 
-    /// Search for administrative entities
+    /// Search for administrative entities at specific levels.
+    ///
+    /// Args:
+    ///     term: The search term to look for.
+    ///     levels: List of administrative levels to search (0-4, where 0 is country).
+    ///     previous_result: Optional DataFrame to filter results by previous search.
+    ///
+    /// Returns:
+    ///     Optional DataFrame with search results, None if no matches found.
+    ///
+    /// Raises:
+    ///     RuntimeError: If the search operation fails.
     #[pyo3(name = "admin_search")]
     #[pyo3(signature = (term, levels, previous_result=None))]
     fn py_admin_search(
@@ -36,11 +66,8 @@ impl PyLocationSearcher {
         previous_result: Option<PyDataFrame>,
     ) -> PyResult<Option<PyDataFrame>> {
         py.allow_threads(|| {
-            // Convert Python optional DataFrame to Rust optional DataFrame
-
             let prev_df = previous_result.map(|df| df.into());
 
-            // Call the Rust function
             match self
                 .inner
                 .admin_search(term, &levels, prev_df, &Default::default())
@@ -55,7 +82,17 @@ impl PyLocationSearcher {
         })
     }
 
-    /// Search for places
+    /// Search for places (cities, towns, points of interest, etc.).
+    ///
+    /// Args:
+    ///     term: The search term to look for.
+    ///     previous_result: Optional DataFrame to filter results by previous search.
+    ///
+    /// Returns:
+    ///     Optional DataFrame with search results, None if no matches found.
+    ///
+    /// Raises:
+    ///     RuntimeError: If the search operation fails.
     #[pyo3(name = "place_search")]
     #[pyo3(signature = (term, previous_result=None))]
     fn py_place_search(
@@ -78,7 +115,16 @@ impl PyLocationSearcher {
         })
     }
 
-    /// Flexible search with multiple terms
+    /// Perform a flexible search with multiple terms using default configuration.
+    ///
+    /// Args:
+    ///     input_terms: List of search terms to process.
+    ///
+    /// Returns:
+    ///     List of DataFrames containing search results for each term.
+    ///
+    /// Raises:
+    ///     RuntimeError: If the search operation fails.
     fn search(&self, py: Python, input_terms: Vec<String>) -> PyResult<Vec<PyDataFrame>> {
         py.allow_threads(|| match self.inner.search(&input_terms) {
             Ok(results) => {
@@ -95,7 +141,17 @@ impl PyLocationSearcher {
         })
     }
 
-    /// Flexible search with custom configuration
+    /// Perform a flexible search with multiple terms using custom configuration.
+    ///
+    /// Args:
+    ///     input_terms: List of search terms to process.
+    ///     config: Custom search configuration.
+    ///
+    /// Returns:
+    ///     List of DataFrames containing search results for each term.
+    ///
+    /// Raises:
+    ///     RuntimeError: If the search operation fails.
     fn search_with_config(
         &self,
         py: Python,
@@ -119,6 +175,16 @@ impl PyLocationSearcher {
         )
     }
 
+    /// Perform batch search for multiple sets of terms using default configuration.
+    ///
+    /// Args:
+    ///     input_terms: List of lists, where each inner list contains terms for one search.
+    ///
+    /// Returns:
+    ///     List of lists of DataFrames, one per input term set.
+    ///
+    /// Raises:
+    ///     RuntimeError: If the search operation fails.
     fn search_bulk(
         &self,
         py: Python,
@@ -144,7 +210,17 @@ impl PyLocationSearcher {
         })
     }
 
-    /// Batch search with custom configuration
+    /// Perform batch search for multiple sets of terms using custom configuration.
+    ///
+    /// Args:
+    ///     input_terms: List of lists, where each inner list contains terms for one search.
+    ///     config: Custom search configuration.
+    ///
+    /// Returns:
+    ///     List of lists of DataFrames, one per input term set.
+    ///
+    /// Raises:
+    ///     RuntimeError: If the search operation fails.
     fn search_bulk_with_config(
         &self,
         py: Python,
@@ -174,13 +250,25 @@ impl PyLocationSearcher {
         })
     }
 
+    /// Resolve location search terms into structured location data.
+    ///
+    /// This is the main high-level method that combines search and resolution
+    /// to provide clean, structured location results.
+    ///
+    /// Args:
+    ///     input_terms: List of search terms to resolve.
+    ///
+    /// Returns:
+    ///     List of resolved search results with full location context.
+    ///
+    /// Raises:
+    ///     RuntimeError: If the resolution operation fails.
     #[pyo3(name = "resolve_location", signature = (input_terms))]
     fn resolve_location(
         &self,
         py: Python,
         input_terms: Vec<String>,
     ) -> PyResult<Vec<PyResolvedGenericSearchResult>> {
-        // Return the concrete Python type
         let resolved_results_rust = py.allow_threads(|| {
             self.inner
                 .resolve_location::<_, crate::backfill::GenericEntry>(&input_terms)
@@ -188,10 +276,9 @@ impl PyLocationSearcher {
 
         match resolved_results_rust {
             Ok(resolved_vec) => {
-                // Convert Vec<ResolvedSearchResult<GenericEntry>> to Vec<PyResolvedGenericSearchResult>
                 let py_results = resolved_vec
                     .into_iter()
-                    .map(PyResolvedGenericSearchResult::from) // Use the From trait
+                    .map(PyResolvedGenericSearchResult::from)
                     .collect();
                 Ok(py_results)
             }
@@ -202,7 +289,17 @@ impl PyLocationSearcher {
         }
     }
 
-    /// Resolve location with custom configuration
+    /// Resolve location with custom configuration.
+    ///
+    /// Args:
+    ///     input_terms: List of search terms to resolve.
+    ///     config: Custom search configuration.
+    ///
+    /// Returns:
+    ///     List of resolved search results with full location context.
+    ///
+    /// Raises:
+    ///     RuntimeError: If the resolution operation fails.
     #[pyo3(name = "resolve_location_with_config", signature = (input_terms, config))]
     fn resolve_location_with_config(
         &self,
@@ -240,7 +337,16 @@ impl PyLocationSearcher {
         }
     }
 
-    /// Resolve locations in batch
+    /// Resolve locations in batch.
+    ///
+    /// Args:
+    ///     input_terms_batch: List of lists, where each inner list contains terms for one search.
+    ///
+    /// Returns:
+    ///     List of lists of resolved search results with full location context.
+    ///
+    /// Raises:
+    ///     RuntimeError: If the resolution operation fails.
     #[pyo3(name = "resolve_location_batch", signature = (input_terms_batch))]
     fn resolve_location_batch(
         &self,
@@ -272,7 +378,17 @@ impl PyLocationSearcher {
         }
     }
 
-    /// Resolve locations in batch with custom configuration
+    /// Resolve locations in batch with custom configuration.
+    ///
+    /// Args:
+    ///     input_terms_batch: List of lists, where each inner list contains terms for one search.
+    ///     config: Custom search configuration.
+    ///
+    /// Returns:
+    ///     List of lists of resolved search results with full location context.
+    ///
+    /// Raises:
+    ///     RuntimeError: If the resolution operation fails.
     #[pyo3(name = "resolve_location_batch_with_config", signature = (input_terms_batch, config))]
     fn resolve_location_batch_with_config(
         &self,
@@ -316,7 +432,11 @@ impl PyLocationSearcher {
     }
 }
 
-/// Python wrapper for SearchConfig
+/// Python wrapper for SearchConfig.
+///
+/// Represents a search configuration with various parameters for controlling
+/// location search behavior. Most users should use SearchConfigBuilder instead
+/// of creating this directly.
 #[pyclass(name = "SearchConfig")]
 #[derive(Clone)]
 struct PySearchConfig {
@@ -325,15 +445,24 @@ struct PySearchConfig {
 
 #[pymethods]
 impl PySearchConfig {
+    /// Create a new SearchConfig with default settings.
     #[new]
     fn py_new() -> Self {
         PySearchConfig {
             inner: SearchConfig::default(),
         }
     }
+
+    /// Return a string representation of the configuration.
+    fn __repr__(&self) -> String {
+        format!("SearchConfig(inner={:?})", self.inner)
+    }
 }
 
-/// Python wrapper for SearchConfigBuilder
+/// Python wrapper for SearchConfigBuilder.
+///
+/// Provides a fluent interface for building search configurations with
+/// customizable parameters for different search scenarios.
 #[pyclass(name = "SearchConfigBuilder")]
 #[derive(Clone)]
 struct PySearchConfigBuilder {
@@ -342,6 +471,7 @@ struct PySearchConfigBuilder {
 
 #[pymethods]
 impl PySearchConfigBuilder {
+    /// Create a new SearchConfigBuilder with default settings.
     #[new]
     fn py_new() -> Self {
         PySearchConfigBuilder {
@@ -349,7 +479,10 @@ impl PySearchConfigBuilder {
         }
     }
 
-    /// Create a fast preset configuration
+    /// Create a configuration optimized for fast searches.
+    ///
+    /// Returns:
+    ///     A SearchConfigBuilder configured for speed over comprehensiveness.
     #[staticmethod]
     fn fast() -> Self {
         PySearchConfigBuilder {
@@ -357,7 +490,10 @@ impl PySearchConfigBuilder {
         }
     }
 
-    /// Create a comprehensive preset configuration
+    /// Create a configuration optimized for comprehensive results.
+    ///
+    /// Returns:
+    ///     A SearchConfigBuilder configured for thorough searches.
     #[staticmethod]
     fn comprehensive() -> Self {
         PySearchConfigBuilder {
@@ -365,7 +501,10 @@ impl PySearchConfigBuilder {
         }
     }
 
-    /// Create a quality places preset configuration
+    /// Create a configuration optimized for high-quality places only.
+    ///
+    /// Returns:
+    ///     A SearchConfigBuilder configured for important places.
     #[staticmethod]
     fn quality_places() -> Self {
         PySearchConfigBuilder {
@@ -373,37 +512,71 @@ impl PySearchConfigBuilder {
         }
     }
 
-    /// Set result limit
+    /// Set the maximum number of results to return.
+    ///
+    /// Args:
+    ///     limit: Maximum number of results (must be positive).
+    ///
+    /// Returns:
+    ///     Self for method chaining.
     fn limit(mut slf: PyRefMut<Self>, limit: usize) -> PyRefMut<Self> {
         slf.inner = slf.inner.clone().limit(limit);
         slf
     }
 
-    /// Set place importance threshold
+    /// Set the place importance threshold.
+    ///
+    /// Args:
+    ///     threshold: Importance level (1=most important, 5=least important).
+    ///
+    /// Returns:
+    ///     Self for method chaining.
     fn place_importance_threshold(mut slf: PyRefMut<Self>, threshold: u8) -> PyRefMut<Self> {
         slf.inner = slf.inner.clone().place_importance_threshold(threshold);
         slf
     }
 
-    /// Enable or disable proactive admin search
+    /// Enable or disable proactive administrative entity searching.
+    ///
+    /// Args:
+    ///     enabled: Whether to enable proactive admin search.
+    ///
+    /// Returns:
+    ///     Self for method chaining.
     fn proactive_admin_search(mut slf: PyRefMut<Self>, enabled: bool) -> PyRefMut<Self> {
         slf.inner = slf.inner.clone().proactive_admin_search(enabled);
         slf
     }
 
-    /// Set max admin terms
+    /// Set the maximum number of administrative terms to process.
+    ///
+    /// Args:
+    ///     max_terms: Maximum number of admin terms.
+    ///
+    /// Returns:
+    ///     Self for method chaining.
     fn max_admin_terms(mut slf: PyRefMut<Self>, max_terms: usize) -> PyRefMut<Self> {
         slf.inner = slf.inner.clone().max_admin_terms(max_terms);
         slf
     }
 
-    /// Include all columns in results
+    /// Include all available columns in the search results.
+    ///
+    /// Returns:
+    ///     Self for method chaining.
     fn include_all_columns(mut slf: PyRefMut<Self>) -> PyRefMut<Self> {
         slf.inner = slf.inner.clone().include_all_columns();
         slf
     }
 
-    /// Configure text search parameters
+    /// Configure text search parameters.
+    ///
+    /// Args:
+    ///     fuzzy: Whether to enable fuzzy text matching.
+    ///     limit_multiplier: Multiplier for initial result fetching.
+    ///
+    /// Returns:
+    ///     Self for method chaining.
     fn text_search(
         mut slf: PyRefMut<Self>,
         fuzzy: bool,
@@ -413,30 +586,50 @@ impl PySearchConfigBuilder {
         slf
     }
 
-    /// Build the final configuration
+    /// Build the final search configuration.
+    ///
+    /// Returns:
+    ///     A SearchConfig object ready for use.
     fn build(&self) -> PySearchConfig {
         PySearchConfig {
             inner: self.inner.clone().build(),
         }
     }
+
+    /// Return a string representation of the builder.
+    fn __repr__(&self) -> String {
+        format!("SearchConfigBuilder(inner={:?})", self.inner)
+    }
 }
 
 //Define the Python module
 
+/// The main Heisenberg Python module.
+///
+/// This module provides location search functionality using a Rust backend,
+/// with comprehensive search capabilities for geographic locations worldwide.
 #[pymodule]
 fn heisenberg(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
+    // Initialize Python logging for Rust components
     pyo3_log::init();
 
+    // Add version information
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
 
+    // Add main classes
     m.add_class::<PyLocationSearcher>()?;
     m.add_class::<PySearchConfig>()?;
     m.add_class::<PySearchConfigBuilder>()?;
+
+    // Add entry types (not exposed in high-level API but available for advanced users)
     m.add_class::<BasicEntry>()?;
     m.add_class::<GenericEntry>()?;
+
+    // Add context and result types
     m.add_class::<PyLocationContextBasic>()?;
     m.add_class::<PyLocationContextGeneric>()?;
     m.add_class::<PyResolvedBasicSearchResult>()?;
     m.add_class::<PyResolvedGenericSearchResult>()?;
+
     Ok(())
 }

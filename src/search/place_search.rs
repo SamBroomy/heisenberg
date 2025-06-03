@@ -1,3 +1,9 @@
+//! Place search functionality for cities, towns, landmarks and points of interest.
+//!
+//! This module handles searching through the places dataset, which includes populated
+//! places, landmarks, geographic features, and other location points of interest.
+//! It provides scoring based on text relevance, importance, feature type, and distance.
+
 use super::{Result, admin_search::AdminFrame};
 use crate::index::{FTSIndex, FTSIndexSearchParams, PlacesIndexDef};
 use ahash::AHashMap as HashMap;
@@ -8,6 +14,10 @@ use tracing::{debug, info_span, instrument, trace, trace_span, warn};
 
 const EARTH_RADIUS_KM: f64 = 6371.0;
 
+/// Wrapper around DataFrame for place search results.
+///
+/// Provides type safety and place-specific operations on search result DataFrames.
+/// Ensures the DataFrame contains the expected columns for place data.
 #[derive(Debug, Clone)]
 pub struct PlaceFrame(DataFrame);
 
@@ -21,12 +31,15 @@ impl PlaceFrame {
     where
         F: FnOnce(DataFrame) -> DataFrame,
     {
-        PlaceFrame(f(self.0))
+        Self(f(self.0))
     }
+
     /// Returns the underlying DataFrame.
     pub fn into_inner(self) -> DataFrame {
         self.0
     }
+
+    /// Convert to LazyFrame for further processing.
     pub fn lazy(self) -> LazyFrame {
         self.0.lazy()
     }
@@ -34,7 +47,6 @@ impl PlaceFrame {
 
 impl Deref for PlaceFrame {
     type Target = DataFrame;
-
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -46,8 +58,6 @@ impl DerefMut for PlaceFrame {
 }
 impl From<DataFrame> for PlaceFrame {
     fn from(df: DataFrame) -> Self {
-        // Ensure the DataFrame has the expected columns for admin search
-
         let expected_columns = [
             "importance_score",
             "importance_tier",
@@ -81,13 +91,16 @@ impl From<DataFrame> for PlaceFrame {
     }
 }
 impl From<PlaceFrame> for DataFrame {
-    fn from(admin_frame: PlaceFrame) -> Self {
-        admin_frame.0
+    fn from(place_frame: PlaceFrame) -> Self {
+        place_frame.0
     }
 }
+
 /// Parameters for scoring places based on various factors.
-/// The weights for each factor can be adjusted to change the scoring behaviors.
-/// The weights should sum to 1.0 for a balanced score.
+///
+/// Controls how places are ranked by combining text relevance, importance,
+/// feature type, parent administrative context, and distance from a bias point.
+/// The weights should sum to 1.0 for balanced scoring.
 #[derive(Debug, Clone, Copy)]
 pub struct SearchScorePlaceParams {
     /// Weight for the text relevance score. Default is `0.40`.
@@ -98,14 +111,14 @@ pub struct SearchScorePlaceParams {
     pub feature_weight: f32,
     /// Weight for the parent admin score. Default is `0.15`.
     pub parent_admin_score_weight: f32,
-    /// Weight for the feature type score. Default is `0.05`.
+    /// Weight for the distance score. Default is `0.05`.
     pub distance_weight: f32,
 }
 
 impl Default for SearchScorePlaceParams {
     fn default() -> Self {
         Self {
-            text_weight: 0.4,
+            text_weight: 0.40,
             importance_weight: 0.20,
             feature_weight: 0.15,
             parent_admin_score_weight: 0.15,
@@ -114,6 +127,14 @@ impl Default for SearchScorePlaceParams {
     }
 }
 
+/// Calculate comprehensive scoring for place search results.
+///
+/// Combines multiple scoring factors:
+/// - Text relevance from full-text search
+/// - Place importance (population, feature type)
+/// - Feature type relevance (cities vs landmarks vs geographic features)
+/// - Administrative parent context matching
+/// - Distance from geographic bias point (if provided)
 #[instrument(
     name = "Place Search Score",
     level = "trace",
@@ -291,6 +312,9 @@ fn search_score_place(
     Ok(lf)
 }
 
+/// Configuration parameters for place search operations.
+///
+/// Controls search behavior, result limits, and scoring parameters for place searches.
 #[derive(Debug, Clone, Copy)]
 pub struct PlaceSearchParams {
     /// Maximum number of results to return.
@@ -327,6 +351,7 @@ impl Default for PlaceSearchParams {
         }
     }
 }
+
 #[inline]
 #[instrument(name = "Place Search", level="debug", skip_all, fields(term=term, limit = params.limit, has_previous_result = previous_result.is_some()))]
 pub fn place_search_inner(

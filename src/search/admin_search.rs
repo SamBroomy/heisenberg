@@ -1,3 +1,10 @@
+//! Administrative entity search for countries, states, provinces, and local divisions.
+//!
+//! This module handles searching through administrative hierarchies from country level
+//! (admin level 0) down to local administrative divisions (admin level 4). It provides
+//! sophisticated scoring that considers text relevance, population, feature importance,
+//! and hierarchical relationships.
+
 use super::Result;
 use crate::index::{AdminIndexDef, FTSIndex, FTSIndexSearchParams};
 use ahash::AHashMap as HashMap;
@@ -5,6 +12,10 @@ use polars::prelude::*;
 use std::ops::{Deref, DerefMut, Mul};
 use tracing::{debug, info_span, instrument, trace, trace_span, warn};
 
+/// Wrapper around DataFrame for administrative search results.
+///
+/// Provides type safety and admin-specific operations on search result DataFrames.
+/// Ensures the DataFrame contains expected columns for administrative entity data.
 #[derive(Debug, Clone)]
 pub struct AdminFrame(DataFrame);
 
@@ -82,9 +93,11 @@ impl From<AdminFrame> for DataFrame {
     }
 }
 
-/// Parameters for scoring places based on various factors.
-/// The weights for each factor can be adjusted to change the scoring behaviors.
-/// The weights should sum to 1.0 for a balanced score.
+/// Parameters for scoring administrative entities.
+///
+/// Controls how administrative entities are ranked by balancing text similarity,
+/// population size, hierarchical relationships, and feature type importance.
+/// The weights should sum to 1.0 for balanced scoring.
 #[derive(Debug, Clone, Copy)]
 pub struct SearchScoreAdminParams {
     /// Weight for text relevance score (default: 0.4)
@@ -100,13 +113,22 @@ pub struct SearchScoreAdminParams {
 impl Default for SearchScoreAdminParams {
     fn default() -> Self {
         Self {
-            text_weight: 0.4,
+            text_weight: 0.40,
             pop_weight: 0.25,
             parent_weight: 0.20,
             feature_weight: 0.15,
         }
     }
 }
+
+/// Calculate comprehensive scoring for administrative entity search results.
+///
+/// Combines multiple scoring factors:
+/// - Text relevance from full-text search matching
+/// - Population-based importance (larger = more important)
+/// - Feature type relevance (countries > states > counties, etc.)
+/// - Parent administrative context boost
+/// - Geographic/political prominence factors
 #[instrument(
     name = "Admin Search Score",
     level = "trace",
@@ -185,6 +207,7 @@ fn search_score_admin(
     Ok(lf)
 }
 
+/// Configuration parameters for administrative search operations.
 #[derive(Debug, Clone, Copy)]
 pub struct AdminSearchParams {
     /// The maximum number of results to return.
@@ -212,6 +235,14 @@ impl Default for AdminSearchParams {
     }
 }
 
+/// Main administrative entity search implementation.
+///
+/// Performs hierarchical search through administrative levels, applying context from
+/// previous search results to progressively narrow down location scope. Handles
+/// complex scenarios like "California, USA" by using USA context to filter California results.
+///
+/// The function coordinates between full-text search, hierarchical filtering,
+/// parent-child relationship scoring, and final result ranking.
 #[inline]
 #[instrument(name = "Admin Level Search", level="debug", skip_all, fields(term=term, levels = ?levels, limit = params.limit, has_previous_result = previous_result.is_some()))]
 pub fn admin_search_inner(
@@ -320,6 +351,7 @@ pub fn admin_search_inner(
             let mut parent_score_col_exprs: Vec<Expr> = Vec::new();
             let score_pattern = regex::Regex::new(r"^score_admin_[0-4]$").unwrap();
 
+            // Identify and rename parent score columns to avoid conflicts
             for name_idx in prev_schema.iter_names() {
                 let name = name_idx.as_ref();
                 if score_pattern.is_match(name) {
@@ -341,6 +373,7 @@ pub fn admin_search_inner(
 
             let mut lfs_to_concat: Vec<LazyFrame> = Vec::new();
 
+            // Create joins at different hierarchy levels for comprehensive parent scoring
             for i in 1..=join_cols_expr.len() {
                 let current_join_key_exprs: &[Expr] = &join_cols_expr[0..i];
 
@@ -372,7 +405,7 @@ pub fn admin_search_inner(
                 debug!(
                     "No parent join paths generated, using base FTS results without parent scores."
                 );
-                base_fts_results_lf // Fallback to base if no concat paths
+                base_fts_results_lf
             }
         }
         _ => {

@@ -1,7 +1,37 @@
+//! Core location search functionality for the Heisenberg library.
+//!
+//! This module provides the main [`LocationSearcher`] interface for finding and resolving
+//! geographic locations from unstructured text input. It combines full-text search with
+//! hierarchical location resolution to provide accurate location matching.
+//!
+//! # Quick Start
+//!
+//! ```rust
+//! use heisenberg::LocationSearcher;
+//!
+//! // Create a searcher (will build indexes on first run)
+//! let searcher = LocationSearcher::new(false)?;
+//!
+//! // Simple search
+//! let results = searcher.search(&["London"])?;
+//!
+//! // Resolve to structured location data
+//! let resolved = searcher.resolve_location::<heisenberg::GenericEntry, _>(&["Paris", "France"])?;
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
+//!
+//! # Search Types
+//!
+//! The searcher provides several search modes:
+//! - **Administrative search**: Find countries, states, provinces, etc.
+//! - **Place search**: Find cities, towns, landmarks, and points of interest
+//! - **Combined search**: Automatically determine the best search strategy
+//! - **Resolution**: Convert search results into structured location hierarchies
+
 use crate::data::LocationSearchData;
 use crate::{ResolveConfig, error::HeisenbergError};
 use polars::prelude::*;
-use tracing::{info, info_span};
+use tracing::{info, info_span, instrument};
 
 use crate::search::{
     AdminSearchParams, PlaceSearchParams, SearchConfig, SearchResult, admin_search_inner,
@@ -19,10 +49,43 @@ pub type SearchResultsBatch = Vec<Vec<SearchResult>>;
 
 #[derive(Debug, Clone, Default)]
 pub struct ResolveSearchConfig {
+    /// Configuration for the underlying search operations
     pub search_config: SearchConfig,
+    /// Configuration for the resolution process
     pub resolve_config: ResolveConfig,
 }
 
+/// The main location searcher that provides all search and resolution functionality.
+///
+/// This struct handles loading and indexing of geographic data, and provides
+/// methods for searching and resolving location information. It maintains
+/// internal indexes for efficient text search and caches data for fast lookups.
+///
+/// # Examples
+///
+/// Basic usage:
+/// ```rust
+/// use heisenberg::LocationSearcher;
+///
+/// let searcher = LocationSearcher::new(false)?;
+/// let results = searcher.search(&["Tokyo", "Japan"])?;
+/// println!("Found {} search results", results.len());
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+///
+/// With custom configuration:
+/// ```rust
+/// use heisenberg::{LocationSearcher, SearchConfig};
+///
+/// let config = SearchConfig::builder()
+///     .limit(5)
+///     .place_importance_threshold(2)
+///     .build();
+///
+/// let searcher = LocationSearcher::new(false)?;
+/// let results = searcher.search_with_config(&["Berlin"], &config)?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Clone)]
 pub struct LocationSearcher {
     admin_fts_index: FTSIndex<AdminIndexDef>,
@@ -31,6 +94,41 @@ pub struct LocationSearcher {
 }
 
 impl LocationSearcher {
+    /// Create a new LocationSearcher instance.
+    ///
+    /// This initializes the searcher with geographic data and builds search indexes.
+    /// On first run, this will download and process geographic data which may take
+    /// several minutes. Subsequent runs will reuse cached data and indexes.
+    ///
+    /// # Arguments
+    ///
+    /// * `overwrite_indexes` - If true, rebuild all search indexes from scratch.
+    ///   This ensures indexes are up-to-date but takes longer to initialize.
+    ///
+    /// # Returns
+    ///
+    /// A new `LocationSearcher` instance ready for searching.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Geographic data cannot be loaded or processed
+    /// - Search indexes cannot be built
+    /// - Insufficient disk space for data and indexes
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use heisenberg::LocationSearcher;
+    ///
+    /// // Use existing indexes if available
+    /// let searcher = LocationSearcher::new(false)?;
+    ///
+    /// // Force rebuild of all indexes
+    /// let fresh_searcher = LocationSearcher::new(true)?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[instrument(name = "Initialize LocationSearcher", level = "info")]
     pub fn new(overwrite_fts_indexes: bool) -> Result<Self, HeisenbergError> {
         info!("Initializing LocationSearchService...");
         let t_init = std::time::Instant::now();
@@ -65,6 +163,39 @@ impl LocationSearcher {
         })
     }
     // === Low-level searches (unchanged but with custom return types) ===
+
+    /// Search for administrative entities at specific levels.
+    ///
+    /// Administrative entities include countries (level 0), states/provinces (level 1),
+    /// counties/regions (level 2), and local administrative divisions (levels 3-4).
+    ///
+    /// # Arguments
+    ///
+    /// * `term` - The search term to look for
+    /// * `levels` - Administrative levels to search (0-4, where 0 is country level)
+    /// * `previous_result` - Optional previous search result to filter by
+    /// * `params` - Search parameters controlling behavior and scoring
+    ///
+    /// # Returns
+    ///
+    /// An optional DataFrame containing matching administrative entities,
+    /// or None if no matches were found.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use heisenberg::{LocationSearcher, AdminSearchParams};
+    ///
+    /// let searcher = LocationSearcher::new(false)?;
+    ///
+    /// // Search for countries
+    /// let countries = searcher.admin_search("France", &[0], None, &AdminSearchParams::default())?;
+    ///
+    /// // Search for states/provinces
+    /// let states = searcher.admin_search("California", &[1], None, &AdminSearchParams::default())?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[instrument(name = "Admin Search", level = "debug", skip_all)]
     pub fn admin_search(
         &self,
         term: impl AsRef<str>,
@@ -84,6 +215,36 @@ impl LocationSearcher {
         .map_err(From::from)
     }
 
+    /// Search for places like cities, towns, landmarks, and points of interest.
+    ///
+    /// This searches the places dataset which includes populated places,
+    /// landmarks, geographic features, and other location points of interest.
+    ///
+    /// # Arguments
+    ///
+    /// * `term` - The search term to look for
+    /// * `previous_result` - Optional previous search result to filter by
+    /// * `params` - Search parameters controlling behavior and scoring
+    ///
+    /// # Returns
+    ///
+    /// An optional DataFrame containing matching places,
+    /// or None if no matches were found.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use heisenberg::{LocationSearcher, PlaceSearchParams};
+    ///
+    /// let searcher = LocationSearcher::new(false)?;
+    /// let places = searcher.place_search("Tokyo", None, &PlaceSearchParams::default())?;
+    ///
+    /// if let Some(results) = places {
+    ///     println!("Found {} places matching 'Tokyo'", results.height());
+    /// }
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[instrument(name = "Place Search", level = "debug", skip_all)]
     pub fn place_search(
         &self,
         term: impl AsRef<str>,
