@@ -1,5 +1,5 @@
 use anyhow::Result;
-use heisenberg::{BasicEntry, GenericEntry, LocationSearcher, error::HeisenbergError};
+use heisenberg::{GenericEntry, LocationSearcher, error::HeisenbergError};
 use tracing::Level;
 
 fn main() -> Result<(), HeisenbergError> {
@@ -125,4 +125,13 @@ fn main() -> Result<(), HeisenbergError> {
     }
 
     Ok(())
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_location_resolution() {
+        assert!(main().is_ok(), "Location resolution test failed");
+    }
 }

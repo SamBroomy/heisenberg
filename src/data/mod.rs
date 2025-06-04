@@ -1,21 +1,73 @@
+use once_cell::sync::Lazy;
+pub use processed::LocationSearchData;
+use std::path::PathBuf;
+use tracing::warn;
+
 mod processed;
 mod raw;
+#[cfg(any(test, doctest, feature = "test_data"))]
+pub mod test_data;
 pub(crate) use error::DataError;
 
+static TEST_DATA_DIR: Lazy<tempfile::TempDir> = Lazy::new(|| {
+    tempfile::TempDir::new().expect("Failed to create global temporary test data directory")
+});
 pub const DATA_DIR_DEFAULT: &str = "./hberg_data";
-static DATA_DIR: OnceCell<String> = OnceCell::new();
 
-pub fn get_data_dir() -> &'static Path {
-    DATA_DIR
-        .get_or_init(|| std::env::var("DATA_DIR").unwrap_or_else(|_| DATA_DIR_DEFAULT.to_string()))
-        .as_ref()
+/// Centralized function to determine if we should use test data.
+///
+/// Returns true if:
+/// - We're in a test environment (cfg!(test) or cfg!(doctest))
+/// - OR the test_data feature is enabled AND USE_TEST_DATA env var is set to true
+pub fn should_use_test_data() -> bool {
+    let is_test_environment = cfg!(test) || cfg!(doctest);
+
+    #[cfg(feature = "test_data")]
+    let explicit_test_data = std::env::var("USE_TEST_DATA")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false);
+    #[cfg(not(feature = "test_data"))]
+    let explicit_test_data = false;
+
+    is_test_environment || explicit_test_data
 }
 
-use std::path::Path;
+/// Get the appropriate test data config based on environment.
+///
+/// - For doctests: always minimal (fast)
+/// - For regular tests or explicit test data: configurable via TEST_DATA_SIZE env var
+#[cfg(any(test, doctest, feature = "test_data"))]
+pub fn get_test_data_config() -> crate::data::test_data::TestDataConfig {
+    if cfg!(doctest) {
+        crate::data::test_data::TestDataConfig::minimal()
+    } else {
+        match std::env::var("TEST_DATA_SIZE").as_deref() {
+            Ok("sample") => crate::data::test_data::TestDataConfig::sample(),
+            _ => crate::data::test_data::TestDataConfig::minimal(),
+        }
+    }
+}
 
-use once_cell::sync::OnceCell;
-pub use processed::LocationSearchData;
+/// Global data directory path that automatically determines the appropriate location.
+///
+/// The directory is chosen based on the following priority:
+/// 1. If running under `cargo test` or `cargo doctest` -> temporary directory (auto-cleanup)
+/// 2. If `test_data` feature is enabled AND `USE_TEST_DATA` env var is set -> temporary directory
+/// 3. Otherwise -> persistent directory from `DATA_DIR` env var or default `./hberg_data`
+pub static DATA_DIR: Lazy<PathBuf> = Lazy::new(|| {
+    if should_use_test_data() {
+        // Use temporary directory - create it once and it will live for the program duration
+        let temp_dir = TEST_DATA_DIR.path().to_path_buf();
+        warn!(temp_dir = ?temp_dir, "Using temporary data directory for tests");
+        temp_dir
+    } else {
+        // Use persistent directory
+        let dir = std::env::var("DATA_DIR").unwrap_or_else(|_| DATA_DIR_DEFAULT.to_string());
+        PathBuf::from(dir)
+    }
+});
 
+// ... rest of the file (error module, tests_utils) remains the same ...
 mod error {
     use polars::prelude::PolarsError;
     use thiserror::Error;
@@ -122,8 +174,6 @@ mod tests_utils {
 
     pub fn create_test_all_countries_file() -> NamedTempFile {
         let mut file = NamedTempFile::new().unwrap();
-        // Format: geonameId, name, asciiname, alternatenames, latitude, longitude, feature_class, feature_code,
-        //         admin0_code, cc2, admin1_code, admin2_code, admin3_code, admin4_code, population, elevation, dem, timezone, modification_date
         writeln!(file, "6252001\tUnited States\tUnited States\tUS,USA,America\t39.5\t-98.35\tA\tPCLI\tUS\t\t\t\t\t\t331000000\t0\t0\tAmerica/New_York\t2023-01-01").unwrap();
         writeln!(file, "5332921\tCalifornia\tCalifornia\tCA,Calif\t36.17\t-119.75\tA\tADM1\tUS\t\tCA\t\t\t\t39538223\t0\t0\tAmerica/Los_Angeles\t2023-01-01").unwrap();
         writeln!(file, "5391959\tSan Francisco\tSan Francisco\tSF,San Fran\t37.7749\t-122.4194\tP\tPPLA2\tUS\t\tCA\t075\t\t\t873965\t16\t16\tAmerica/Los_Angeles\t2023-01-01").unwrap();
@@ -133,12 +183,9 @@ mod tests_utils {
 
     pub fn create_test_country_info_file() -> NamedTempFile {
         let mut file = NamedTempFile::new().unwrap();
-
-        // Add the 51 header lines expected by the parser
         for i in 1..=51 {
             writeln!(file, "# Header line {}", i).unwrap();
         }
-
         writeln!(file, "US\tUSA\t840\tUS\tUnited States\tWashington\t9629091\t331002651\tNA\t.us\tUSD\tDollar\t1\t#####-####\t^\\d{{5}}(-\\d{{4}})?$\ten-US,es-US,haw,fr\t6252001\tCA,MX\t").unwrap();
         file.flush().unwrap();
         file
@@ -146,7 +193,6 @@ mod tests_utils {
 
     pub fn create_test_feature_codes_file() -> NamedTempFile {
         let mut file = NamedTempFile::new().unwrap();
-        // Format: code, name, description (based on your schema)
         writeln!(file, "A.ADM1\tfirst-order administrative division\ta primary administrative division of a country").unwrap();
         writeln!(file, "A.PCLI\tindependent political entity\t").unwrap();
         writeln!(

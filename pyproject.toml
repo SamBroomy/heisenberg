@@ -20,5 +20,5 @@ build-backend = "maturin"
 
 [tool.maturin]
 bindings = "pyo3"
-features = ["python"]
+features = ["python", "test_data"]
 python-source = "python"

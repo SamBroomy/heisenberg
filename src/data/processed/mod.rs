@@ -2,11 +2,10 @@ use super::error::Result;
 use once_cell::sync::OnceCell;
 use polars::prelude::*;
 use std::path::{Path, PathBuf};
+use tracing::{info, info_span};
 
 mod create_admin_search;
 mod create_place_search;
-
-use tracing::{info, info_span, warn};
 
 const ADMIN_SEARCH_PARQUET: &str = "admin_search.parquet";
 const PLACE_SEARCH_PARQUET: &str = "place_search.parquet";
@@ -15,44 +14,94 @@ const PLACE_SEARCH_PARQUET: &str = "place_search.parquet";
 pub struct LocationSearchData {
     admin_search_path: PathBuf,
     place_search_path: PathBuf,
-
     admin_search_df: OnceCell<LazyFrame>,
     place_search_df: OnceCell<LazyFrame>,
 }
 
 impl LocationSearchData {
     pub fn new() -> Result<Self> {
-        let data_dir = super::get_data_dir().join("processed");
-        if !data_dir.exists() {
-            std::fs::create_dir_all(&data_dir).expect("Failed to create data directory");
+        if crate::data::should_use_test_data() {
+            return Self::new_with_test_data();
         }
-        let admin_search_path = data_dir.join(ADMIN_SEARCH_PARQUET);
-        let place_search_path = data_dir.join(PLACE_SEARCH_PARQUET);
 
-        match (admin_search_path.exists(), place_search_path.exists()) {
-            (true, true) => {
-                // Both files exist, load them
-                return Ok(Self::load_parquet_files(
-                    admin_search_path,
-                    place_search_path,
-                ));
-            }
-            (false, true) => {
-                warn!("Admin search data file not found. ");
-            }
-            (true, false) => {
-                warn!("Place search data file not found. ");
-            }
-            (false, false) => {
-                warn!("Both admin and place search data files not found. ");
-            }
+        Self::new_with_persistent_data()
+    }
+
+    #[cfg(any(test, doctest, feature = "test_data"))]
+    fn new_with_test_data() -> Result<Self> {
+        let config = crate::data::get_test_data_config();
+
+        info!(
+            "LocationSearchData: Using test data with config: {:?}",
+            config
+        );
+
+        let raw_data_files = crate::data::test_data::create_test_data(&config)?;
+        let (all_countries_lf, country_info_lf, feature_codes_lf) =
+            super::raw::get_raw_data_as_lazy_frames(&raw_data_files)?;
+
+        let admin_lf =
+            create_admin_search::get_admin_search_lf(all_countries_lf.clone(), country_info_lf)?;
+        let place_lf = create_place_search::get_place_search_lf(
+            all_countries_lf,
+            feature_codes_lf,
+            admin_lf.clone(),
+        )?;
+
+        // Collect to validate and prepare for OnceCell
+        let admin_df_collected = admin_lf.collect()?;
+        let place_df_collected = place_lf.collect()?;
+
+        info!(
+            "LocationSearchData: Test data processed. Admin rows: {}, Place rows: {}",
+            admin_df_collected.height(),
+            place_df_collected.height()
+        );
+
+        // Use paths within the global test directory
+        let processed_dir = crate::data::DATA_DIR.join("processed");
+        let instance = Self {
+            admin_search_path: processed_dir.join(ADMIN_SEARCH_PARQUET),
+            place_search_path: processed_dir.join(PLACE_SEARCH_PARQUET),
+            admin_search_df: OnceCell::new(),
+            place_search_df: OnceCell::new(),
+        };
+
+        // Pre-populate with test data
+        let _ = instance.admin_search_df.set(admin_df_collected.lazy());
+        let _ = instance.place_search_df.set(place_df_collected.lazy());
+
+        Ok(instance)
+    }
+
+    #[cfg(not(any(test, doctest, feature = "test_data")))]
+    fn new_with_test_data() -> Result<Self> {
+        unreachable!("Test data path should not be called without test features")
+    }
+
+    fn new_with_persistent_data() -> Result<Self> {
+        info!("LocationSearchData: Using persistent data storage");
+
+        let processed_dir = crate::data::DATA_DIR.join("processed");
+        std::fs::create_dir_all(&processed_dir)?;
+
+        let admin_search_path = processed_dir.join(ADMIN_SEARCH_PARQUET);
+        let place_search_path = processed_dir.join(PLACE_SEARCH_PARQUET);
+
+        if admin_search_path.exists() && place_search_path.exists() {
+            info!("LocationSearchData: Loading existing Parquet files");
+            return Ok(Self::load_parquet_files(
+                admin_search_path,
+                place_search_path,
+            ));
         }
-        // In a scope to ensure the temp files are kept up until after we collect the data from them
+
+        info!("LocationSearchData: Generating processed data from raw sources");
+
+        // Generate from raw data
         let mut dfs = {
-            let _span = info_span!("Download & Transform Data").entered();
-
+            let _span = info_span!("Transform Raw Data").entered();
             let raw_data = super::raw::get_raw_data()?;
-
             let (all_countries_lf, country_info_lf, feature_codes_lf) =
                 super::raw::get_raw_data_as_lazy_frames(&raw_data)?;
 
@@ -60,13 +109,12 @@ impl LocationSearchData {
                 all_countries_lf.clone(),
                 country_info_lf,
             )?;
-
             let place_search_lf = create_place_search::get_place_search_lf(
                 all_countries_lf,
                 feature_codes_lf,
                 admin_search_lf.clone(),
             )?;
-            info!("Collecting data");
+            info!("Collecting transformed data");
             let transform_time = std::time::Instant::now();
             let dfs = collect_all([admin_search_lf, place_search_lf])?;
             info!(
@@ -79,7 +127,7 @@ impl LocationSearchData {
         let place_search_df = dfs.pop().expect("Place search should be last");
         let admin_search_df = dfs.pop().expect("Admin search should be first");
 
-        let save_exprs = |lf: DataFrame, path: &Path| -> Result<()> {
+        let save_df_to_parquet = |lf: DataFrame, path: &Path| -> Result<()> {
             let sink_time = std::time::Instant::now();
 
             let mut df = lf
@@ -97,22 +145,20 @@ impl LocationSearchData {
             );
             Ok(())
         };
-        save_exprs(admin_search_df, &admin_search_path)?;
-        save_exprs(place_search_df, &place_search_path)?;
+        save_df_to_parquet(admin_search_df, &admin_search_path)?;
+        save_df_to_parquet(place_search_df, &place_search_path)?;
 
         Ok(Self::load_parquet_files(
-            &admin_search_path,
-            &place_search_path,
+            admin_search_path,
+            place_search_path,
         ))
     }
 
-    fn load_parquet_files(
-        admin_search_path: impl Into<PathBuf>,
-        place_search_path: impl Into<PathBuf>,
-    ) -> Self {
+    // ... rest of the methods remain the same ...
+    fn load_parquet_files(admin_path: PathBuf, place_path: PathBuf) -> Self {
         Self {
-            admin_search_path: admin_search_path.into(),
-            place_search_path: place_search_path.into(),
+            admin_search_path: admin_path,
+            place_search_path: place_path,
             admin_search_df: OnceCell::new(),
             place_search_df: OnceCell::new(),
         }
@@ -139,6 +185,7 @@ impl LocationSearchData {
         self.admin_search_df
             .get_or_try_init(|| Self::get_data(&self.admin_search_path))
     }
+
     pub fn place_search_df(&self) -> Result<&LazyFrame> {
         self.place_search_df
             .get_or_try_init(|| Self::get_data(&self.place_search_path))
@@ -149,6 +196,29 @@ impl LocationSearchData {
 mod tests {
     use super::*;
     use crate::data::tests_utils::*;
+
+    #[test]
+    fn test_location_search_data_new_in_test_env_uses_minimal_test_data_by_default() {
+        // This should automatically use minimal test data because it's a cfg(test)
+        // and TEST_DATA_SIZE is not set.
+        let data = LocationSearchData::new().unwrap();
+
+        assert_eq!(
+            data.admin_search_path
+                .to_str()
+                .unwrap()
+                .split('/')
+                .next_back(),
+            Some("admin_search.parquet"),
+        );
+        let admin_df = data.admin_search_df().unwrap().clone().collect().unwrap();
+        // Minimal config has very few rows
+        assert!(
+            admin_df.height() >= 1 && admin_df.height() < 10,
+            "Expected minimal admin data, got {} rows",
+            admin_df.height()
+        );
+    }
 
     #[test]
     fn test_create_admin_search_actual_transformation() {

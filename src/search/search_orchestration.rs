@@ -11,6 +11,7 @@ use super::admin_search::{
 use super::place_search::{
     PlaceFrame, PlaceSearchParams, SearchScorePlaceParams, place_search_inner,
 };
+use crate::SearchConfigBuilder;
 use crate::index::{AdminIndexDef, FTSIndex, FTSIndexSearchParams, PlacesIndexDef};
 use ahash::AHashMap as HashMap;
 use ahash::AHasher as DefaultHasher;
@@ -86,6 +87,11 @@ pub struct SearchConfig {
     pub place_fts_search_params: FTSIndexSearchParams,
     pub place_search_score_params: SearchScorePlaceParams,
     pub place_min_importance_tier: u8,
+}
+impl SearchConfig {
+    pub fn builder() -> SearchConfigBuilder {
+        SearchConfigBuilder::default()
+    }
 }
 
 impl Default for SearchConfig {

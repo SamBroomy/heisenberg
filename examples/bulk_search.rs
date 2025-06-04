@@ -110,3 +110,13 @@ fn main() -> Result<(), HeisenbergError> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_bulk_search() {
+        assert!(main().is_ok(), "Bulk search test failed");
+    }
+}

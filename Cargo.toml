@@ -24,7 +24,6 @@ name = "heisenberg"
 crate-type = ["cdylib", "rlib"]
 
 [features]
-all = ["download_data", "python"]
 default = ["download_data"]
 download_data = ["reqwest", "tokio", "indicatif", "futures"]
 python = [
@@ -35,6 +34,7 @@ python = [
     "serde",
 ]
 serde = ["dep:serde"]
+test_data = []
 
 
 [dependencies]

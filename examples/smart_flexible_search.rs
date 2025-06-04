@@ -86,3 +86,12 @@ fn main() -> Result<(), HeisenbergError> {
 
     Ok(())
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_smart_flexible_search() {
+        assert!(main().is_ok(), "Smart flexible search test failed");
+    }
+}

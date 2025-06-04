@@ -74,12 +74,11 @@ impl IndexDefinition for AdminIndexDef {
         let text_options = TextOptions::default().set_indexing_options(text_indexing);
 
         // Configure exact matching for codes (no stemming)
-        let code_options = TextOptions::default()
-            .set_indexing_options(
-                TextFieldIndexing::default()
-                    .set_tokenizer("raw")
-                    .set_index_option(IndexRecordOption::WithFreqsAndPositions),
-            );
+        let code_options = TextOptions::default().set_indexing_options(
+            TextFieldIndexing::default()
+                .set_tokenizer("raw")
+                .set_index_option(IndexRecordOption::WithFreqsAndPositions),
+        );
 
         schema_builder.add_u64_field("geonameId", STORED | INDEXED | FAST);
         schema_builder.add_text_field("name", text_options.clone());
@@ -319,34 +318,51 @@ impl<D: IndexDefinition> FTSIndex<D> {
     /// Otherwise, builds a new index from the provided data.
     #[instrument(name = "Create Index", skip(definition, data), fields(index_name = definition.name()))]
     pub fn new(definition: D, data: LazyFrame, overwrite: bool) -> Result<Self> {
-        let index_path = crate::data::get_data_dir()
-            .join("tantivy")
+        let index_path = crate::data::DATA_DIR
+            .join("tantivy_indexes") // Standardized subdirectory for indexes
             .join(definition.name());
 
-        if index_path.exists() && !overwrite {
-            info!(index = definition.name(), "Already exists. Loading.",);
-            let index = Index::open_in_dir(&index_path)?;
+        info!(path = ?index_path, "Using FTS index path.");
 
-            if index.reader().unwrap().searcher().num_docs() as usize
-                == data.clone().collect()?.shape().0
-            {
-                info!(index = definition.name(), "Up to date");
-                return Ok(FTSIndex { index, definition });
-            }
-            info!(index = definition.name(), "Not up to date, re-indexing");
-        }
-
-        if index_path.exists() && overwrite {
-            info!(index = definition.name(), "Deleting existing index");
+        if overwrite && index_path.exists() {
+            info!(path = ?index_path, "Overwriting existing index directory.");
             std::fs::remove_dir_all(&index_path)?;
         }
-
+        // Ensure the full path including the specific index name directory exists
         std::fs::create_dir_all(&index_path)?;
 
+        if index_path.join("meta.json").exists() && !overwrite {
+            info!(path = ?index_path, "Index meta.json found. Attempting to load existing index.");
+            match Index::open_in_dir(&index_path) {
+                Ok(existing_index) => {
+                    let expected_doc_count = data.clone().collect()?.shape().0; // Ensure data is collected for count
+                    let actual_doc_count = existing_index.reader()?.searcher().num_docs() as usize;
+
+                    if actual_doc_count == expected_doc_count {
+                        info!(path = ?index_path, actual_doc_count, expected_doc_count, "Index is up-to-date. Loaded existing index.");
+                        return Ok(FTSIndex {
+                            index: existing_index,
+                            definition,
+                        });
+                    } else {
+                        info!(path = ?index_path, actual_doc_count, expected_doc_count, "Index out of date (doc count mismatch). Re-indexing.");
+                        Self::safely_recreate_dir(&index_path)?;
+                    }
+                }
+                Err(e) => {
+                    warn!(path = ?index_path, error = ?e, "Failed to open existing index, will re-index.");
+                    Self::safely_recreate_dir(&index_path)?;
+                }
+            }
+        } else if !index_path.join("meta.json").exists() && !overwrite {
+            info!(path = ?index_path, "No existing index found (meta.json missing). Will create new index.");
+        }
+        // Create new index
+        info!(path = ?index_path, "Creating new FTS index");
         let schema = definition.schema();
         let index = Index::create_in_dir(&index_path, schema.clone())?;
 
-        let data = data
+        let data_for_indexing = data
             .select(
                 definition
                     .columns_for_indexing()
@@ -356,14 +372,31 @@ impl<D: IndexDefinition> FTSIndex<D> {
             )
             .collect()?;
 
-        let mut index_writer: IndexWriter = index.writer(500_000_000)?;
+        if !data_for_indexing.is_empty() {
+            info!(
+                index = definition.name(),
+                num_rows = data_for_indexing.height(),
+                "Populating index"
+            );
+            let mut index_writer: IndexWriter = index.writer(500_000_000)?;
+            definition.index_data(&mut index_writer, data_for_indexing, &schema)?;
+            index_writer.commit()?;
+            info!(index = definition.name(), "Index creation complete");
+        } else {
+            warn!(
+                index = definition.name(),
+                "No data to index. Index will be empty."
+            );
+        }
 
-        info!("Populating index '{}'...", definition.name());
-        definition.index_data(&mut index_writer, data, &schema)?;
-
-        info!("Committing index '{}'...", definition.name());
-        index_writer.commit()?;
         Ok(FTSIndex { index, definition })
+    }
+    fn safely_recreate_dir(path: &std::path::Path) -> Result<()> {
+        if path.exists() {
+            std::fs::remove_dir_all(path)?;
+        }
+        std::fs::create_dir_all(path)?;
+        Ok(())
     }
 
     /// Search within a specific subset of documents.

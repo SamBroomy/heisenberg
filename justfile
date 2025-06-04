@@ -11,12 +11,15 @@ build: init
     uv run maturin build --features python --release
 
 # Run Python tests
-test-py:
-    python -m pytest python/tests/
+pytest: dev
+    python -m pytest python/tests/ -v
 
 # Run Rust tests
-test-rust:
-    cargo test --features python
+rust-test:
+    USE_TEST_DATA=true cargo test --features test_data
+    cargo test --examples --release
+
+test: pytest rust-test
 
 # Clean build artifacts
 clean:

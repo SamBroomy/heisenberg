@@ -9,17 +9,21 @@ and catch any breaking changes in the API.
 import pytest
 import heisenberg
 
+import os
+
+os.environ["USE_TEST_DATA"] = "true"
+
 
 class TestBasicFunctionality:
     """Test basic search functionality works."""
 
     @pytest.fixture
     def searcher(self):
-        return heisenberg.LocationSearcher(rebuild_indexes=False)
+        return heisenberg.LocationSearcher(rebuild_indexes=True)
 
     def test_searcher_creation(self):
         """Test that LocationSearcher can be created."""
-        searcher = heisenberg.LocationSearcher(rebuild_indexes=False)
+        searcher = heisenberg.LocationSearcher(rebuild_indexes=True)
         assert searcher is not None
 
     def test_simple_search(self, searcher):
@@ -322,7 +326,7 @@ class TestSearchOptionsValidation:
         import warnings
 
         # Test admin weights that don't sum to 1.0
-        with warnings.catch_warnings(record=True) as w:
+        with warnings.catch_warnings(record=True):
             warnings.simplefilter("always")
             options = heisenberg.SearchOptions(
                 admin_text_weight=0.1,

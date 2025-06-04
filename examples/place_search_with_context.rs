@@ -84,3 +84,13 @@ fn main() -> Result<(), HeisenbergError> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_place_search_with_context() {
+        assert!(main().is_ok(), "Place search with context test failed");
+    }
+}

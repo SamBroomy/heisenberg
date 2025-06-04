@@ -16,8 +16,8 @@
 //! let results = searcher.search(&["London"])?;
 //!
 //! // Resolve to structured location data
-//! let resolved = searcher.resolve_location::<heisenberg::GenericEntry, _>(&["Paris", "France"])?;
-//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! let resolved = searcher.resolve_location::<_, heisenberg::GenericEntry>(&["Paris", "France"])?;
+//! # Ok::<() , heisenberg::error::HeisenbergError>(())
 //! ```
 //!
 //! # Search Types
@@ -70,7 +70,7 @@ pub struct ResolveSearchConfig {
 /// let searcher = LocationSearcher::new(false)?;
 /// let results = searcher.search(&["Tokyo", "Japan"])?;
 /// println!("Found {} search results", results.len());
-/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// # Ok::<(), heisenberg::error::HeisenbergError>(())
 /// ```
 ///
 /// With custom configuration:
@@ -84,7 +84,7 @@ pub struct ResolveSearchConfig {
 ///
 /// let searcher = LocationSearcher::new(false)?;
 /// let results = searcher.search_with_config(&["Berlin"], &config)?;
-/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// # Ok::<(), heisenberg::error::HeisenbergError>(())
 /// ```
 #[derive(Clone)]
 pub struct LocationSearcher {
@@ -126,7 +126,7 @@ impl LocationSearcher {
     ///
     /// // Force rebuild of all indexes
     /// let fresh_searcher = LocationSearcher::new(true)?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # Ok::<(), heisenberg::error::HeisenbergError>(())
     /// ```
     #[instrument(name = "Initialize LocationSearcher", level = "info")]
     pub fn new(overwrite_fts_indexes: bool) -> Result<Self, HeisenbergError> {
@@ -193,7 +193,7 @@ impl LocationSearcher {
     ///
     /// // Search for states/provinces
     /// let states = searcher.admin_search("California", &[1], None, &AdminSearchParams::default())?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # Ok::<(), heisenberg::error::HeisenbergError>(())
     /// ```
     #[instrument(name = "Admin Search", level = "debug", skip_all)]
     pub fn admin_search(
@@ -242,7 +242,7 @@ impl LocationSearcher {
     /// if let Some(results) = places {
     ///     println!("Found {} places matching 'Tokyo'", results.height());
     /// }
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # Ok::<(), heisenberg::error::HeisenbergError>(())
     /// ```
     #[instrument(name = "Place Search", level = "debug", skip_all)]
     pub fn place_search(

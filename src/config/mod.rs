@@ -2,7 +2,7 @@ use crate::error::HeisenbergError;
 use crate::search::{SearchConfig, SearchScoreAdminParams, SearchScorePlaceParams};
 
 /// Builder for creating search configurations with ergonomic defaults
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SearchConfigBuilder {
     config: SearchConfig,
 }
@@ -99,12 +99,6 @@ impl SearchConfigBuilder {
     /// Build the final configuration
     pub fn build(self) -> SearchConfig {
         self.config
-    }
-}
-
-impl Default for SearchConfigBuilder {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -325,7 +319,7 @@ mod tests {
         assert_eq!(config.limit, 20);
         assert_eq!(config.place_min_importance_tier, 5);
         assert_eq!(config.max_sequential_admin_terms, 5);
-        assert_eq!(config.all_cols, false);
+        assert!(!config.all_cols);
     }
 
     #[test]
@@ -340,7 +334,7 @@ mod tests {
         assert_eq!(config.limit, 10);
         assert_eq!(config.place_min_importance_tier, 3);
         assert_eq!(config.max_sequential_admin_terms, 7);
-        assert_eq!(config.all_cols, true);
+        assert!(config.all_cols);
     }
 
     #[test]
@@ -467,11 +461,11 @@ mod tests {
     fn test_include_all_columns() {
         // Default should be false
         let default_config = SearchConfigBuilder::new().build();
-        assert_eq!(default_config.all_cols, false);
+        assert!(!default_config.all_cols);
 
         // When enabled, should be true
         let all_columns_config = SearchConfigBuilder::new().include_all_columns().build();
-        assert_eq!(all_columns_config.all_cols, true);
+        assert!(all_columns_config.all_cols);
 
         // Should work with other settings
         let combined_config = SearchConfigBuilder::new()
@@ -479,7 +473,7 @@ mod tests {
             .include_all_columns()
             .place_importance_threshold(3)
             .build();
-        assert_eq!(combined_config.all_cols, true);
+        assert!(combined_config.all_cols);
         assert_eq!(combined_config.limit, 10);
         assert_eq!(combined_config.place_min_importance_tier, 3);
     }

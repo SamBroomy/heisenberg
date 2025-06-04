@@ -98,3 +98,13 @@ fn main() -> Result<(), HeisenbergError> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_custom_config() {
+        assert!(main().is_ok(), "Custom configuration test failed");
+    }
+}

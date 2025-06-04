@@ -78,3 +78,13 @@ fn main() -> Result<(), HeisenbergError> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_admin_search() {
+        assert!(main().is_ok(), "Admin search test failed");
+    }
+}
