@@ -11,3 +11,4 @@
 !LICENSE
 !sql/*.sql
 !rust-toolchain
+!*.md

@@ -24,9 +24,33 @@ use tracing::{debug, info, instrument, warn};
 
 const MAX_ADMIN_LEVELS: usize = 5; // Admin levels 0 through 4
 
+/// Represents a search result from either administrative or place search.
+///
+/// This enum wraps the result of a search operation and provides type safety
+/// to distinguish between administrative entities (countries, states, etc.)
+/// and places (cities, landmarks, etc.).
+///
+/// # Examples
+///
+/// ```rust
+/// use heisenberg::{LocationSearcher, SearchResult};
+///
+/// let searcher = LocationSearcher::new(false)?;
+/// let results = searcher.search(&["Tokyo"])?;
+///
+/// for result in results {
+///     match result {
+///         SearchResult::Admin(_) => println!("Found administrative entity"),
+///         SearchResult::Place(_) => println!("Found place"),
+///     }
+/// }
+/// # Ok::<(), heisenberg::error::HeisenbergError>(())
+/// ```
 #[derive(Debug, Clone)]
 pub enum SearchResult {
+    /// Administrative entity (country, state, province, etc.)
     Admin(AdminFrame),
+    /// Place (city, town, landmark, point of interest, etc.)
     Place(PlaceFrame),
 }
 use SearchResult::*;
@@ -48,11 +72,44 @@ impl SearchResult {
     pub fn is_place(&self) -> bool {
         matches!(self, Self::Place(_))
     }
+
     pub fn into_df(self) -> DataFrame {
         match self {
             Self::Admin(df) => df.into(),
             Self::Place(df) => df.into(),
         }
+    }
+
+    /// Get the name of the location
+    pub fn name(&self) -> Option<&str> {
+        self.column("name")
+            .ok()
+            .and_then(|s| s.str().ok())
+            .and_then(|ca| ca.get(0))
+    }
+
+    /// Get the search relevance score
+    pub fn score(&self) -> Option<f64> {
+        self.column("score")
+            .ok()
+            .and_then(|s| s.f64().ok())
+            .and_then(|ca| ca.get(0))
+    }
+
+    /// Get the feature code (geographic feature type)
+    pub fn feature_code(&self) -> Option<&str> {
+        self.column("feature_code")
+            .ok()
+            .and_then(|s| s.str().ok())
+            .and_then(|ca| ca.get(0))
+    }
+
+    /// Get the GeoNames ID
+    pub fn geoname_id(&self) -> Option<u32> {
+        self.column("geonameId")
+            .ok()
+            .and_then(|s| s.u32().ok())
+            .and_then(|ca| ca.get(0))
     }
 }
 
@@ -76,16 +133,53 @@ impl DerefMut for SearchResult {
     }
 }
 
+/// Configuration for location search operations.
+///
+/// This struct controls all aspects of the search behavior, including result limits,
+/// scoring weights, and search strategies. Use [`SearchConfigBuilder`] for an
+/// ergonomic way to create configurations with sensible defaults.
+///
+/// # Examples
+///
+/// Creating a custom configuration:
+/// ```rust
+/// use heisenberg::SearchConfig;
+///
+/// let config = SearchConfig::builder()
+///     .limit(10)
+///     .place_importance_threshold(2)
+///     .build();
+/// ```
+///
+/// Using preset configurations:
+/// ```rust
+/// use heisenberg::SearchConfigBuilder;
+///
+/// // Fast search with fewer results
+/// let fast_config = SearchConfigBuilder::fast().build();
+///
+/// // Comprehensive search with more results
+/// let comprehensive_config = SearchConfigBuilder::comprehensive().build();
+/// ```
 #[derive(Debug, Clone)]
 pub struct SearchConfig {
+    /// Maximum number of results to return
     pub limit: usize,
+    /// Include all data columns in results (useful for debugging)
     pub all_cols: bool,
+    /// Maximum number of sequential administrative terms to process
     pub max_sequential_admin_terms: usize,
+    /// Whether to attempt admin search for place candidates before place search
     pub attempt_place_candidate_as_admin_before_place_search: bool,
+    /// Search parameters for administrative entity full-text search
     pub admin_fts_search_params: FTSIndexSearchParams,
+    /// Scoring parameters for administrative entity search
     pub admin_search_score_params: SearchScoreAdminParams,
+    /// Search parameters for place full-text search
     pub place_fts_search_params: FTSIndexSearchParams,
+    /// Scoring parameters for place search
     pub place_search_score_params: SearchScorePlaceParams,
+    /// Minimum importance tier for places (1=most important, 5=least important)
     pub place_min_importance_tier: u8,
 }
 impl SearchConfig {

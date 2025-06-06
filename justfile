@@ -12,11 +12,18 @@ build: init
 
 # Run Python tests
 pytest: dev
-    python -m pytest python/tests/ -v
+    #!/usr/bin/env bash
+    set -euo pipefail
+    set -x
+    uv run python -m pytest python/tests/ -v
+
+    for file in python/examples/*.py; do
+        uv run python "$file";
+    done
 
 # Run Rust tests
 rust-test:
-    USE_TEST_DATA=true cargo test --features test_data
+    USE_TEST_DATA=true cargo test --features test_data -- --test-threads=1
     cargo test --examples --release
 
 test: pytest rust-test

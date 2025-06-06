@@ -9,8 +9,8 @@ use polars::prelude::*;
 use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 use tracing::{debug, debug_span, instrument, trace, warn};
 
-use crate::search::SearchResult;
 use super::{LocationContext, ResolvedSearchResult, Result, entry::LocationEntry};
+use crate::search::SearchResult;
 
 pub type LocationResults<E> = Vec<ResolvedSearchResult<E>>;
 
