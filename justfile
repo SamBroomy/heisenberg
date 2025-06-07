@@ -23,7 +23,7 @@ pytest: dev
 
 # Run Rust tests
 rust-test:
-    USE_TEST_DATA=true cargo test --features test_data -- --test-threads=1
+    USE_TEST_DATA=true cargo test -- --test-threads=1
     cargo test --examples --release
 
 test: pytest rust-test

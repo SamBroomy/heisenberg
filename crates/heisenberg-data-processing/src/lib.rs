@@ -1,24 +1,20 @@
 use once_cell::sync::Lazy;
-pub use processed::LocationSearchData;
 use std::path::PathBuf;
 use tracing::warn;
 
-mod processed;
-mod raw;
-#[cfg(any(test, doctest, feature = "test_data"))]
+pub mod processed;
+pub mod raw;
 pub mod test_data;
-pub(crate) use error::DataError;
+
+// DataError will be imported from the error module below
 
 static TEST_DATA_DIR: Lazy<tempfile::TempDir> = Lazy::new(|| {
     tempfile::TempDir::new().expect("Failed to create global temporary test data directory")
 });
+
 pub const DATA_DIR_DEFAULT: &str = "./hberg_data";
 
 /// Centralized function to determine if we should use test data.
-///
-/// Returns true if:
-/// - We're in a test environment (cfg!(test) or cfg!(doctest))
-/// - OR the test_data feature is enabled AND USE_TEST_DATA env var is set to true
 pub fn should_use_test_data() -> bool {
     let is_test_environment = cfg!(test) || cfg!(doctest);
 
@@ -33,41 +29,30 @@ pub fn should_use_test_data() -> bool {
 }
 
 /// Get the appropriate test data config based on environment.
-///
-/// - For doctests: always minimal (fast)
-/// - For regular tests or explicit test data: configurable via TEST_DATA_SIZE env var
 #[cfg(any(test, doctest, feature = "test_data"))]
-pub fn get_test_data_config() -> crate::data::test_data::TestDataConfig {
+pub fn get_test_data_config() -> test_data::TestDataConfig {
     if cfg!(doctest) {
-        crate::data::test_data::TestDataConfig::minimal()
+        test_data::TestDataConfig::minimal()
     } else {
         match std::env::var("TEST_DATA_SIZE").as_deref() {
-            Ok("sample") => crate::data::test_data::TestDataConfig::sample(),
-            _ => crate::data::test_data::TestDataConfig::minimal(),
+            Ok("sample") => test_data::TestDataConfig::sample(),
+            _ => test_data::TestDataConfig::minimal(),
         }
     }
 }
 
 /// Global data directory path that automatically determines the appropriate location.
-///
-/// The directory is chosen based on the following priority:
-/// 1. If running under `cargo test` or `cargo doctest` -> temporary directory (auto-cleanup)
-/// 2. If `test_data` feature is enabled AND `USE_TEST_DATA` env var is set -> temporary directory
-/// 3. Otherwise -> persistent directory from `DATA_DIR` env var or default `./hberg_data`
 pub static DATA_DIR: Lazy<PathBuf> = Lazy::new(|| {
     if should_use_test_data() {
-        // Use temporary directory - create it once and it will live for the program duration
         let temp_dir = TEST_DATA_DIR.path().to_path_buf();
         warn!(temp_dir = ?temp_dir, "Using temporary data directory for tests");
         temp_dir
     } else {
-        // Use persistent directory
         let dir = std::env::var("DATA_DIR").unwrap_or_else(|_| DATA_DIR_DEFAULT.to_string());
         PathBuf::from(dir)
     }
 });
 
-// ... rest of the file (error module, tests_utils) remains the same ...
 mod error {
     use polars::prelude::PolarsError;
     use thiserror::Error;
@@ -96,8 +81,125 @@ mod error {
     pub type Result<T> = std::result::Result<T, DataError>;
 }
 
+pub use error::{DataError, Result};
+
+// Re-export main types
+pub use processed::LocationSearchData;
+pub use test_data::{TestDataConfig, create_test_data};
+
+/// Generate embedded dataset for build-time inclusion
+///
+/// This function can be called from build.rs to create optimized datasets
+/// that ship with the library binary.
+pub fn generate_embedded_dataset(source: EmbeddedDataSource) -> Result<EmbeddedDataset> {
+    match source {
+        EmbeddedDataSource::TestData(config) => generate_from_test_data(config),
+        EmbeddedDataSource::Cities15000 => generate_from_cities15000(),
+        EmbeddedDataSource::CustomFilter {
+            min_population,
+            countries,
+        } => generate_from_custom_filter(min_population, countries),
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum EmbeddedDataSource {
+    /// Use enhanced test data (good for development)
+    TestData(TestDataConfig),
+    /// Download and process cities15000.zip (production recommended)
+    Cities15000,
+    /// Custom filtering criteria
+    CustomFilter {
+        min_population: u32,
+        countries: Option<Vec<String>>,
+    },
+}
+
+#[derive(Debug)]
+pub struct EmbeddedDataset {
+    pub admin_data: polars::prelude::DataFrame,
+    pub place_data: polars::prelude::DataFrame,
+    pub metadata: EmbeddedMetadata,
+}
+
+#[derive(Debug, Clone)]
+pub struct EmbeddedMetadata {
+    pub version: String,
+    pub source: String,
+    pub generated_at: String,
+    pub description: String,
+    pub admin_rows: usize,
+    pub place_rows: usize,
+    pub size_bytes: usize,
+}
+
+fn generate_from_test_data(config: TestDataConfig) -> Result<EmbeddedDataset> {
+    tracing::info!(
+        "Generating embedded dataset from test data with config: {:?}",
+        config
+    );
+
+    let (all_countries_file, country_info_file, feature_codes_file) =
+        test_data::create_test_data(&config)?;
+    let (all_countries_lf, country_info_lf, feature_codes_lf) = raw::get_raw_data_as_lazy_frames(
+        &(all_countries_file, country_info_file, feature_codes_file),
+    )?;
+
+    let admin_lf = processed::create_admin_search::get_admin_search_lf(
+        all_countries_lf.clone(),
+        country_info_lf,
+    )?;
+    let place_lf = processed::create_place_search::get_place_search_lf(
+        all_countries_lf,
+        feature_codes_lf,
+        admin_lf.clone(),
+    )?;
+
+    let admin_data = admin_lf.collect()?;
+    let place_data = place_lf.collect()?;
+
+    let metadata = EmbeddedMetadata {
+        version: "1.0.0".to_string(),
+        source: "enhanced_test_data".to_string(),
+        generated_at: chrono::Utc::now().to_rfc3339(),
+        description: "Embedded dataset from enhanced test data".to_string(),
+        admin_rows: admin_data.height(),
+        place_rows: place_data.height(),
+        size_bytes: 0, // Will be calculated when serializing
+    };
+
+    Ok(EmbeddedDataset {
+        admin_data,
+        place_data,
+        metadata,
+    })
+}
+
+fn generate_from_cities15000() -> Result<EmbeddedDataset> {
+    tracing::info!("Generating embedded dataset from cities15000.zip");
+
+    // This will download cities15000.zip and process it
+    // For now, fall back to test data until we implement the download logic
+    generate_from_test_data(TestDataConfig::sample())
+}
+
+fn generate_from_custom_filter(
+    min_population: u32,
+    countries: Option<Vec<String>>,
+) -> Result<EmbeddedDataset> {
+    tracing::info!(
+        "Generating embedded dataset with custom filter: min_pop={}, countries={:?}",
+        min_population,
+        countries
+    );
+
+    // This will apply custom filtering to a full dataset
+    // For now, fall back to test data
+    generate_from_test_data(TestDataConfig::sample())
+}
+
 #[cfg(test)]
-mod tests_utils {
+pub(crate) mod tests_utils {
     use num_traits::NumCast;
     use polars::prelude::*;
     use std::io::Write;
@@ -202,5 +304,25 @@ mod tests_utils {
         .unwrap();
         file.flush().unwrap();
         file
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_generate_embedded_from_test_data() {
+        let source = EmbeddedDataSource::TestData(TestDataConfig::minimal());
+        let dataset = generate_embedded_dataset(source).expect("Should generate dataset");
+
+        assert!(dataset.admin_data.height() > 0, "Should have admin data");
+        assert!(dataset.place_data.height() > 0, "Should have place data");
+        assert_eq!(dataset.metadata.source, "enhanced_test_data");
+
+        println!(
+            "Generated embedded dataset: {} admin rows, {} place rows",
+            dataset.metadata.admin_rows, dataset.metadata.place_rows
+        );
     }
 }

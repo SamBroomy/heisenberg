@@ -58,9 +58,11 @@ use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};
 mod backfill;
 mod config;
 mod core;
-mod data;
 mod index;
 mod search;
+
+// Use data processing from subcrate
+pub use heisenberg_data_processing as data;
 
 pub extern crate polars;
 pub use backfill::{

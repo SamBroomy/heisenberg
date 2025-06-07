@@ -20,5 +20,6 @@ build-backend = "maturin"
 
 [tool.maturin]
 bindings = "pyo3"
-features = ["python", "test_data"]
+features = ["python"]
 python-source = "python"
+manifest-path = "crates/heisenberg/Cargo.toml"

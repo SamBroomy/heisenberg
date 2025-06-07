@@ -1,0 +1,37 @@
+[package]
+name = "heisenberg-data-processing"
+version = "0.1.0"
+edition = "2024"
+authors = ["Sam B"]
+license = "MIT"
+description = "Data processing pipeline for Heisenberg location enrichment library"
+
+[dependencies]
+polars = { workspace = true }
+tempfile = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+
+# Additional dependencies for data processing
+itertools = { workspace = true }
+zip = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+once_cell = { workspace = true }
+reqwest = { workspace = true, features = ["stream"], optional = true }
+tokio = { workspace = true, features = [
+    "rt-multi-thread",
+    "fs",
+    "macros",
+    "io-util",
+], optional = true }
+futures = { workspace = true, optional = true }
+indicatif = { workspace = true, optional = true }
+
+[dev-dependencies]
+num-traits = { workspace = true }
+
+[features]
+default = ["download_data"]
+download_data = ["reqwest", "tokio", "indicatif", "futures"]

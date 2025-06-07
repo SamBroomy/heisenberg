@@ -29,16 +29,16 @@ pub use super::error::Result;
 
 #[instrument(name = "Get GeoNames raw data", skip_all, level = "info")]
 pub fn get_raw_data() -> Result<(NamedTempFile, NamedTempFile, NamedTempFile)> {
-    if crate::data::should_use_test_data() {
+    if crate::should_use_test_data() {
         #[cfg(any(test, doctest, feature = "test_data"))]
         {
-            let config = crate::data::get_test_data_config();
-            return crate::data::test_data::create_test_data(&config);
+            let config = crate::get_test_data_config();
+            return crate::test_data::create_test_data(&config);
         }
     }
 
     // Try to load from disk or download if not test data
-    let raw_dir = crate::data::DATA_DIR.join("raw");
+    let raw_dir = crate::DATA_DIR.join("raw");
     info!("Checking for raw data in: {}", raw_dir.display());
 
     let all_countries_path = raw_dir.join("allCountries.txt");
@@ -60,7 +60,7 @@ pub fn get_raw_data() -> Result<(NamedTempFile, NamedTempFile, NamedTempFile)> {
     #[cfg(not(feature = "download_data"))]
     {
         warn!("Download_data feature is disabled. Cannot download missing files.");
-        Err(crate::data::DataError::RequiredFilesNotFound)
+        Err(crate::DataError::RequiredFilesNotFound)
     }
 }
 
@@ -94,9 +94,9 @@ pub fn get_raw_data_as_lazy_frames<T: AsRef<Path>>(
 #[cfg(test)]
 mod tests {
     #[cfg(any(test, doctest, feature = "test_data"))]
-    use super::super::test_data::{TestDataConfig, create_test_data};
+    use super::super::test_data::{create_test_data, TestDataConfig};
     use super::*;
-    use crate::data::tests_utils::*;
+    use crate::tests_utils::*;
     use polars::prelude::*;
     use std::io::Write;
     use tempfile::NamedTempFile;

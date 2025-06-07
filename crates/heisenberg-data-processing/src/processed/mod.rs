@@ -4,8 +4,8 @@ use polars::prelude::*;
 use std::path::{Path, PathBuf};
 use tracing::{info, info_span};
 
-mod create_admin_search;
-mod create_place_search;
+pub mod create_admin_search;
+pub mod create_place_search;
 
 const ADMIN_SEARCH_PARQUET: &str = "admin_search.parquet";
 const PLACE_SEARCH_PARQUET: &str = "place_search.parquet";
@@ -20,7 +20,7 @@ pub struct LocationSearchData {
 
 impl LocationSearchData {
     pub fn new() -> Result<Self> {
-        if crate::data::should_use_test_data() {
+        if crate::should_use_test_data() {
             return Self::new_with_test_data();
         }
 
@@ -29,14 +29,14 @@ impl LocationSearchData {
 
     #[cfg(any(test, doctest, feature = "test_data"))]
     fn new_with_test_data() -> Result<Self> {
-        let config = crate::data::get_test_data_config();
+        let config = crate::get_test_data_config();
 
         info!(
             "LocationSearchData: Using test data with config: {:?}",
             config
         );
 
-        let raw_data_files = crate::data::test_data::create_test_data(&config)?;
+        let raw_data_files = crate::test_data::create_test_data(&config)?;
         let (all_countries_lf, country_info_lf, feature_codes_lf) =
             super::raw::get_raw_data_as_lazy_frames(&raw_data_files)?;
 
@@ -59,7 +59,7 @@ impl LocationSearchData {
         );
 
         // Use paths within the global test directory
-        let processed_dir = crate::data::DATA_DIR.join("processed");
+        let processed_dir = crate::DATA_DIR.join("processed");
         let instance = Self {
             admin_search_path: processed_dir.join(ADMIN_SEARCH_PARQUET),
             place_search_path: processed_dir.join(PLACE_SEARCH_PARQUET),
@@ -82,7 +82,7 @@ impl LocationSearchData {
     fn new_with_persistent_data() -> Result<Self> {
         info!("LocationSearchData: Using persistent data storage");
 
-        let processed_dir = crate::data::DATA_DIR.join("processed");
+        let processed_dir = crate::DATA_DIR.join("processed");
         std::fs::create_dir_all(&processed_dir)?;
 
         let admin_search_path = processed_dir.join(ADMIN_SEARCH_PARQUET);
@@ -195,7 +195,7 @@ impl LocationSearchData {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::tests_utils::*;
+    use crate::tests_utils::*;
 
     #[test]
     fn test_location_search_data_new_in_test_env_uses_minimal_test_data_by_default() {
@@ -227,10 +227,9 @@ mod tests {
         let country_info_file = create_test_country_info_file();
 
         let all_countries_lf =
-            crate::data::raw::all_countries::get_all_countries_df(all_countries_file.path())
-                .unwrap();
+            crate::raw::all_countries::get_all_countries_df(all_countries_file.path()).unwrap();
         let country_info_lf =
-            crate::data::raw::country_info::get_country_info_df(country_info_file.path()).unwrap();
+            crate::raw::country_info::get_country_info_df(country_info_file.path()).unwrap();
 
         // Test the actual transformation
         let result =
@@ -284,11 +283,9 @@ mod tests {
         let feature_codes_file = create_test_feature_codes_file();
 
         let all_countries_lf =
-            crate::data::raw::all_countries::get_all_countries_df(all_countries_file.path())
-                .unwrap();
+            crate::raw::all_countries::get_all_countries_df(all_countries_file.path()).unwrap();
         let feature_codes_lf =
-            crate::data::raw::feature_codes::get_feature_codes_df(feature_codes_file.path())
-                .unwrap();
+            crate::raw::feature_codes::get_feature_codes_df(feature_codes_file.path()).unwrap();
 
         // Debug: Check input data
         let all_countries_df = all_countries_lf.clone().collect().unwrap();

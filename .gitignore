@@ -10,5 +10,6 @@
 !readme.md
 !LICENSE
 !sql/*.sql
-!rust-toolchain
+!rust-toolchain.toml
+!rustfmt.toml
 !*.md

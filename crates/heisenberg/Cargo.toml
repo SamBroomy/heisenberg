@@ -1,0 +1,78 @@
+[package]
+name = "heisenberg"
+version = "0.1.0"
+edition = "2024"
+authors = ["Sam B"]
+license = "MIT"
+repository = "https://github.com/SamBroomy/heisenberg"
+homepage = "https://github.com/SamBroomy/heisenberg"
+readme = "../../readme.md"
+description = "Backfill and enrich unstructured location data into structured data using the Geonames Dataset."
+include = ["src/data/embedded/*.parquet", "src/data/embedded/*.json"]
+categories = ["science::geo"]
+keywords = [
+    "geonames",
+    "polars",
+    "location-enrichment",
+    "data-processing",
+    "geocoding",
+    "location",
+    "parsing",
+]
+
+[lib]
+name = "heisenberg"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["download_data"]
+download_data = ["heisenberg-data-processing/download_data"]
+python = [
+    "dep:pyo3",
+    "dep:pyo3-polars",
+    "dep:pythonize",
+    "dep:pyo3-log",
+    "serde",
+]
+serde = ["dep:serde"]
+
+[dependencies]
+# Workspace dependencies
+polars = { workspace = true }
+tempfile = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true, optional = true }
+
+# Data processing subcrate
+heisenberg-data-processing = { path = "../heisenberg-data-processing" }
+
+# Main crate specific dependencies
+ahash = { workspace = true }
+itertools = { workspace = true }
+once_cell = { workspace = true }
+rapidfuzz = { workspace = true }
+rayon = { workspace = true }
+regex = { workspace = true }
+tantivy = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
+
+# Python bindings (optional)
+pyo3 = { workspace = true, default-features = false, features = [
+    "extension-module",
+    "macros",
+], optional = true }
+pyo3-polars = { workspace = true, optional = true }
+pythonize = { workspace = true, optional = true }
+pyo3-log = { workspace = true, optional = true }
+
+[build-dependencies]
+heisenberg-data-processing = { path = "../heisenberg-data-processing" }
+polars = { workspace = true }
+tempfile = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+chrono = { workspace = true }
+num-traits = { workspace = true }
