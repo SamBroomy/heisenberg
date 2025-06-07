@@ -61,22 +61,22 @@ impl<E: LocationEntry + fmt::Display> fmt::Display for LocationContext<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut parts = Vec::new();
         if let Some(admin0) = &self.admin0 {
-            parts.push(format!("Admin0: {}", admin0));
+            parts.push(format!("Admin0: {admin0}"));
         }
         if let Some(admin1) = &self.admin1 {
-            parts.push(format!("Admin1: {}", admin1));
+            parts.push(format!("Admin1: {admin1}"));
         }
         if let Some(admin2) = &self.admin2 {
-            parts.push(format!("Admin2: {}", admin2));
+            parts.push(format!("Admin2: {admin2}"));
         }
         if let Some(admin3) = &self.admin3 {
-            parts.push(format!("Admin3: {}", admin3));
+            parts.push(format!("Admin3: {admin3}"));
         }
         if let Some(admin4) = &self.admin4 {
-            parts.push(format!("Admin4: {}", admin4));
+            parts.push(format!("Admin4: {admin4}"));
         }
         if let Some(place) = &self.place {
-            parts.push(format!("Place: {}", place));
+            parts.push(format!("Place: {place}"));
         }
 
         if parts.is_empty() {

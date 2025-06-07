@@ -318,7 +318,7 @@ impl<D: IndexDefinition> FTSIndex<D> {
     /// Otherwise, builds a new index from the provided data.
     #[instrument(name = "Create Index", skip(definition, data), fields(index_name = definition.name()))]
     pub fn new(definition: D, data: LazyFrame, overwrite: bool) -> Result<Self> {
-        let index_path = crate::data::DATA_DIR
+        let index_path = crate::data_processing::get_data_dir()
             .join("tantivy_indexes") // Standardized subdirectory for indexes
             .join(definition.name());
 

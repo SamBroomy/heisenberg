@@ -150,8 +150,7 @@ impl AdminScoringBuilder {
         let total = text + population + parent + feature;
         if (total - 1.0).abs() > 0.1 {
             return Err(HeisenbergError::ConfigError(format!(
-                "Scoring weights must sum to approximately 1.0, got {}",
-                total
+                "Scoring weights must sum to approximately 1.0, got {total}"
             )));
         }
 
@@ -233,8 +232,7 @@ impl PlaceScoringBuilder {
         let total = text + importance + feature + parent_admin + distance;
         if (total - 1.0).abs() > 0.1 {
             return Err(HeisenbergError::ConfigError(format!(
-                "Scoring weights must sum to approximately 1.0, got {}",
-                total
+                "Scoring weights must sum to approximately 1.0, got {total}"
             )));
         }
 

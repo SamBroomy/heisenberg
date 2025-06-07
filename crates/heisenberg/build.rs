@@ -16,6 +16,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Tell cargo to rerun if embedded data files change
     println!("cargo:rerun-if-changed=src/data/embedded/");
     println!("cargo:rerun-if-env-changed=GENERATE_EMBEDDED_DATA");
+    println!("cargo:rerun-if-env-changed=USE_CITIES15000");
 
     Ok(())
 }
@@ -46,8 +47,14 @@ fn generate_embedded_dataset_files() -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all(embedded_dir)?;
 
     // Generate dataset using the data processing subcrate
-    // For now, use enhanced test data (later we can switch to cities15000)
-    let source = EmbeddedDataSource::TestData(TestDataConfig::sample());
+    // Use cities15000.zip for production embedded data
+    let source = if std::env::var("USE_CITIES15000").unwrap_or_default() == "1" {
+        println!("cargo:warning=Using cities15000.zip data source");
+        EmbeddedDataSource::Cities15000
+    } else {
+        println!("cargo:warning=Using enhanced test data (set USE_CITIES15000=1 for real data)");
+        EmbeddedDataSource::TestData(TestDataConfig::sample())
+    };
     let dataset = generate_embedded_dataset(source)?;
 
     println!(

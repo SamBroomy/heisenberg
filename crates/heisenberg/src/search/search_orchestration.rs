@@ -302,7 +302,7 @@ fn identify_place_candidate(
         let mut place_term = cleaned_terms[num_admin_terms].clone();
         if cleaned_terms.len() > num_admin_terms + 1 {
             let extra_terms = cleaned_terms[(num_admin_terms + 1)..].join(" ");
-            place_term = format!("{} {}", place_term, extra_terms);
+            place_term = format!("{place_term} {extra_terms}");
             debug!(
                 "Concatenated extra terms into place candidate: '{}'",
                 place_term
@@ -797,7 +797,7 @@ fn parse_search_terms(
         let mut pct = terms[num_admin_terms].clone();
         if num_terms > num_admin_terms + 1 {
             let extra_terms = terms[(num_admin_terms + 1)..].join(" ");
-            pct = format!("{} {}", pct, extra_terms);
+            pct = format!("{pct} {extra_terms}");
         }
         place_candidate_term = Some(pct);
     } else if !admin_terms.is_empty() {
@@ -1117,15 +1117,13 @@ fn update_admin_filter_for_next_pass(
                 // Build the complete hierarchical path for this parent
                 let mut hierarchical_path = Vec::new();
                 for level in 0..=parent_level {
-                    let code_col_name = format!("admin{}_code", level);
-                    if let Ok(code_series) = unique_parents.column(&code_col_name) {
-                        if let Ok(code_ca) = code_series.str() {
-                            if let Some(code) = code_ca.get(i) {
-                                if !code.is_empty() {
-                                    hierarchical_path.push((level, code.to_string()));
-                                }
-                            }
-                        }
+                    let code_col_name = format!("admin{level}_code");
+                    if let Ok(code_series) = unique_parents.column(&code_col_name)
+                        && let Ok(code_ca) = code_series.str()
+                        && let Some(code) = code_ca.get(i)
+                        && !code.is_empty()
+                    {
+                        hierarchical_path.push((level, code.to_string()));
                     }
                 }
 
@@ -1136,7 +1134,7 @@ fn update_admin_filter_for_next_pass(
                     let mut child_filter_parts = vec![col("admin_level").eq(lit(child_level))];
 
                     for (code_level, code_value) in &hierarchical_path {
-                        let code_col_name = format!("admin{}_code", code_level);
+                        let code_col_name = format!("admin{code_level}_code");
                         child_filter_parts.push(col(&code_col_name).eq(lit(code_value.clone())));
                     }
 
@@ -1356,31 +1354,27 @@ fn process_proactive_admin_searches(
             && config.attempt_place_candidate_as_admin_before_place_search
             && !qs.is_place_candidate_also_last_admin_term_in_sequence;
 
-        if should_run_proactive {
-            if let Some(ref pct) = qs.place_candidate_term {
-                let admin_start_level = qs.admin_terms_for_main_sequence.len() as u8;
+        if should_run_proactive && let Some(ref pct) = qs.place_candidate_term {
+            let admin_start_level = qs.admin_terms_for_main_sequence.len() as u8;
 
-                if admin_start_level < MAX_ADMIN_LEVELS as u8 {
-                    let admin_levels: Vec<u8> =
-                        (admin_start_level..(MAX_ADMIN_LEVELS as u8)).collect();
+            if admin_start_level < MAX_ADMIN_LEVELS as u8 {
+                let admin_levels: Vec<u8> = (admin_start_level..(MAX_ADMIN_LEVELS as u8)).collect();
 
-                    if !admin_levels.is_empty() {
-                        let context_sig = generate_context_signature(
-                            qs.last_successful_admin_context_df.as_ref(),
-                        );
-                        let batch_key = (pct.clone(), admin_levels.clone(), context_sig);
+                if !admin_levels.is_empty() {
+                    let context_sig =
+                        generate_context_signature(qs.last_successful_admin_context_df.as_ref());
+                    let batch_key = (pct.clone(), admin_levels.clone(), context_sig);
 
-                        proactive_batches
-                            .entry(batch_key)
-                            .or_insert_with(|| AdminSearchBatch {
-                                term: pct.clone(),
-                                levels: admin_levels,
-                                context_df: qs.last_successful_admin_context_df.clone(),
-                                query_indices: Vec::new(),
-                            })
-                            .query_indices
-                            .push(idx);
-                    }
+                    proactive_batches
+                        .entry(batch_key)
+                        .or_insert_with(|| AdminSearchBatch {
+                            term: pct.clone(),
+                            levels: admin_levels,
+                            context_df: qs.last_successful_admin_context_df.clone(),
+                            query_indices: Vec::new(),
+                        })
+                        .query_indices
+                        .push(idx);
                 }
             }
         }

@@ -1,6 +1,4 @@
-use once_cell::sync::Lazy;
 use std::path::PathBuf;
-use tracing::warn;
 
 pub mod processed;
 pub mod raw;
@@ -8,50 +6,13 @@ pub mod test_data;
 
 // DataError will be imported from the error module below
 
-static TEST_DATA_DIR: Lazy<tempfile::TempDir> = Lazy::new(|| {
-    tempfile::TempDir::new().expect("Failed to create global temporary test data directory")
-});
-
 pub const DATA_DIR_DEFAULT: &str = "./hberg_data";
 
-/// Centralized function to determine if we should use test data.
-pub fn should_use_test_data() -> bool {
-    let is_test_environment = cfg!(test) || cfg!(doctest);
-
-    #[cfg(feature = "test_data")]
-    let explicit_test_data = std::env::var("USE_TEST_DATA")
-        .map(|v| v == "true" || v == "1")
-        .unwrap_or(false);
-    #[cfg(not(feature = "test_data"))]
-    let explicit_test_data = false;
-
-    is_test_environment || explicit_test_data
+/// Global data directory path for persistent data storage.
+pub fn get_data_dir() -> PathBuf {
+    let dir = std::env::var("DATA_DIR").unwrap_or_else(|_| DATA_DIR_DEFAULT.to_string());
+    PathBuf::from(dir)
 }
-
-/// Get the appropriate test data config based on environment.
-#[cfg(any(test, doctest, feature = "test_data"))]
-pub fn get_test_data_config() -> test_data::TestDataConfig {
-    if cfg!(doctest) {
-        test_data::TestDataConfig::minimal()
-    } else {
-        match std::env::var("TEST_DATA_SIZE").as_deref() {
-            Ok("sample") => test_data::TestDataConfig::sample(),
-            _ => test_data::TestDataConfig::minimal(),
-        }
-    }
-}
-
-/// Global data directory path that automatically determines the appropriate location.
-pub static DATA_DIR: Lazy<PathBuf> = Lazy::new(|| {
-    if should_use_test_data() {
-        let temp_dir = TEST_DATA_DIR.path().to_path_buf();
-        warn!(temp_dir = ?temp_dir, "Using temporary data directory for tests");
-        temp_dir
-    } else {
-        let dir = std::env::var("DATA_DIR").unwrap_or_else(|_| DATA_DIR_DEFAULT.to_string());
-        PathBuf::from(dir)
-    }
-});
 
 mod error {
     use polars::prelude::PolarsError;
@@ -95,10 +56,6 @@ pub fn generate_embedded_dataset(source: EmbeddedDataSource) -> Result<EmbeddedD
     match source {
         EmbeddedDataSource::TestData(config) => generate_from_test_data(config),
         EmbeddedDataSource::Cities15000 => generate_from_cities15000(),
-        EmbeddedDataSource::CustomFilter {
-            min_population,
-            countries,
-        } => generate_from_custom_filter(min_population, countries),
     }
 }
 
@@ -108,11 +65,6 @@ pub enum EmbeddedDataSource {
     TestData(TestDataConfig),
     /// Download and process cities15000.zip (production recommended)
     Cities15000,
-    /// Custom filtering criteria
-    CustomFilter {
-        min_population: u32,
-        countries: Option<Vec<String>>,
-    },
 }
 
 #[derive(Debug)]
@@ -139,11 +91,11 @@ fn generate_from_test_data(config: TestDataConfig) -> Result<EmbeddedDataset> {
         config
     );
 
-    let (all_countries_file, country_info_file, feature_codes_file) =
-        test_data::create_test_data(&config)?;
-    let (all_countries_lf, country_info_lf, feature_codes_lf) = raw::get_raw_data_as_lazy_frames(
-        &(all_countries_file, country_info_file, feature_codes_file),
-    )?;
+    let temp_files = test_data::create_test_data(&config)?;
+
+    // Keep temp files alive by storing the tuple longer
+    let (all_countries_lf, country_info_lf, feature_codes_lf) =
+        raw::get_raw_data_as_lazy_frames(&temp_files)?;
 
     let admin_lf = processed::create_admin_search::get_admin_search_lf(
         all_countries_lf.clone(),
@@ -155,8 +107,12 @@ fn generate_from_test_data(config: TestDataConfig) -> Result<EmbeddedDataset> {
         admin_lf.clone(),
     )?;
 
+    // Collect immediately to ensure temp files are read before they can be dropped
     let admin_data = admin_lf.collect()?;
     let place_data = place_lf.collect()?;
+
+    // Now we can safely drop the temp files
+    drop(temp_files);
 
     let metadata = EmbeddedMetadata {
         version: "1.0.0".to_string(),
@@ -178,24 +134,55 @@ fn generate_from_test_data(config: TestDataConfig) -> Result<EmbeddedDataset> {
 fn generate_from_cities15000() -> Result<EmbeddedDataset> {
     tracing::info!("Generating embedded dataset from cities15000.zip");
 
-    // This will download cities15000.zip and process it
-    // For now, fall back to test data until we implement the download logic
-    generate_from_test_data(TestDataConfig::sample())
-}
+    #[cfg(feature = "download_data")]
+    {
+        let temp_files = raw::fetch::download_cities15000_data()?;
 
-fn generate_from_custom_filter(
-    min_population: u32,
-    countries: Option<Vec<String>>,
-) -> Result<EmbeddedDataset> {
-    tracing::info!(
-        "Generating embedded dataset with custom filter: min_pop={}, countries={:?}",
-        min_population,
-        countries
-    );
+        // Keep temp files alive by storing the tuple longer
+        let (all_countries_lf, country_info_lf, feature_codes_lf) =
+            raw::get_raw_data_as_lazy_frames(&temp_files)?;
 
-    // This will apply custom filtering to a full dataset
-    // For now, fall back to test data
-    generate_from_test_data(TestDataConfig::sample())
+        let admin_lf = processed::create_admin_search::get_admin_search_lf(
+            all_countries_lf.clone(),
+            country_info_lf,
+        )?;
+        let place_lf = processed::create_place_search::get_place_search_lf(
+            all_countries_lf,
+            feature_codes_lf,
+            admin_lf.clone(),
+        )?;
+
+        // Collect immediately to ensure temp files are read before they can be dropped
+        let admin_data = admin_lf.collect()?;
+        let place_data = place_lf.collect()?;
+
+        // Now we can safely drop the temp files
+        drop(temp_files);
+
+        let metadata = EmbeddedMetadata {
+            version: "1.0.0".to_string(),
+            source: "cities15000.zip".to_string(),
+            generated_at: chrono::Utc::now().to_rfc3339(),
+            description:
+                "Embedded dataset from GeoNames cities15000.zip (cities with population > 15,000)"
+                    .to_string(),
+            admin_rows: admin_data.height(),
+            place_rows: place_data.height(),
+            size_bytes: 0, // Will be calculated when serializing
+        };
+
+        Ok(EmbeddedDataset {
+            admin_data,
+            place_data,
+            metadata,
+        })
+    }
+
+    #[cfg(not(feature = "download_data"))]
+    {
+        tracing::warn!("download_data feature not enabled, falling back to test data");
+        generate_from_test_data(TestDataConfig::sample())
+    }
 }
 
 #[cfg(test)]

@@ -5,7 +5,7 @@ use tempfile::NamedTempFile;
 use tracing::{info, instrument, warn};
 
 #[cfg(feature = "download_data")]
-mod fetch;
+pub mod fetch;
 
 pub(super) mod all_countries;
 pub(super) mod country_info;
@@ -29,16 +29,8 @@ pub use super::error::Result;
 
 #[instrument(name = "Get GeoNames raw data", skip_all, level = "info")]
 pub fn get_raw_data() -> Result<(NamedTempFile, NamedTempFile, NamedTempFile)> {
-    if crate::should_use_test_data() {
-        #[cfg(any(test, doctest, feature = "test_data"))]
-        {
-            let config = crate::get_test_data_config();
-            return crate::test_data::create_test_data(&config);
-        }
-    }
-
-    // Try to load from disk or download if not test data
-    let raw_dir = crate::DATA_DIR.join("raw");
+    // Try to load from disk or download
+    let raw_dir = crate::get_data_dir().join("raw");
     info!("Checking for raw data in: {}", raw_dir.display());
 
     let all_countries_path = raw_dir.join("allCountries.txt");
@@ -91,10 +83,23 @@ pub fn get_raw_data_as_lazy_frames<T: AsRef<Path>>(
     Ok((all_countries_df, country_info_df, feature_codes_df))
 }
 
+/// Transform GeoNames data from separate file paths
+#[instrument(name = "Transform GeoNames data from paths", skip_all, level = "info")]
+pub fn get_raw_data_as_lazy_frames_from_paths(
+    all_countries_path: &Path,
+    country_info_path: &Path,
+    feature_codes_path: &Path,
+) -> Result<(LazyFrame, LazyFrame, LazyFrame)> {
+    let all_countries_df = all_countries::get_all_countries_df(all_countries_path)?;
+    let country_info_df = country_info::get_country_info_df(country_info_path)?;
+    let feature_codes_df = feature_codes::get_feature_codes_df(feature_codes_path)?;
+
+    Ok((all_countries_df, country_info_df, feature_codes_df))
+}
+
 #[cfg(test)]
 mod tests {
-    #[cfg(any(test, doctest, feature = "test_data"))]
-    use super::super::test_data::{create_test_data, TestDataConfig};
+    use super::super::test_data::{TestDataConfig, create_test_data};
     use super::*;
     use crate::tests_utils::*;
     use polars::prelude::*;

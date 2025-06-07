@@ -133,7 +133,7 @@ impl LocationSearcher {
         info!("Initializing LocationSearchService...");
         let t_init = std::time::Instant::now();
 
-        let data = crate::data::LocationSearchData::new()?;
+        let data = LocationSearchData::new()?;
 
         let admin_fts_index = {
             let _ = info_span!("load_service_admin_index").entered();

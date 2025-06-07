@@ -26,10 +26,57 @@ pub fn download_raw_data() -> Result<(NamedTempFile, NamedTempFile, NamedTempFil
     })
 }
 
+/// Downloads cities15000.zip data for embedded dataset generation
+#[instrument(name = "Download cities15000 data", skip_all, level = "info")]
+pub fn download_cities15000_data() -> Result<(NamedTempFile, NamedTempFile, NamedTempFile)> {
+    let rt = tokio::runtime::Runtime::new()?;
+
+    rt.block_on(async {
+        let client = reqwest::Client::new();
+
+        let (cities15000_file, country_info_df, feature_codes_df) = tokio::try_join!(
+            download_cities15000(&client),
+            download_country_info(&client),
+            download_feature_codes(&client),
+        )?;
+
+        Ok((cities15000_file, country_info_df, feature_codes_df))
+    })
+}
+
+/*
+
+cities15000.zip: Generated dataset with 13176 admin rows, 17960 place rows (~12s)
+warning: heisenberg@0.1.0:   Admin: 1657242 bytes (1618.4 KB)
+warning: heisenberg@0.1.0:   Place: 1880950 bytes (1836.9 KB)
+warning: heisenberg@0.1.0:   Total: 3538192 bytes (3455.3 KB)
+
+cities5000.zip: Generated dataset with 24021 admin rows, 38525 place rows (~14s)
+warning: heisenberg@0.1.0:   Admin: 2381696 bytes (2325.9 KB)
+warning: heisenberg@0.1.0:   Place: 3581318 bytes (3497.4 KB)
+warning: heisenberg@0.1.0:   Total: 5963014 bytes (5823.3 KB)
+
+cities1000.zip: Generated dataset with 62733 admin rows, 94526 place rows (~16s)
+warning: heisenberg@0.1.0:   Admin: 4464743 bytes (4360.1 KB)
+warning: heisenberg@0.1.0:   Place: 7256275 bytes (7086.2 KB)
+warning: heisenberg@0.1.0:   Total: 11721018 bytes (11446.3 KB)
+
+cities500.zip: Generated dataset with 81545 admin rows, 136847 place rows (~1m 10s)
+warning: heisenberg@0.1.0:   Admin: 5293457 bytes (5169.4 KB)
+warning: heisenberg@0.1.0:   Place: 9504661 bytes (9281.9 KB)
+warning: heisenberg@0.1.0:   Total: 14798118 bytes (14451.3 KB)
+*/
 const ALL_COUNTRIES_URL: &str = "https://download.geonames.org/export/dump/allCountries.zip";
+const CITIES15000_URL: &str = "https://download.geonames.org/export/dump/cities1000.zip";
+
 /// Downloads the all countries file from GeoNames and extracts it to a temporary file.
 async fn download_all_countries(client: &Client) -> Result<NamedTempFile> {
     download_zip_and_extract_first_entry_to_temp_file(client, ALL_COUNTRIES_URL).await
+}
+
+/// Downloads the cities15000 file from GeoNames and extracts it to a temporary file.
+pub async fn download_cities15000(client: &Client) -> Result<NamedTempFile> {
+    download_zip_and_extract_first_entry_to_temp_file(client, CITIES15000_URL).await
 }
 
 const COUNTRY_INFO_URL: &str = "https://download.geonames.org/export/dump/countryInfo.txt";

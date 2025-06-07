@@ -84,7 +84,7 @@ fn create_country_info_test_data(config: &TestDataConfig) -> Result<NamedTempFil
 
     // Add the expected 51 header lines
     for i in 1..=51 {
-        writeln!(file, "# Header line {}", i)?;
+        writeln!(file, "# Header line {i}")?;
     }
 
     if config.realistic_data && config.country_info_rows > 3 {
@@ -333,7 +333,7 @@ fn write_realistic_all_countries_data(file: &mut NamedTempFile, rows: usize) -> 
             0,
             0,
             "Australia/Sydney",
-        )
+        ),
     ];
 
     for (i, data) in base_data.iter().cycle().take(rows).enumerate() {
@@ -431,7 +431,7 @@ fn write_realistic_country_info_data(file: &mut NamedTempFile, rows: usize) -> R
         ),
         (
             "FR",
-            "FRA", 
+            "FRA",
             "250",
             "FR",
             "France",
@@ -453,7 +453,7 @@ fn write_realistic_country_info_data(file: &mut NamedTempFile, rows: usize) -> R
         (
             "JP",
             "JPN",
-            "392", 
+            "392",
             "JP",
             "Japan",
             "Tokyo",
@@ -475,7 +475,7 @@ fn write_realistic_country_info_data(file: &mut NamedTempFile, rows: usize) -> R
             "AU",
             "AUS",
             "036",
-            "AU", 
+            "AU",
             "Australia",
             "Canberra",
             "7686850",
@@ -491,7 +491,7 @@ fn write_realistic_country_info_data(file: &mut NamedTempFile, rows: usize) -> R
             "2077456",
             "",
             "",
-        )
+        ),
     ];
 
     for data in base_data.iter().cycle().take(rows) {
@@ -552,15 +552,23 @@ fn write_realistic_feature_codes_data(file: &mut NamedTempFile, rows: usize) -> 
             "a place where aircraft regularly land and take off",
         ),
         ("P.PPLC", "capital of a political entity", ""),
-        ("A.ADM2", "second-order administrative division", "county, district"),
-        ("A.ADM3", "third-order administrative division", "municipality"),
+        (
+            "A.ADM2",
+            "second-order administrative division",
+            "county, district",
+        ),
+        (
+            "A.ADM3",
+            "third-order administrative division",
+            "municipality",
+        ),
         ("T.ISL", "island", "a tract of land surrounded by water"),
         ("R.RD", "road", "an open way with improved surface"),
         ("V.FRST", "forest", "an area covered with trees"),
         ("H.BAY", "bay", "a coastal indentation"),
         ("T.PK", "peak", "a pointed elevation"),
         ("L.CONT", "continent", "one of the seven large landmasses"),
-        ("S.SCH", "school", "building where instruction is given")
+        ("S.SCH", "school", "building where instruction is given"),
     ];
 
     for data in base_data.iter().cycle().take(rows) {
@@ -578,7 +586,7 @@ fn write_minimal_all_countries_data(file: &mut NamedTempFile, rows: usize) -> Re
     ];
 
     for line in data.iter().cycle().take(rows) {
-        writeln!(file, "{}", line)?;
+        writeln!(file, "{line}")?;
     }
     Ok(())
 }
@@ -589,7 +597,7 @@ fn write_minimal_country_info_data(file: &mut NamedTempFile, rows: usize) -> Res
     ];
 
     for line in data.iter().cycle().take(rows) {
-        writeln!(file, "{}", line)?;
+        writeln!(file, "{line}")?;
     }
     Ok(())
 }
@@ -602,7 +610,7 @@ fn write_minimal_feature_codes_data(file: &mut NamedTempFile, rows: usize) -> Re
     ];
 
     for line in data.iter().cycle().take(rows) {
-        writeln!(file, "{}", line)?;
+        writeln!(file, "{line}")?;
     }
     Ok(())
 }

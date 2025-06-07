@@ -20,69 +20,13 @@ pub struct LocationSearchData {
 
 impl LocationSearchData {
     pub fn new() -> Result<Self> {
-        if crate::should_use_test_data() {
-            return Self::new_with_test_data();
-        }
-
         Self::new_with_persistent_data()
-    }
-
-    #[cfg(any(test, doctest, feature = "test_data"))]
-    fn new_with_test_data() -> Result<Self> {
-        let config = crate::get_test_data_config();
-
-        info!(
-            "LocationSearchData: Using test data with config: {:?}",
-            config
-        );
-
-        let raw_data_files = crate::test_data::create_test_data(&config)?;
-        let (all_countries_lf, country_info_lf, feature_codes_lf) =
-            super::raw::get_raw_data_as_lazy_frames(&raw_data_files)?;
-
-        let admin_lf =
-            create_admin_search::get_admin_search_lf(all_countries_lf.clone(), country_info_lf)?;
-        let place_lf = create_place_search::get_place_search_lf(
-            all_countries_lf,
-            feature_codes_lf,
-            admin_lf.clone(),
-        )?;
-
-        // Collect to validate and prepare for OnceCell
-        let admin_df_collected = admin_lf.collect()?;
-        let place_df_collected = place_lf.collect()?;
-
-        info!(
-            "LocationSearchData: Test data processed. Admin rows: {}, Place rows: {}",
-            admin_df_collected.height(),
-            place_df_collected.height()
-        );
-
-        // Use paths within the global test directory
-        let processed_dir = crate::DATA_DIR.join("processed");
-        let instance = Self {
-            admin_search_path: processed_dir.join(ADMIN_SEARCH_PARQUET),
-            place_search_path: processed_dir.join(PLACE_SEARCH_PARQUET),
-            admin_search_df: OnceCell::new(),
-            place_search_df: OnceCell::new(),
-        };
-
-        // Pre-populate with test data
-        let _ = instance.admin_search_df.set(admin_df_collected.lazy());
-        let _ = instance.place_search_df.set(place_df_collected.lazy());
-
-        Ok(instance)
-    }
-
-    #[cfg(not(any(test, doctest, feature = "test_data")))]
-    fn new_with_test_data() -> Result<Self> {
-        unreachable!("Test data path should not be called without test features")
     }
 
     fn new_with_persistent_data() -> Result<Self> {
         info!("LocationSearchData: Using persistent data storage");
 
-        let processed_dir = crate::DATA_DIR.join("processed");
+        let processed_dir = crate::get_data_dir().join("processed");
         std::fs::create_dir_all(&processed_dir)?;
 
         let admin_search_path = processed_dir.join(ADMIN_SEARCH_PARQUET);
@@ -252,11 +196,7 @@ mod tests {
             .into_iter()
             .collect();
         for level in admin_levels.iter().flatten() {
-            assert!(
-                *level < 5,
-                "All admin levels should be < 5, found: {}",
-                level
-            );
+            assert!(*level < 5, "All admin levels should be < 5, found: {level}");
         }
 
         // Test that country-level (PCLI) and state-level (ADM1) entries are present

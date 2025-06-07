@@ -84,7 +84,7 @@ impl From<DataFrame> for PlaceFrame {
 
         for col in expected_columns {
             if !df_cols.contains(&col) {
-                panic!("DataFrame is missing expected column: {}", col);
+                panic!("DataFrame is missing expected column: {col}");
             }
         }
         Self(df)
@@ -468,7 +468,7 @@ pub fn place_search_inner(
             for name_idx in prev_schema.iter_names() {
                 let name = name_idx.as_ref();
                 if score_pattern.is_match(name) {
-                    let new_name = format!("parent_{}", name);
+                    let new_name = format!("parent_{name}");
                     renames_map.insert(name.to_string(), new_name.clone());
                 }
             }
@@ -488,7 +488,7 @@ pub fn place_search_inner(
                 .iter()
                 .map(|expr| match expr {
                     Expr::Column(name) => name.to_string(),
-                    _ => panic!("Expected Expr::Column, got {:?}", expr),
+                    _ => panic!("Expected Expr::Column, got {expr:?}"),
                 })
                 .collect_vec();
             let prev_lf_for_join = prev_lf_processed.select(&cols_to_select_from_prev).unique(

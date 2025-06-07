@@ -81,7 +81,7 @@ impl From<DataFrame> for AdminFrame {
 
         for col in expected_columns {
             if !df_cols.contains(&col) {
-                panic!("DataFrame is missing expected column: {}", col);
+                panic!("DataFrame is missing expected column: {col}");
             }
         }
         Self(df)
@@ -355,7 +355,7 @@ pub fn admin_search_inner(
             for name_idx in prev_schema.iter_names() {
                 let name = name_idx.as_ref();
                 if score_pattern.is_match(name) {
-                    let new_name = format!("parent_{}", name);
+                    let new_name = format!("parent_{name}");
                     debug!(
                         "Will rename previous score column: {} -> {}",
                         name, new_name
@@ -417,7 +417,7 @@ pub fn admin_search_inner(
 
     let min_level = levels.iter().min().cloned().unwrap_or(0);
     debug_assert!(min_level < 5, "Level must be between 0 and 4");
-    let score_col_name = format!("score_admin_{}", min_level);
+    let score_col_name = format!("score_admin_{min_level}");
 
     let select_exprs = if params.all_cols {
         vec![col("*")]
