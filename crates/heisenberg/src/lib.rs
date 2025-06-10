@@ -128,7 +128,7 @@ mod tests {
     fn test_searcher_creation() {
         setup_test_env();
 
-        let searcher = LocationSearcher::new(false);
+        let searcher = LocationSearcher::new_embedded();
         assert!(
             searcher.is_ok(),
             "Should be able to create searcher with test data"
@@ -139,7 +139,7 @@ mod tests {
     fn test_basic_search() {
         setup_test_env();
 
-        let searcher = LocationSearcher::new(false).unwrap();
+        let searcher = LocationSearcher::new_embedded().unwrap();
 
         // Try a few different search terms that should exist in cities15000
         let test_terms = vec!["New York", "London", "Tokyo", "Berlin", "Paris"];
@@ -161,7 +161,7 @@ mod tests {
     fn test_multi_term_search() {
         setup_test_env();
 
-        let searcher = LocationSearcher::new(false).unwrap();
+        let searcher = LocationSearcher::new_embedded().unwrap();
         let results = searcher.search(&["New York", "USA"]);
 
         assert!(results.is_ok(), "Multi-term search should work");
@@ -173,7 +173,7 @@ mod tests {
     fn test_resolution() {
         setup_test_env();
 
-        let searcher = LocationSearcher::new(false).unwrap();
+        let searcher = LocationSearcher::new_embedded().unwrap();
         let resolved = searcher.resolve_location::<_, GenericEntry>(&["London"]);
 
         assert!(resolved.is_ok(), "Resolution should work");
@@ -184,7 +184,7 @@ mod tests {
     fn test_batch_search() {
         setup_test_env();
 
-        let searcher = LocationSearcher::new(false).unwrap();
+        let searcher = LocationSearcher::new_embedded().unwrap();
         let queries = vec![vec!["London"], vec!["Paris"], vec!["Tokyo"]];
         let results = searcher.search_bulk(&queries);
 
@@ -207,7 +207,7 @@ mod tests {
         assert_eq!(config.place_min_importance_tier, 3);
 
         // Test search with configuration
-        let searcher = LocationSearcher::new(false).unwrap();
+        let searcher = LocationSearcher::new_embedded().unwrap();
         let results = searcher.search_with_config(&["London"], &config);
 
         assert!(results.is_ok(), "Search with config should work");
@@ -219,7 +219,7 @@ mod tests {
     fn test_empty_search() {
         setup_test_env();
 
-        let searcher = LocationSearcher::new(false).unwrap();
+        let searcher = LocationSearcher::new_embedded().unwrap();
 
         // Test empty query
         let results = searcher.search(&[""]);

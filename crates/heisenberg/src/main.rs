@@ -1,11 +1,10 @@
 use anyhow::Result;
-use heisenberg::ResolveSearchConfig;
-use heisenberg::ResolvedSearchResult;
-use heisenberg::{BasicEntry, LocationSearcher, SearchConfig};
+use heisenberg::{
+    BasicEntry, LocationSearcher, ResolveSearchConfig, ResolvedSearchResult, SearchConfig,
+};
 use polars::prelude::*;
 use tracing::{debug, info, info_span, warn};
-use tracing_subscriber::EnvFilter;
-use tracing_subscriber::fmt::format::FmtSpan;
+use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};
 
 fn main() -> Result<()> {
     let filter = EnvFilter::try_from_default_env()
@@ -17,7 +16,7 @@ fn main() -> Result<()> {
         .init();
 
     let t_total_setup = std::time::Instant::now();
-    let search_service = LocationSearcher::new(false)?;
+    let search_service = LocationSearcher::new_embedded().unwrap();
 
     debug!(
         elapsed_seconds = t_total_setup.elapsed().as_secs_f32(),

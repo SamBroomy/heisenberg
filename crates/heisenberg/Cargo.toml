@@ -26,8 +26,9 @@ name = "heisenberg"
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = ["download_data"]
+default = ["download_data", "system-dirs"]
 download_data = ["heisenberg-data-processing/download_data"]
+system-dirs = ["heisenberg-data-processing/system-dirs"]
 python = [
     "dep:pyo3",
     "dep:pyo3-polars",

@@ -16,7 +16,8 @@
 //! let results = searcher.search(&["London"])?;
 //!
 //! // Resolve to structured location data
-//! let resolved = searcher.resolve_location::<_, heisenberg::GenericEntry>(&["Paris", "France"])?;
+//! let resolved =
+//!     searcher.resolve_location::<_, heisenberg::GenericEntry>(&["Paris", "France"])?;
 //! # Ok::<() , heisenberg::error::HeisenbergError>(())
 //! ```
 //!
@@ -28,20 +29,22 @@
 //! - **Combined search**: Automatically determine the best search strategy
 //! - **Resolution**: Convert search results into structured location hierarchies
 
-use crate::data::LocationSearchData;
-use crate::{ResolveConfig, error::HeisenbergError};
+use heisenberg_data_processing::DataSource;
 use polars::prelude::*;
 use tracing::{info, info_span, instrument};
 
-use crate::search::{
-    AdminSearchParams, PlaceSearchParams, SearchConfig, SearchResult, admin_search_inner,
-    bulk_location_search_inner, location_search_inner, place_search_inner,
-};
 use crate::{
+    ResolveConfig,
     backfill::{
         LocationEntry, LocationResults, resolve_search_candidate, resolve_search_candidate_batches,
     },
-    index::{AdminIndexDef, FTSIndex, PlacesIndexDef},
+    data::{LocationSearchData, embedded::METADATA},
+    error::HeisenbergError,
+    index::{AdminIndexDef, FTSIndex, LocationSearchIndex, PlacesIndexDef},
+    search::{
+        AdminSearchParams, PlaceSearchParams, SearchConfig, SearchResult, admin_search_inner,
+        bulk_location_search_inner, location_search_inner, place_search_inner,
+    },
 };
 
 pub type SearchResults = Vec<SearchResult>;
@@ -88,80 +91,263 @@ pub struct ResolveSearchConfig {
 /// ```
 #[derive(Clone)]
 pub struct LocationSearcher {
-    admin_fts_index: FTSIndex<AdminIndexDef>,
-    places_fts_index: FTSIndex<PlacesIndexDef>,
+    index: LocationSearchIndex,
     data: LocationSearchData,
 }
 
 impl LocationSearcher {
-    /// Create a new LocationSearcher instance.
+    /// Create a new LocationSearcher with smart initialization.
     ///
-    /// This initializes the searcher with geographic data and builds search indexes.
-    /// On first run, this will download and process geographic data which may take
-    /// several minutes. Subsequent runs will reuse cached data and indexes.
+    /// This will try to load existing indexes if they're up-to-date, otherwise
+    /// it will create new ones from the specified data source.
     ///
     /// # Arguments
     ///
-    /// * `overwrite_indexes` - If true, rebuild all search indexes from scratch.
-    ///   This ensures indexes are up-to-date but takes longer to initialize.
+    /// * `data_source` - The data source to use for geographic data
     ///
-    /// # Returns
+    /// # Examples
     ///
-    /// A new `LocationSearcher` instance ready for searching.
+    /// ```rust
+    /// use heisenberg::{DataSource, LocationSearcher};
     ///
-    /// # Errors
+    /// // Use smart initialization with Cities15000 data
+    /// let searcher = LocationSearcher::initialize(DataSource::Cities15000)?;
+    /// # Ok::<(), heisenberg::error::HeisenbergError>(())
+    /// ```
+    #[instrument(name = "Smart Initialize LocationSearcher", level = "info")]
+    pub fn initialize(data_source: DataSource) -> Result<Self, HeisenbergError> {
+        info!(
+            "Smart initializing LocationSearcher with data source: {:?}",
+            data_source
+        );
+        let t_init = std::time::Instant::now();
+
+        let data = LocationSearchData::new(data_source);
+        let index = LocationSearchIndex::initialize(&data)?;
+
+        info!(
+            elapsed_seconds = ?t_init.elapsed(),
+            "LocationSearcher smart initialization complete"
+        );
+
+        Ok(Self { index, data })
+    }
+
+    /// Create a new LocationSearcher, forcing recreation of indexes.
     ///
-    /// Returns an error if:
-    /// - Geographic data cannot be loaded or processed
-    /// - Search indexes cannot be built
-    /// - Insufficient disk space for data and indexes
+    /// This will always rebuild search indexes from scratch, ensuring they're
+    /// completely up-to-date but taking longer to initialize.
+    ///
+    /// # Arguments
+    ///
+    /// * `data_source` - The data source to use for geographic data
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use heisenberg::{DataSource, LocationSearcher};
+    ///
+    /// // Force rebuild of all indexes
+    /// let searcher = LocationSearcher::new_with_fresh_indexes(DataSource::Cities15000)?;
+    /// # Ok::<(), heisenberg::error::HeisenbergError>(())
+    /// ```
+    #[instrument(name = "Create LocationSearcher with Fresh Indexes", level = "info")]
+    pub fn new_with_fresh_indexes(data_source: DataSource) -> Result<Self, HeisenbergError> {
+        info!(
+            "Creating LocationSearcher with fresh indexes for data source: {:?}",
+            data_source
+        );
+        let t_init = std::time::Instant::now();
+
+        let data = LocationSearchData::new(data_source);
+        let index = LocationSearchIndex::new(&data, true)?; // overwrite = true
+
+        info!(
+            elapsed_seconds = ?t_init.elapsed(),
+            "LocationSearcher creation with fresh indexes complete"
+        );
+
+        Ok(Self { index, data })
+    }
+
+    /// Create a LocationSearcher using embedded data.
+    ///
+    /// This uses the data that was embedded at compile time, providing the
+    /// fastest initialization since no disk I/O or index building is required.
     ///
     /// # Examples
     ///
     /// ```rust
     /// use heisenberg::LocationSearcher;
     ///
-    /// // Use existing indexes if available
-    /// let searcher = LocationSearcher::new(false)?;
-    ///
-    /// // Force rebuild of all indexes
-    /// let fresh_searcher = LocationSearcher::new(true)?;
+    /// // Use embedded data (fastest initialization)
+    /// let searcher = LocationSearcher::new_embedded()?;
     /// # Ok::<(), heisenberg::error::HeisenbergError>(())
     /// ```
-    #[instrument(name = "Initialize LocationSearcher", level = "info")]
-    pub fn new(overwrite_fts_indexes: bool) -> Result<Self, HeisenbergError> {
-        info!("Initializing LocationSearchService...");
+    #[instrument(name = "Create LocationSearcher with Embedded Data", level = "info")]
+    pub fn new_embedded() -> Result<Self, HeisenbergError> {
+        info!("Creating LocationSearcher with embedded data");
         let t_init = std::time::Instant::now();
 
-        let data = LocationSearchData::new_embedded()?;
+        let data = LocationSearchData::new_embedded();
 
-        let admin_fts_index = {
-            let _ = info_span!("load_service_admin_index").entered();
-            FTSIndex::new(
-                AdminIndexDef,
-                data.admin_search_df()?.clone(),
-                overwrite_fts_indexes,
-            )?
-        };
-        let places_fts_index = {
-            let _ = info_span!("load_service_places_index").entered();
-            FTSIndex::new(
-                PlacesIndexDef,
-                data.place_search_df()?.clone(),
-                overwrite_fts_indexes,
-            )?
-        };
+        // For embedded data, we might not need traditional Tantivy indexes
+        // since the data is already in memory. But for now, we'll create them.
+        let index = LocationSearchIndex::initialize(&data)?;
 
         info!(
             elapsed_seconds = ?t_init.elapsed(),
-            "LocationSearchService initialized."
+            "LocationSearcher embedded initialization complete"
         );
-        Ok(Self {
-            admin_fts_index,
-            places_fts_index,
-            data,
-        })
+
+        Ok(Self { index, data })
     }
+
+    /// Try to load existing LocationSearcher from cached indexes.
+    ///
+    /// Returns None if indexes don't exist or are invalid. This is useful
+    /// for checking if a searcher can be loaded quickly before falling back
+    /// to slower initialization methods.
+    ///
+    /// # Arguments
+    ///
+    /// * `data_source` - The data source to check for existing indexes
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use heisenberg::{DataSource, LocationSearcher};
+    ///
+    /// // Try to load existing, fall back to initialization if needed
+    /// let searcher = if let Some(existing) = LocationSearcher::load_existing(DataSource::Cities15000)?
+    /// {
+    ///     existing
+    /// } else {
+    ///     LocationSearcher::initialize(DataSource::Cities15000)?
+    /// };
+    /// # Ok::<(), heisenberg::error::HeisenbergError>(())
+    /// ```
+    #[instrument(name = "Load Existing LocationSearcher", level = "info")]
+    pub fn load_existing(data_source: DataSource) -> Result<Option<Self>, HeisenbergError> {
+        info!(
+            "Attempting to load existing LocationSearcher for data source: {:?}",
+            data_source
+        );
+
+        let data = LocationSearchData::new(data_source);
+
+        if let Some(index) = LocationSearchIndex::load_existing(&data_source)? {
+            // Verify the indexes are up-to-date with the data
+            if index.is_up_to_date(&data)? {
+                info!("Successfully loaded existing up-to-date LocationSearcher");
+                return Ok(Some(Self { index, data }));
+            } else {
+                info!("Existing indexes are out of date");
+            }
+        } else {
+            info!("No existing indexes found");
+        }
+
+        Ok(None)
+    }
+
+    /// Create a LocationSearcher from pre-built components.
+    ///
+    /// This is useful for advanced use cases where you want to customize
+    /// the data loading or index creation process.
+    ///
+    /// # Arguments
+    ///
+    /// * `data` - Pre-configured LocationSearchData
+    /// * `index` - Pre-built LocationSearchIndex
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use heisenberg::{DataSource, LocationSearchData, LocationSearchIndex, LocationSearcher};
+    ///
+    /// let data = LocationSearchData::new(DataSource::Cities15000);
+    /// let index = LocationSearchIndex::new(&data, false)?;
+    /// let searcher = LocationSearcher::from_components(data, index);
+    /// # Ok::<(), heisenberg::error::HeisenbergError>(())
+    /// ```
+    pub fn from_components(data: LocationSearchData, index: LocationSearchIndex) -> Self {
+        Self { index, data }
+    }
+
+    /// Check if indexes exist for a given data source without loading them.
+    ///
+    /// # Arguments
+    ///
+    /// * `data_source` - The data source to check
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use heisenberg::{DataSource, LocationSearcher};
+    ///
+    /// if LocationSearcher::indexes_exist(DataSource::Cities15000) {
+    ///     println!("Indexes are available for fast loading");
+    /// } else {
+    ///     println!("Indexes will need to be built");
+    /// }
+    /// ```
+    pub fn indexes_exist(data_source: DataSource) -> bool {
+        LocationSearchIndex::exists_for_source(&data_source)
+    }
+
+    /// Legacy constructor for backward compatibility.
+    ///
+    /// This method maintains the old API while using the new internal structure.
+    ///
+    /// # Arguments
+    ///
+    /// * `data_source` - The data source to use
+    /// * `overwrite_fts_indexes` - If true, rebuild indexes from scratch
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use heisenberg::{DataSource, LocationSearcher};
+    ///
+    /// // Legacy API (backward compatible)
+    /// let searcher = LocationSearcher::new(DataSource::Cities15000, false)?;
+    /// # Ok::<(), heisenberg::error::HeisenbergError>(())
+    /// ```
+    #[instrument(name = "Initialize LocationSearcher (Legacy)", level = "info")]
+    pub fn new(
+        data_source: DataSource,
+        overwrite_fts_indexes: bool,
+    ) -> Result<Self, HeisenbergError> {
+        if overwrite_fts_indexes {
+            Self::new_with_fresh_indexes(data_source)
+        } else {
+            Self::initialize(data_source)
+        }
+    }
+
+    /// Get information about the searcher's configuration.
+    pub fn info(&self) -> SearcherInfo {
+        SearcherInfo {
+            data_source: *self.data.data_source(),
+            has_admin_index: true, // We always have both with LocationSearchIndex
+            has_places_index: true,
+            embedded_metadata: crate::data::embedded::METADATA.clone(),
+        }
+    }
+
+    /// Check if the searcher's indexes are up-to-date with the underlying data.
+    pub fn is_up_to_date(&self) -> Result<bool, HeisenbergError> {
+        self.index.is_up_to_date(&self.data).map_err(From::from)
+    }
+
+    /// Rebuild the searcher's indexes from scratch.
+    pub fn rebuild_indexes(&mut self) -> Result<(), HeisenbergError> {
+        info!("Rebuilding indexes for LocationSearcher");
+        self.index = LocationSearchIndex::new(&self.data, true)?;
+        Ok(())
+    }
+
     // === Low-level searches (unchanged but with custom return types) ===
 
     /// Search for administrative entities at specific levels.
@@ -184,7 +370,7 @@ impl LocationSearcher {
     /// # Examples
     ///
     /// ```rust
-    /// use heisenberg::{LocationSearcher, AdminSearchParams};
+    /// use heisenberg::{AdminSearchParams, LocationSearcher};
     ///
     /// let searcher = LocationSearcher::new(false)?;
     ///
@@ -206,8 +392,8 @@ impl LocationSearcher {
         admin_search_inner(
             term.as_ref(),
             levels,
-            &self.admin_fts_index,
-            self.data.admin_search_df()?.clone(),
+            &self.index.admin,
+            self.data.admin_search_df(),
             previous_result.map(From::from),
             params,
         )
@@ -253,8 +439,8 @@ impl LocationSearcher {
     ) -> Result<Option<DataFrame>, HeisenbergError> {
         place_search_inner(
             term.as_ref(),
-            &self.places_fts_index,
-            self.data.place_search_df()?.clone(),
+            &self.index.places,
+            self.data.place_search_df(),
             previous_result.map(From::from),
             params,
         )
@@ -283,10 +469,10 @@ impl LocationSearcher {
 
         location_search_inner(
             &input_terms,
-            &self.admin_fts_index,
-            self.data.admin_search_df()?.clone(),
-            &self.places_fts_index,
-            self.data.place_search_df()?.clone(),
+            &self.index.admin,
+            self.data.admin_search_df(),
+            &self.index.places,
+            self.data.place_search_df(),
             config,
         )
         .map_err(From::from)
@@ -329,10 +515,10 @@ impl LocationSearcher {
 
         bulk_location_search_inner(
             &all_raw_input_batches,
-            &self.admin_fts_index,
-            self.data.admin_search_df()?.clone(),
-            &self.places_fts_index,
-            self.data.place_search_df()?.clone(),
+            &self.index.admin,
+            self.data.admin_search_df(),
+            &self.index.places,
+            self.data.place_search_df(),
             config,
         )
         .map_err(From::from)
@@ -344,24 +530,23 @@ impl LocationSearcher {
     ) -> Result<LocationResults<Entry>, HeisenbergError> {
         self.resolve_with_config(search_results, &ResolveConfig::default())
     }
+
     pub fn resolve_with_config<Entry: LocationEntry>(
         &self,
         search_results: SearchResults,
         config: &ResolveConfig,
     ) -> Result<LocationResults<Entry>, HeisenbergError> {
-        resolve_search_candidate(
-            search_results,
-            &self.data.admin_search_df()?.clone(),
-            config,
-        )
-        .map_err(From::from)
+        resolve_search_candidate(search_results, &self.data.admin_search_df(), config)
+            .map_err(From::from)
     }
+
     pub fn resolve_batch<Entry: LocationEntry>(
         &self,
         search_results_batches: SearchResultsBatch,
     ) -> Result<Vec<LocationResults<Entry>>, HeisenbergError> {
         self.resolve_batch_with_config(search_results_batches, &ResolveConfig::default())
     }
+
     pub fn resolve_batch_with_config<Entry: LocationEntry>(
         &self,
         search_results_batches: SearchResultsBatch,
@@ -369,7 +554,7 @@ impl LocationSearcher {
     ) -> Result<Vec<LocationResults<Entry>>, HeisenbergError> {
         resolve_search_candidate_batches(
             search_results_batches,
-            &self.data.admin_search_df()?.clone(),
+            &self.data.admin_search_df(),
             config,
         )
         .map_err(From::from)
@@ -401,7 +586,7 @@ impl LocationSearcher {
 
         resolve_search_candidate(
             search_results,
-            &self.data.admin_search_df()?.clone(),
+            &self.data.admin_search_df(),
             &config.resolve_config,
         )
         .map_err(From::from)
@@ -437,9 +622,143 @@ impl LocationSearcher {
 
         resolve_search_candidate_batches(
             search_results_batches,
-            &self.data.admin_search_df()?.clone(),
+            &self.data.admin_search_df(),
             &config.resolve_config,
         )
         .map_err(From::from)
+    }
+
+    // === Utility Methods ===
+
+    /// Access the underlying LocationSearchIndex for advanced operations.
+    pub fn index(&self) -> &LocationSearchIndex {
+        &self.index
+    }
+
+    /// Access the underlying LocationSearchData for advanced operations.
+    pub fn data(&self) -> &LocationSearchData {
+        &self.data
+    }
+}
+
+impl Default for LocationSearcher {
+    fn default() -> Self {
+        // Default to embedded data if available
+        Self::new_embedded().expect("Failed to create default LocationSearcher")
+    }
+}
+
+/// Create a LocationSearcher from pre-built components.
+///
+/// This is useful for advanced use cases where you want to customize
+/// the data loading or index creation process.
+///
+/// # Arguments
+///
+/// * `data` - Pre-configured LocationSearchData
+/// * `index` - Pre-built LocationSearchIndex
+///
+/// # Examples
+///
+/// ```rust
+/// use heisenberg::{DataSource, LocationSearchData, LocationSearchIndex, LocationSearcher};
+///
+/// let data = LocationSearchData::new(DataSource::Cities15000);
+/// let index = LocationSearchIndex::new(&data, false)?;
+/// let searcher = LocationSearcher::from_components(data, index);
+/// # Ok::<(), heisenberg::error::HeisenbergError>(())
+/// ```
+impl From<(LocationSearchData, LocationSearchIndex)> for LocationSearcher {
+    fn from((data, index): (LocationSearchData, LocationSearchIndex)) -> Self {
+        Self { data, index }
+    }
+}
+
+/// Information about a LocationSearcher's configuration and state.
+#[derive(Debug, Clone)]
+pub struct SearcherInfo {
+    pub data_source: DataSource,
+    pub has_admin_index: bool,
+    pub has_places_index: bool,
+    pub embedded_metadata: heisenberg_data_processing::embedded::EmbeddedMetadata,
+}
+
+impl SearcherInfo {
+    /// Get a human-readable summary of the searcher.
+    pub fn summary(&self) -> String {
+        format!(
+            "LocationSearcher using {:?} with {} admin entries and {} place entries",
+            self.data_source,
+            self.embedded_metadata.admin_df.rows,
+            self.embedded_metadata.place_df.rows
+        )
+    }
+
+    /// Check if the searcher is using embedded data.
+    pub fn is_embedded(&self) -> bool {
+        self.data_source == self.embedded_metadata.source
+    }
+
+    /// Get the total number of indexed locations.
+    pub fn total_locations(&self) -> usize {
+        self.embedded_metadata.admin_df.rows + self.embedded_metadata.place_df.rows
+    }
+}
+
+// === Builder Pattern (Optional) ===
+
+/// Builder for creating LocationSearcher with custom configuration.
+#[derive(Debug, Clone)]
+pub struct LocationSearcherBuilder {
+    data_source: Option<DataSource>,
+    force_rebuild: bool,
+    embedded_fallback: bool,
+}
+
+impl LocationSearcherBuilder {
+    /// Create a new builder.
+    pub fn new() -> Self {
+        Self {
+            data_source: None,
+            force_rebuild: false,
+            embedded_fallback: true,
+        }
+    }
+
+    /// Set the data source.
+    pub fn data_source(mut self, source: DataSource) -> Self {
+        self.data_source = Some(source);
+        self
+    }
+
+    /// Force rebuilding of indexes.
+    pub fn force_rebuild(mut self, rebuild: bool) -> Self {
+        self.force_rebuild = rebuild;
+        self
+    }
+
+    /// Enable or disable fallback to embedded data.
+    pub fn embedded_fallback(mut self, fallback: bool) -> Self {
+        self.embedded_fallback = fallback;
+        self
+    }
+
+    /// Build the LocationSearcher.
+    pub fn build(self) -> Result<LocationSearcher, HeisenbergError> {
+        let data_source = self.data_source.unwrap_or_default();
+
+        if self.force_rebuild {
+            LocationSearcher::new_with_fresh_indexes(data_source)
+        } else if self.embedded_fallback && data_source == METADATA.source {
+            LocationSearcher::new_embedded()
+        } else {
+            LocationSearcher::initialize(data_source)
+        }
+    }
+}
+
+impl Default for LocationSearcherBuilder {
+    fn default() -> Self {
+        Self::new()
     }
 }

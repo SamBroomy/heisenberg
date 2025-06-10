@@ -5,29 +5,174 @@
 //! index types for administrative entities and places, with customizable
 //! field weights and search parameters.
 
+use std::path::{Path, PathBuf};
+
 pub(crate) use error::IndexError;
 use error::Result;
 use itertools::izip;
-use polars::prelude::{DataFrame, DataType};
-use polars::prelude::{LazyFrame, col};
-use tantivy::schema::Field;
+use polars::prelude::{DataFrame, DataType, LazyFrame, col};
 use tantivy::{
     Index, IndexWriter, TantivyDocument, Term,
     collector::TopDocs,
     query::{BooleanQuery, BoostQuery, FuzzyTermQuery, Occur, Query, QueryParser, TermSetQuery},
     schema::{
-        FAST, INDEXED, IndexRecordOption, STORED, Schema, SchemaBuilder, TextFieldIndexing,
+        FAST, Field, INDEXED, IndexRecordOption, STORED, Schema, SchemaBuilder, TextFieldIndexing,
         TextOptions, Value,
     },
 };
 use tracing::{debug, info, instrument, trace, warn};
+
+use crate::data::LocationSearchData;
+#[derive(Debug, Clone)]
+pub struct LocationSearchIndex {
+    pub admin: FTSIndex<AdminIndexDef>,
+    pub places: FTSIndex<PlacesIndexDef>,
+}
+
+impl LocationSearchIndex {
+    pub const INDEX_DIR: &str = "tantivy_indexes";
+
+    /// Load existing if available and up-to-date, otherwise create new
+    #[instrument(
+        name = "Smart Initialize Location Search Index",
+        skip(data),
+        fields(data_source = ?data.data_source())
+    )]
+    pub fn initialize(data: &LocationSearchData) -> Result<Self> {
+        // Try to load existing first
+        if let Some(existing) = Self::load_existing(data.data_source())? {
+            // Check if it's up to date
+            if existing.is_up_to_date(&data)? {
+                info!("Using existing up-to-date indexes");
+                return Ok(existing);
+            } else {
+                info!("Existing indexes are out of date, recreating");
+            }
+        } else {
+            info!("No existing indexes found, creating new");
+        }
+
+        // Create new indexes
+        Self::new(data, false)
+    }
+
+    /// Create or load the full-text search index for locations.
+    ///
+    /// This initializes both the administrative and places indexes, either loading
+    /// existing indexes or creating new ones from the provided data.
+    #[instrument(
+        name = "Create Location Search Index",
+        skip(data),
+        fields(index_name = "location_search")
+    )]
+    pub fn new(data: &LocationSearchData, overwrite: bool) -> Result<Self> {
+        info!("Initializing location search index");
+
+        // Get the index path
+        let base_index_path = data.data_source().data_source_dir().join(Self::INDEX_DIR);
+
+        // Ensure base directory exists
+        std::fs::create_dir_all(&base_index_path)?;
+
+        let admin_index_path = base_index_path.join("admin_search");
+        let places_index_path = base_index_path.join("places_search");
+
+        // Get the data for each index
+        let admin_data = data.admin_search_df();
+        let places_data = data.place_search_df();
+
+        // Initialize both indexes
+        info!("Creating admin search index");
+        let admin_index = FTSIndex::new(
+            AdminIndexDef::default(),
+            admin_data,
+            &admin_index_path,
+            overwrite,
+        )?;
+
+        info!("Creating places search index");
+        let places_index = FTSIndex::new(
+            PlacesIndexDef::default(),
+            places_data,
+            &places_index_path,
+            overwrite,
+        )?;
+
+        info!("Location search index initialization complete");
+
+        Ok(LocationSearchIndex {
+            admin: admin_index,
+            places: places_index,
+        })
+    }
+
+    /// Load existing indexes without creating new ones
+    #[instrument(
+        name = "Load Location Search Index",
+        skip(data_source),
+        fields(data_source = ?data_source)
+    )]
+    pub fn load_existing(
+        data_source: &heisenberg_data_processing::DataSource,
+    ) -> Result<Option<Self>> {
+        let base_index_path = data_source.data_source_dir().join(Self::INDEX_DIR);
+
+        let admin_index_path = base_index_path.join("admin_search");
+        let places_index_path = base_index_path.join("places_search");
+
+        // Try to load both indexes
+        let admin_index = FTSIndex::load_existing(AdminIndexDef, &admin_index_path)?;
+        let places_index = FTSIndex::load_existing(PlacesIndexDef, &places_index_path)?;
+
+        match (admin_index, places_index) {
+            (Some(admin), Some(places)) => {
+                info!("Successfully loaded both existing indexes");
+                Ok(Some(LocationSearchIndex { admin, places }))
+            }
+            _ => {
+                info!("One or both indexes missing, cannot load existing");
+                Ok(None)
+            }
+        }
+    }
+
+    /// Check if existing indexes are up-to-date with the provided data
+    pub fn is_up_to_date(&self, data: &LocationSearchData) -> Result<bool> {
+        let admin_data = data.admin_search_df();
+        let places_data = data.place_search_df();
+
+        let admin_current = self.admin.is_up_to_date(&admin_data)?;
+        let places_current = self.places.is_up_to_date(&places_data)?;
+
+        Ok(admin_current && places_current)
+    }
+
+    /// Force recreation of both indexes
+    pub fn recreate(data: &LocationSearchData) -> Result<Self> {
+        Self::new(&data, true)
+    }
+
+    /// Get the index directory for a given data source
+    pub fn index_dir_for_source(data_source: &heisenberg_data_processing::DataSource) -> PathBuf {
+        data_source.data_source_dir().join(Self::INDEX_DIR)
+    }
+
+    /// Check if indexes exist for a given data source
+    pub fn exists_for_source(data_source: &heisenberg_data_processing::DataSource) -> bool {
+        let base_path = Self::index_dir_for_source(data_source);
+        let admin_path = base_path.join("admin_search").join("meta.json");
+        let places_path = base_path.join("places_search").join("meta.json");
+
+        admin_path.exists() && places_path.exists()
+    }
+}
 
 /// Trait defining how to build and search a specific type of location index.
 ///
 /// This trait allows different location datasets (admin entities vs places) to define
 /// their own indexing strategies, field mappings, and search configurations while
 /// sharing the same underlying search infrastructure.
-pub trait IndexDefinition: std::fmt::Debug + Send + Sync + 'static {
+pub trait IndexDefinition: std::fmt::Debug + Send + Sync + Clone + 'static {
     /// Returns the unique name for this index, used for directory and file naming.
     fn name(&self) -> &'static str;
 
@@ -91,6 +236,7 @@ impl IndexDefinition for AdminIndexDef {
         schema_builder.add_text_field("fips", code_options);
         schema_builder.build()
     }
+
     fn columns_for_indexing(&self) -> Vec<&'static str> {
         vec![
             "geonameId",
@@ -181,6 +327,7 @@ impl IndexDefinition for AdminIndexDef {
             (schema.get_field("official_name").unwrap(), 4.0),
         ]
     }
+
     fn code_like_fields_with_boosts(&self, schema: &Schema) -> Vec<(Field, f32)> {
         vec![
             (schema.get_field("ISO3").unwrap(), 1000.0),
@@ -312,55 +459,62 @@ pub struct FTSIndex<D: IndexDefinition> {
 }
 
 impl<D: IndexDefinition> FTSIndex<D> {
-    /// Create or load a full-text search index.
-    ///
-    /// If the index exists and is up-to-date, loads the existing index.
-    /// Otherwise, builds a new index from the provided data.
-    #[instrument(name = "Create Index", skip(definition, data), fields(index_name = definition.name()))]
-    pub fn new(definition: D, data: LazyFrame, overwrite: bool) -> Result<Self> {
-        let index_path = heisenberg_data_processing::DATA_DIR
-            .join("tantivy_indexes") // Standardized subdirectory for indexes
-            .join(definition.name());
+    /// Try to load an existing index from the given path
+    #[instrument(name = "Load Index", skip(definition), fields(index_name = definition.name()))]
+    pub fn load_existing(definition: D, index_path: &Path) -> Result<Option<Self>> {
+        let meta_path = index_path.join("meta.json");
 
-        info!(path = ?index_path, "Using FTS index path.");
-
-        if overwrite && index_path.exists() {
-            info!(path = ?index_path, "Overwriting existing index directory.");
-            std::fs::remove_dir_all(&index_path)?;
+        if !meta_path.exists() {
+            debug!(path = ?index_path, "No meta.json found, index does not exist");
+            return Ok(None);
         }
-        // Ensure the full path including the specific index name directory exists
-        std::fs::create_dir_all(&index_path)?;
 
-        if index_path.join("meta.json").exists() && !overwrite {
-            info!(path = ?index_path, "Index meta.json found. Attempting to load existing index.");
-            match Index::open_in_dir(&index_path) {
-                Ok(existing_index) => {
-                    let expected_doc_count = data.clone().collect()?.shape().0; // Ensure data is collected for count
-                    let actual_doc_count = existing_index.reader()?.searcher().num_docs() as usize;
+        info!(path = ?index_path, "Attempting to load existing index");
 
-                    if actual_doc_count == expected_doc_count {
-                        info!(path = ?index_path, actual_doc_count, expected_doc_count, "Index is up-to-date. Loaded existing index.");
-                        return Ok(FTSIndex {
-                            index: existing_index,
-                            definition,
-                        });
-                    } else {
-                        info!(path = ?index_path, actual_doc_count, expected_doc_count, "Index out of date (doc count mismatch). Re-indexing.");
-                        Self::safely_recreate_dir(&index_path)?;
-                    }
-                }
-                Err(e) => {
-                    warn!(path = ?index_path, error = ?e, "Failed to open existing index, will re-index.");
-                    Self::safely_recreate_dir(&index_path)?;
-                }
+        match Index::open_in_dir(index_path) {
+            Ok(existing_index) => {
+                info!(path = ?index_path, "Successfully loaded existing index");
+                Ok(Some(FTSIndex {
+                    index: existing_index,
+                    definition,
+                }))
             }
-        } else if !index_path.join("meta.json").exists() && !overwrite {
-            info!(path = ?index_path, "No existing index found (meta.json missing). Will create new index.");
+            Err(e) => {
+                warn!(path = ?index_path, error = ?e, "Failed to open existing index");
+                Ok(None)
+            }
         }
-        // Create new index
+    }
+
+    /// Check if an existing index is up-to-date with the provided data
+    #[instrument(name = "Validate Index", skip(self, data), fields(index_name = self.definition.name()))]
+    pub fn is_up_to_date(&self, data: &LazyFrame) -> Result<bool> {
+        let expected_doc_count = data.clone().collect()?.shape().0;
+        let actual_doc_count = self.index.reader()?.searcher().num_docs() as usize;
+
+        let is_current = actual_doc_count == expected_doc_count;
+
+        info!(
+            index_name = self.definition.name(),
+            actual_doc_count,
+            expected_doc_count,
+            is_up_to_date = is_current,
+            "Index validation complete"
+        );
+
+        Ok(is_current)
+    }
+
+    /// Create a new index from scratch at the given path
+    #[instrument(name = "Create Index", skip(definition, data), fields(index_name = definition.name()))]
+    pub fn create_new(definition: D, data: LazyFrame, index_path: &Path) -> Result<Self> {
         info!(path = ?index_path, "Creating new FTS index");
+
+        // Ensure directory exists and is clean
+        Self::safely_recreate_dir(index_path)?;
+
         let schema = definition.schema();
-        let index = Index::create_in_dir(&index_path, schema.clone())?;
+        let index = Index::create_in_dir(index_path, schema.clone())?;
 
         let data_for_indexing = data
             .select(
@@ -391,6 +545,37 @@ impl<D: IndexDefinition> FTSIndex<D> {
 
         Ok(FTSIndex { index, definition })
     }
+
+    /// Create or load a full-text search index.
+    ///
+    /// If the index exists and is up-to-date, loads the existing index.
+    /// Otherwise, builds a new index from the provided data.
+    #[instrument(name = "Initialize Index", skip(definition, data), fields(index_name = definition.name()))]
+    pub fn new(definition: D, data: LazyFrame, index_path: &Path, overwrite: bool) -> Result<Self> {
+        info!(path = ?index_path, overwrite, "Initializing FTS index");
+
+        if overwrite {
+            info!(path = ?index_path, "Overwrite requested, creating new index");
+            return Self::create_new(definition, data, index_path);
+        }
+
+        // Try to load existing index
+        if let Some(existing_index) = Self::load_existing(definition.clone(), index_path)? {
+            // Check if it's up to date
+            if existing_index.is_up_to_date(&data)? {
+                info!(path = ?index_path, "Existing index is up-to-date");
+                return Ok(existing_index);
+            } else {
+                info!(path = ?index_path, "Existing index is out of date, recreating");
+                return Self::create_new(definition, data, index_path);
+            }
+        }
+
+        // No existing index found, create new one
+        info!(path = ?index_path, "No existing index found, creating new");
+        Self::create_new(definition, data, index_path)
+    }
+
     fn safely_recreate_dir(path: &std::path::Path) -> Result<()> {
         if path.exists() {
             std::fs::remove_dir_all(path)?;
@@ -569,6 +754,8 @@ impl<D: IndexDefinition> FTSIndex<D> {
 mod error {
     use thiserror::Error;
 
+    use super::super::data::error::HeisenbergDataError;
+
     #[derive(Error, Debug)]
     pub enum IndexError {
         #[error("IO error: {0}")]
@@ -579,6 +766,8 @@ mod error {
         DataFrame(#[from] polars::prelude::PolarsError),
         #[error(transparent)]
         Other(#[from] anyhow::Error),
+        #[error("Heisenberg data processing error: {0}")]
+        DataError(#[from] HeisenbergDataError),
     }
     pub type Result<T> = std::result::Result<T, IndexError>;
 }

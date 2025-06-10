@@ -1,15 +1,15 @@
-use crate::{DataError, raw::DataSource};
+use std::{fs, path::PathBuf};
 
-use super::Result;
 use futures::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Client;
-use std::fs;
-use std::path::PathBuf;
 use tempfile::NamedTempFile;
 use tokio::io::AsyncWriteExt;
 use tracing::{info, instrument};
 use zip::ZipArchive;
+
+use super::Result;
+use crate::{DataError, DataSource};
 
 #[instrument(name = "Download data", skip_all, level = "info")]
 pub fn download_data(

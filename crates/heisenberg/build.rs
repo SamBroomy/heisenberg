@@ -1,14 +1,13 @@
-use heisenberg_data_processing::DataError;
-use heisenberg_data_processing::embedded::ADMIN_DATA_PATH;
-use heisenberg_data_processing::embedded::EMBEDDED_DIR;
-use heisenberg_data_processing::embedded::EmbeddedMetadata;
-use heisenberg_data_processing::embedded::METADATA_PATH;
-use heisenberg_data_processing::embedded::PLACE_DATA_PATH;
-use heisenberg_data_processing::embedded::generate_embedded_dataset;
-use heisenberg_data_processing::error::Result;
-use heisenberg_data_processing::raw::DataSource;
-use std::env;
-use std::str::FromStr;
+use std::{env, str::FromStr};
+
+use heisenberg_data_processing::{
+    DataError, DataSource,
+    embedded::{
+        ADMIN_DATA_PATH, EMBEDDED_DIR, EmbeddedMetadata, METADATA_PATH, PLACE_DATA_PATH,
+        generate_embedded_dataset,
+    },
+    error::Result,
+};
 
 fn main() -> Result<()> {
     // Only generate embedded data when explicitly requested or if files don't exist

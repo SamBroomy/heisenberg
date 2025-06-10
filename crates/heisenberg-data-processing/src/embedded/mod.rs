@@ -6,9 +6,8 @@ use tempfile::NamedTempFile;
 use tracing::info;
 
 use crate::{
-    Result,
+    DataSource, Result,
     processed::{generate_processed_data, save_processed_data_to_parquet},
-    raw::DataSource,
     test_data::TestDataConfig,
 };
 

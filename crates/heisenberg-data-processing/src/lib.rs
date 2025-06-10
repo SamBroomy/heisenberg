@@ -1,13 +1,17 @@
-use crate::processed::{generate_processed_data, save_processed_data_to_parquet};
-pub use error::{DataError, Result};
-use polars::prelude::LazyFrame;
-pub use raw::DataSource;
 use std::{
+    fmt,
     path::{Path, PathBuf},
+    str::FromStr,
     sync::LazyLock,
 };
+
+pub use error::{DataError, Result};
+use polars::prelude::LazyFrame;
+use serde::{Deserialize, Serialize};
 pub use test_data::{TestDataConfig, create_test_data};
 use tracing::{info, warn};
+
+use crate::processed::{generate_processed_data, save_processed_data_to_parquet};
 
 pub mod embedded;
 pub mod error;
@@ -15,14 +19,124 @@ pub mod processed;
 pub mod raw;
 pub mod test_data;
 
-pub const DATA_DIR_DEFAULT: &str = "./heisenberg_data";
+pub const DATA_DIR_DEFAULT: &str = "heisenberg_data";
 
 pub static DATA_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
     std::env::var("DATA_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(DATA_DIR_DEFAULT))
+        .unwrap_or_else(|_| get_default_data_dir())
 });
-pub static PROCESSED_DIR: LazyLock<PathBuf> = LazyLock::new(|| DATA_DIR.join("processed"));
+
+#[derive(Debug, Copy, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+/// Enum representing the available data sources for GeoNames data processing
+#[serde(rename_all = "snake_case")]
+pub enum DataSource {
+    #[default]
+    /// Download and process cities15000.zip
+    Cities15000,
+    /// Download and process cities5000.zip
+    Cities5000,
+    /// Download and process cities1000.zip
+    Cities1000,
+    /// Download and process cities500.zip
+    Cities500,
+    /// Download and process allCountries.zip (full dataset)
+    AllCountries,
+    /// Use Test data for development
+    TestData,
+}
+
+impl fmt::Display for DataSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Cities15000 => write!(f, "cities15000"),
+            Self::Cities5000 => write!(f, "cities5000"),
+            Self::Cities1000 => write!(f, "cities1000"),
+            Self::Cities500 => write!(f, "cities500"),
+            Self::AllCountries => write!(f, "allCountries"),
+            Self::TestData => write!(f, "test_data"),
+        }
+    }
+}
+
+impl DataSource {
+    pub const BASE_URL: &str = "https://download.geonames.org/export/dump/";
+    pub const PROCESSED_DIR: &str = "processed";
+
+    pub fn data_source_dir(&self) -> PathBuf {
+        DATA_DIR.join(self.to_string())
+    }
+
+    fn processed_dir(&self) -> PathBuf {
+        self.data_source_dir().join(Self::PROCESSED_DIR)
+    }
+
+    pub fn geonames_url(&self) -> Option<String> {
+        match self {
+            Self::TestData => {
+                warn!("Using test data, no download URL available");
+                None
+            }
+            _ => Some(format!("{}{}.zip", Self::BASE_URL, &self)),
+        }
+    }
+
+    pub fn admin_parquet(&self) -> PathBuf {
+        self.processed_dir().join("admin_search.parquet")
+    }
+
+    pub fn place_parquet(&self) -> PathBuf {
+        self.processed_dir().join("place_search.parquet")
+    }
+}
+
+impl FromStr for DataSource {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "cities15000" => Ok(Self::Cities15000),
+            "cities5000" => Ok(Self::Cities5000),
+            "cities1000" => Ok(Self::Cities1000),
+            "cities500" => Ok(Self::Cities500),
+            "allcountries" => Ok(Self::AllCountries),
+            "test_data" => Ok(Self::TestData),
+            _ => Err(format!(
+                "Invalid DataSource: {s}. Valid options are: cities15000, cities5000, cities1000, cities500, allCountries, test_data"
+            )),
+        }
+    }
+}
+
+/// Get the default data directory based on environment and platform
+fn get_default_data_dir() -> PathBuf {
+    // 1. Check for explicit override
+    if let Ok(data_dir) = std::env::var("HEISENBERG_DATA_DIR") {
+        return PathBuf::from(data_dir);
+    }
+
+    // 2. Check for workspace root via environment (set by build scripts)
+    if let Ok(workspace_root) = std::env::var("CARGO_WORKSPACE_DIR") {
+        return PathBuf::from(workspace_root).join(DATA_DIR_DEFAULT);
+    }
+
+    // 3. Development detection
+    if std::env::var("CARGO_PKG_NAME").is_ok() {
+        // We're being built by cargo, use relative to workspace
+        return PathBuf::from(format!("../../{DATA_DIR_DEFAULT}"));
+    }
+
+    // 4. Production: use system directories
+    #[cfg(feature = "system-dirs")]
+    {
+        if let Some(proj_dirs) = directories::ProjectDirs::from("com", "yourorg", "heisenberg") {
+            return proj_dirs.cache_dir().to_path_buf();
+        }
+    }
+
+    // 5. Final fallback
+    PathBuf::from(format!("./{DATA_DIR_DEFAULT}"))
+}
 
 fn load_single_parquet_file(path: &Path) -> Result<LazyFrame> {
     LazyFrame::scan_parquet(path, Default::default()).map_err(Into::into)
@@ -36,8 +150,8 @@ fn load_parquet_files(admin_path: &Path, place_path: &Path) -> Result<(LazyFrame
 
 /// Check if both admin and place files exist and are readable
 fn validate_data_files(data_source: &DataSource) -> Result<(PathBuf, PathBuf)> {
-    let admin_path = PROCESSED_DIR.join(data_source.admin_parquet());
-    let place_path = PROCESSED_DIR.join(data_source.place_parquet());
+    let admin_path = data_source.admin_parquet();
+    let place_path = data_source.place_parquet();
 
     // Check if both files exist
     if !admin_path.exists() || !place_path.exists() {
@@ -60,8 +174,8 @@ fn validate_data_files(data_source: &DataSource) -> Result<(PathBuf, PathBuf)> {
 
 /// Remove existing data files to force regeneration
 fn clean_data_files(data_source: &DataSource) -> Result<()> {
-    let admin_path = PROCESSED_DIR.join(data_source.admin_parquet());
-    let place_path = PROCESSED_DIR.join(data_source.place_parquet());
+    let admin_path = data_source.admin_parquet();
+    let place_path = data_source.place_parquet();
 
     if admin_path.exists() {
         std::fs::remove_file(&admin_path)?;
@@ -100,12 +214,12 @@ fn ensure_data_files(data_source: &DataSource) -> Result<(PathBuf, PathBuf)> {
         let temp_files = crate::raw::fetch::download_data(data_source)?;
 
         info!("Generating processed data for {}", data_source);
-        std::fs::create_dir_all(PROCESSED_DIR.as_path())?;
+        std::fs::create_dir_all(data_source.processed_dir())?;
 
         let (admin_df, place_df) = generate_processed_data(&temp_files)?;
 
-        let admin_path = PROCESSED_DIR.join(data_source.admin_parquet());
-        let place_path = PROCESSED_DIR.join(data_source.place_parquet());
+        let admin_path = data_source.admin_parquet();
+        let place_path = data_source.place_parquet();
 
         save_processed_data_to_parquet(admin_df, &admin_path)?;
         save_processed_data_to_parquet(place_df, &place_path)?;
@@ -169,9 +283,10 @@ pub fn regenerate_data(data_source: &DataSource) -> Result<(LazyFrame, LazyFrame
 
 #[cfg(test)]
 pub(crate) mod tests_utils {
+    use std::io::Write;
+
     use num_traits::NumCast;
     use polars::prelude::*;
-    use std::io::Write;
     use tempfile::NamedTempFile;
 
     pub fn assert_has_columns(df: &DataFrame, expected_columns: &[&str]) {

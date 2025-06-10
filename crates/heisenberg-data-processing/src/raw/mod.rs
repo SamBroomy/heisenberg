@@ -1,88 +1,13 @@
+use std::path::Path;
+
 use polars::prelude::LazyFrame;
-use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
-use std::{fmt, str::FromStr};
 use tracing::{instrument, warn};
-
-#[cfg(feature = "download_data")]
-pub mod fetch;
-
 pub(super) mod all_countries;
 pub(super) mod country_info;
 pub(super) mod feature_codes;
-
+#[cfg(feature = "download_data")]
+pub mod fetch;
 pub use super::error::Result;
-
-#[derive(Debug, Copy, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-/// Enum representing the available data sources for GeoNames data processing
-#[serde(rename_all = "snake_case")]
-pub enum DataSource {
-    #[default]
-    /// Download and process cities15000.zip
-    Cities15000,
-    /// Download and process cities5000.zip
-    Cities5000,
-    /// Download and process cities1000.zip
-    Cities1000,
-    /// Download and process cities500.zip
-    Cities500,
-    /// Download and process allCountries.zip (full dataset)
-    AllCountries,
-    /// Use Test data for development
-    TestData,
-}
-
-impl fmt::Display for DataSource {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Cities15000 => write!(f, "cities15000"),
-            Self::Cities5000 => write!(f, "cities5000"),
-            Self::Cities1000 => write!(f, "cities1000"),
-            Self::Cities500 => write!(f, "cities500"),
-            Self::AllCountries => write!(f, "allCountries"),
-            Self::TestData => write!(f, "test_data"),
-        }
-    }
-}
-
-impl DataSource {
-    pub const BASE_URL: &str = "https://download.geonames.org/export/dump/";
-
-    pub fn geonames_url(&self) -> Option<String> {
-        match self {
-            Self::TestData => {
-                warn!("Using test data, no download URL available");
-                None
-            }
-            _ => Some(format!("{}{}.zip", Self::BASE_URL, &self)),
-        }
-    }
-
-    pub fn admin_parquet(&self) -> PathBuf {
-        PathBuf::from(format!("{}_admin_search.parquet", &self))
-    }
-    pub fn place_parquet(&self) -> PathBuf {
-        PathBuf::from(format!("{}_place_search.parquet", &self))
-    }
-}
-
-impl FromStr for DataSource {
-    type Err = String;
-
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "cities15000" => Ok(Self::Cities15000),
-            "cities5000" => Ok(Self::Cities5000),
-            "cities1000" => Ok(Self::Cities1000),
-            "cities500" => Ok(Self::Cities500),
-            "allcountries" => Ok(Self::AllCountries),
-            "test_data" => Ok(Self::TestData),
-            _ => Err(format!(
-                "Invalid DataSource: {s}. Valid options are: cities15000, cities5000, cities1000, cities500, allCountries, test_data"
-            )),
-        }
-    }
-}
 
 #[instrument(name = "Transform GeoNames data", skip_all, level = "info")]
 pub fn get_raw_data_as_lazy_frames<T: AsRef<Path>>(
@@ -111,12 +36,16 @@ pub fn get_raw_data_as_lazy_frames_from_paths(
 
 #[cfg(test)]
 mod tests {
-    use super::super::test_data::{TestDataConfig, create_test_data};
-    use super::*;
-    use crate::tests_utils::*;
-    use polars::prelude::*;
     use std::io::Write;
+
+    use polars::prelude::*;
     use tempfile::NamedTempFile;
+
+    use super::{
+        super::test_data::{TestDataConfig, create_test_data},
+        *,
+    };
+    use crate::tests_utils::*;
 
     #[test]
     fn test_get_all_countries_df_actual_parsing() {

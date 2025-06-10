@@ -28,10 +28,12 @@ tokio = { workspace = true, features = [
 ], optional = true }
 futures = { workspace = true, optional = true }
 indicatif = { workspace = true, optional = true }
+directories = { workspace = true, optional = true }
 
 [dev-dependencies]
 num-traits = { workspace = true }
 
 [features]
+system-dirs = ["directories"]
 default = ["download_data"]
 download_data = ["reqwest", "tokio", "indicatif", "futures"]
