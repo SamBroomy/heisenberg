@@ -1,8 +1,8 @@
-use super::Result;
-
 use polars::prelude::*;
 #[cfg(feature = "serde")]
 use serde::Serialize;
+
+use super::Result;
 mod basic;
 mod generic;
 

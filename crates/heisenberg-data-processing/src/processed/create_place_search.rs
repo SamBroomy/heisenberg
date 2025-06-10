@@ -1,7 +1,9 @@
-use super::Result;
+use std::collections::HashMap;
+
 use itertools::multiunzip;
 use polars::prelude::*;
-use std::collections::HashMap;
+
+use super::Result;
 
 fn get_category_features() -> Result<LazyFrame> {
     let categories = [

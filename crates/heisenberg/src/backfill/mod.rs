@@ -29,14 +29,20 @@ pub use resolve::{
 /// # Examples
 ///
 /// ```rust
-/// use heisenberg::{LocationSearcher, GenericEntry, LocationEntryCore};
+/// use heisenberg::{GenericEntry, LocationEntryCore, LocationSearcher};
 ///
 /// let searcher = LocationSearcher::new(false)?;
 /// let results = searcher.resolve_location::<_, GenericEntry>(&["Paris", "France"])?;
 ///
 /// if let Some(result) = results.first() {
-///     println!("Country: {:?}", result.context.admin0.as_ref().map(|e| e.name()));
-///     println!("Place: {:?}", result.context.place.as_ref().map(|e| e.name()));
+///     println!(
+///         "Country: {:?}",
+///         result.context.admin0.as_ref().map(|e| e.name())
+///     );
+///     println!(
+///         "Place: {:?}",
+///         result.context.place.as_ref().map(|e| e.name())
+///     );
 /// }
 /// # Ok::<(), heisenberg::error::HeisenbergError>(())
 /// ```
@@ -120,7 +126,7 @@ impl<E: LocationEntry> LocationContext<E> {
 /// # Examples
 ///
 /// ```rust
-/// use heisenberg::{LocationSearcher, GenericEntry, LocationEntryCore};
+/// use heisenberg::{GenericEntry, LocationEntryCore, LocationSearcher};
 ///
 /// let searcher = LocationSearcher::new(false)?;
 /// let results = searcher.resolve_location::<_, GenericEntry>(&["Berlin", "Germany"])?;
@@ -187,11 +193,12 @@ mod error {
 }
 #[cfg(feature = "python")]
 pub mod python_wrappers {
+    use pyo3::prelude::*;
+
     pub use super::{
         LocationContext, ResolvedSearchResult,
         entry::{BasicEntry, GenericEntry},
     };
-    use pyo3::prelude::*;
     // Macro for LocationContext<E>
 
     // Macro for LocationContext<E>
@@ -215,6 +222,7 @@ pub mod python_wrappers {
                         .map(|e| Py::new(py, e.clone())) // Pass the concrete #[pyclass] type
                         .transpose()
                 }
+
                 #[getter]
                 fn get_admin1(&self, py: Python) -> PyResult<Option<Py<$rust_entry_type>>> {
                     self.inner
@@ -223,6 +231,7 @@ pub mod python_wrappers {
                         .map(|e| Py::new(py, e.clone()))
                         .transpose()
                 }
+
                 #[getter]
                 fn get_admin2(&self, py: Python) -> PyResult<Option<Py<$rust_entry_type>>> {
                     self.inner
@@ -231,6 +240,7 @@ pub mod python_wrappers {
                         .map(|e| Py::new(py, e.clone()))
                         .transpose()
                 }
+
                 #[getter]
                 fn get_admin3(&self, py: Python) -> PyResult<Option<Py<$rust_entry_type>>> {
                     self.inner
@@ -239,6 +249,7 @@ pub mod python_wrappers {
                         .map(|e| Py::new(py, e.clone()))
                         .transpose()
                 }
+
                 #[getter]
                 fn get_admin4(&self, py: Python) -> PyResult<Option<Py<$rust_entry_type>>> {
                     self.inner
@@ -247,6 +258,7 @@ pub mod python_wrappers {
                         .map(|e| Py::new(py, e.clone()))
                         .transpose()
                 }
+
                 #[getter]
                 fn get_place(&self, py: Python) -> PyResult<Option<Py<$rust_entry_type>>> {
                     self.inner
@@ -259,9 +271,11 @@ pub mod python_wrappers {
                 fn __repr__(&self) -> String {
                     format!("{:#?}", self.inner)
                 }
+
                 fn __str__(&self) -> String {
                     self.inner.to_string()
                 }
+
                 fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
                     Ok(pythonize::pythonize(py, &self.inner)?)
                 }
@@ -311,6 +325,7 @@ pub mod python_wrappers {
                     // For simplicity here, we'll just indicate its presence or use its score.
                     format!("{:#?}", self.inner)
                 }
+
                 fn __str__(&self) -> String {
                     self.inner.to_string() // Uses the Display trait of ResolvedSearchResult<E>
                 }

@@ -1,7 +1,9 @@
-use super::error::Result;
-use polars::prelude::*;
 use std::path::Path;
+
+use polars::prelude::*;
 use tracing::{info, info_span};
+
+use super::error::Result;
 
 pub mod create_admin_search;
 pub mod create_place_search;

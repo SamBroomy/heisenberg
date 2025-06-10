@@ -1,6 +1,5 @@
 pub mod embedded;
 
-use anyhow::Context;
 use error::Result;
 use heisenberg_data_processing::{DataSource, get_admin_data};
 use once_cell::sync::OnceCell;
@@ -29,7 +28,7 @@ impl LocationSearchData {
 
     /// Create new LocationSearchData using default embedded data
     pub fn new_embedded() -> Self {
-        Self::new(METADATA.source.clone())
+        Self::new(METADATA.source)
     }
 
     /// Get admin search data as LazyFrame with fallback loading

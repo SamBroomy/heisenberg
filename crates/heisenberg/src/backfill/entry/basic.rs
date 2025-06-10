@@ -1,8 +1,9 @@
 use std::fmt;
 
-use super::{LocationEntryCore, Result};
 use itertools::izip;
 use polars::prelude::*;
+
+use super::{LocationEntryCore, Result};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[cfg_attr(feature = "python", pyo3::pyclass(get_all, name = "BasicEntry"))]
@@ -26,9 +27,11 @@ impl LocationEntryCore for BasicEntry {
     fn geoname_id(&self) -> u32 {
         self.geoname_id
     }
+
     fn name(&self) -> &str {
         self.name.as_ref()
     }
+
     fn field_names() -> Vec<&'static str> {
         vec!["geonameId", "name"]
     }

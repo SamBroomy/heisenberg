@@ -1,7 +1,8 @@
-use super::Result;
+use std::path::Path;
 
 use polars::prelude::*;
-use std::path::Path;
+
+use super::Result;
 
 const ALL_COUNTRIES_SCHEMA: [(PlSmallStr, DataType); 19] = [
     (PlSmallStr::from_static("geonameId"), DataType::UInt32),

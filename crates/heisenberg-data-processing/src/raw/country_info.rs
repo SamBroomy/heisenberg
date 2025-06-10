@@ -1,7 +1,8 @@
-use super::Result;
+use std::path::Path;
 
 use polars::prelude::*;
-use std::path::Path;
+
+use super::Result;
 
 const COUNTRY_INFO_SCHEMA: [(PlSmallStr, DataType); 19] = [
     (PlSmallStr::from_static("ISO"), DataType::String),

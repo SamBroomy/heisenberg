@@ -1,10 +1,11 @@
-use super::Result;
+use std::{ops::Mul, rc::Rc};
+
 use itertools::izip;
 use polars::prelude::*;
 use rapidfuzz::fuzz::RatioBatchComparator;
-use std::ops::Mul;
-use std::rc::Rc;
 use tracing::{debug, trace, warn};
+
+use super::Result;
 
 pub(super) fn text_relevance_score(lf: LazyFrame, search_term: &str) -> LazyFrame {
     let search_term_capture = search_term.to_string();

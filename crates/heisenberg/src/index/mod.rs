@@ -42,7 +42,7 @@ impl LocationSearchIndex {
         // Try to load existing first
         if let Some(existing) = Self::load_existing(data.data_source())? {
             // Check if it's up to date
-            if existing.is_up_to_date(&data)? {
+            if existing.is_up_to_date(data)? {
                 info!("Using existing up-to-date indexes");
                 return Ok(existing);
             } else {
@@ -83,20 +83,11 @@ impl LocationSearchIndex {
 
         // Initialize both indexes
         info!("Creating admin search index");
-        let admin_index = FTSIndex::new(
-            AdminIndexDef::default(),
-            admin_data,
-            &admin_index_path,
-            overwrite,
-        )?;
+        let admin_index = FTSIndex::new(AdminIndexDef, admin_data, &admin_index_path, overwrite)?;
 
         info!("Creating places search index");
-        let places_index = FTSIndex::new(
-            PlacesIndexDef::default(),
-            places_data,
-            &places_index_path,
-            overwrite,
-        )?;
+        let places_index =
+            FTSIndex::new(PlacesIndexDef, places_data, &places_index_path, overwrite)?;
 
         info!("Location search index initialization complete");
 
@@ -149,7 +140,7 @@ impl LocationSearchIndex {
 
     /// Force recreation of both indexes
     pub fn recreate(data: &LocationSearchData) -> Result<Self> {
-        Self::new(&data, true)
+        Self::new(data, true)
     }
 
     /// Get the index directory for a given data source

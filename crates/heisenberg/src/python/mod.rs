@@ -6,10 +6,10 @@
 use pyo3::prelude::*;
 use pyo3_polars::PyDataFrame;
 
-use crate::backfill::python_wrappers::*;
-use crate::config::SearchConfigBuilder;
-use crate::core::LocationSearcher;
-use crate::search::SearchConfig;
+use crate::{
+    backfill::python_wrappers::*, config::SearchConfigBuilder, core::LocationSearcher,
+    search::SearchConfig,
+};
 
 /// Python wrapper for the main LocationSearcher.
 ///

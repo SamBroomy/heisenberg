@@ -1,5 +1,7 @@
-use crate::error::HeisenbergError;
-use crate::search::{SearchConfig, SearchScoreAdminParams, SearchScorePlaceParams};
+use crate::{
+    error::HeisenbergError,
+    search::{SearchConfig, SearchScoreAdminParams, SearchScorePlaceParams},
+};
 
 /// Builder for creating search configurations with ergonomic defaults
 #[derive(Debug, Clone, Default)]

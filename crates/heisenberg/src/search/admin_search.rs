@@ -5,12 +5,14 @@
 //! sophisticated scoring that considers text relevance, population, feature importance,
 //! and hierarchical relationships.
 
-use super::Result;
-use crate::index::{AdminIndexDef, FTSIndex, FTSIndexSearchParams};
+use std::ops::{Deref, DerefMut, Mul};
+
 use ahash::AHashMap as HashMap;
 use polars::prelude::*;
-use std::ops::{Deref, DerefMut, Mul};
 use tracing::{debug, info_span, instrument, trace, trace_span, warn};
+
+use super::Result;
+use crate::index::{AdminIndexDef, FTSIndex, FTSIndexSearchParams};
 
 /// Wrapper around DataFrame for administrative search results.
 ///
@@ -25,6 +27,7 @@ impl AdminFrame {
     pub fn new(df: DataFrame) -> Self {
         AdminFrame::from(df)
     }
+
     pub fn map<F>(self, f: F) -> AdminFrame
     where
         F: FnOnce(DataFrame) -> DataFrame,
@@ -36,6 +39,7 @@ impl AdminFrame {
     pub fn into_inner(self) -> DataFrame {
         self.0
     }
+
     pub fn lazy(self) -> LazyFrame {
         self.0.lazy()
     }

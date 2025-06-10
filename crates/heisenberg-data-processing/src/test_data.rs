@@ -1,7 +1,9 @@
-use super::error::Result;
 use std::io::Write;
+
 use tempfile::NamedTempFile;
 use tracing::info;
+
+use super::error::Result;
 
 /// Configuration for test data generation
 #[derive(Debug, Clone)]

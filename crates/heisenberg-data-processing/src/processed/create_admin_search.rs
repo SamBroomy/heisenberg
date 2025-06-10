@@ -1,6 +1,7 @@
-use super::Result;
 use polars::prelude::*;
 use tracing::instrument;
+
+use super::Result;
 
 /// Transform the GeoNames data into the admin search format
 /// returns a LazyFrame with the admin search data

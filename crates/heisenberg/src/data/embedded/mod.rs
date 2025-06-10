@@ -2,7 +2,7 @@
 use std::sync::OnceLock;
 
 use bytes::Bytes;
-use heisenberg_data_processing::{DataSource, embedded::EmbeddedMetadata, embedded_file_paths};
+use heisenberg_data_processing::{embedded::EmbeddedMetadata, embedded_file_paths};
 use polars::prelude::*;
 
 use super::error::{HeisenbergDataError, Result};

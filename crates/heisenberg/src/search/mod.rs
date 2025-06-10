@@ -10,12 +10,11 @@ mod place_search;
 mod search_orchestration;
 
 pub use admin_search::{AdminFrame, AdminSearchParams, SearchScoreAdminParams, admin_search_inner};
+use error::Result;
 pub use place_search::{PlaceFrame, PlaceSearchParams, SearchScorePlaceParams, place_search_inner};
 pub use search_orchestration::{
     SearchConfig, SearchResult, bulk_location_search_inner, location_search_inner,
 };
-
-use error::Result;
 
 mod error {
     use thiserror::Error;

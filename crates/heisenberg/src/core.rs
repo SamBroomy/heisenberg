@@ -29,9 +29,9 @@
 //! - **Combined search**: Automatically determine the best search strategy
 //! - **Resolution**: Convert search results into structured location hierarchies
 
-use heisenberg_data_processing::DataSource;
+pub use heisenberg_data_processing::DataSource;
 use polars::prelude::*;
-use tracing::{info, info_span, instrument};
+use tracing::{info, instrument};
 
 use crate::{
     ResolveConfig,
@@ -40,13 +40,12 @@ use crate::{
     },
     data::{LocationSearchData, embedded::METADATA},
     error::HeisenbergError,
-    index::{AdminIndexDef, FTSIndex, LocationSearchIndex, PlacesIndexDef},
+    index::LocationSearchIndex,
     search::{
         AdminSearchParams, PlaceSearchParams, SearchConfig, SearchResult, admin_search_inner,
         bulk_location_search_inner, location_search_inner, place_search_inner,
     },
 };
-
 pub type SearchResults = Vec<SearchResult>;
 pub type SearchResultsBatch = Vec<Vec<SearchResult>>;
 

@@ -4,4 +4,3 @@ imports_granularity = "Crate"
 group_imports = "StdExternalCrate"
 reorder_impl_items = true
 format_code_in_doc_comments = true
-float_literal_trailing_zero = "IfNoPostfix"

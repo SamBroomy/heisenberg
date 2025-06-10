@@ -1,8 +1,9 @@
 use std::fmt;
 
-use super::{LocationEntryCore, Result};
 use itertools::izip;
 use polars::prelude::*;
+
+use super::{LocationEntryCore, Result};
 
 /// A generic entry struct that can hold common fields from search results.
 /// This can be used as the type `E` in `ResolvedSearchResult` and `AdministrativeContext`.
@@ -74,12 +75,15 @@ impl LocationEntryCore for GenericEntry {
         )
         .collect())
     }
+
     fn geoname_id(&self) -> u32 {
         self.geoname_id
     }
+
     fn name(&self) -> &str {
         self.name.as_ref()
     }
+
     fn field_names() -> Vec<&'static str> {
         vec![
             "geonameId",

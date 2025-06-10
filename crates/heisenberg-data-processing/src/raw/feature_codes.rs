@@ -1,7 +1,8 @@
-use super::Result;
+use std::path::Path;
 
 use polars::prelude::*;
-use std::path::Path;
+
+use super::Result;
 
 const FEATURE_CODES_SCHEMA: [(PlSmallStr, DataType); 3] = [
     (PlSmallStr::from_static("code"), DataType::String),

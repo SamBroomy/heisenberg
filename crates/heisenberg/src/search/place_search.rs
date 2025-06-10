@@ -4,13 +4,15 @@
 //! places, landmarks, geographic features, and other location points of interest.
 //! It provides scoring based on text relevance, importance, feature type, and distance.
 
-use super::{Result, admin_search::AdminFrame};
-use crate::index::{FTSIndex, FTSIndexSearchParams, PlacesIndexDef};
+use std::ops::{Deref, DerefMut, Mul};
+
 use ahash::AHashMap as HashMap;
 use itertools::Itertools;
 use polars::prelude::*;
-use std::ops::{Deref, DerefMut, Mul};
 use tracing::{debug, info_span, instrument, trace, trace_span, warn};
+
+use super::{Result, admin_search::AdminFrame};
+use crate::index::{FTSIndex, FTSIndexSearchParams, PlacesIndexDef};
 
 const EARTH_RADIUS_KM: f64 = 6371.0;
 
@@ -27,6 +29,7 @@ impl PlaceFrame {
     pub fn new(df: DataFrame) -> Self {
         PlaceFrame::from(df)
     }
+
     pub fn map<F>(self, f: F) -> Self
     where
         F: FnOnce(DataFrame) -> DataFrame,
@@ -47,6 +50,7 @@ impl PlaceFrame {
 
 impl Deref for PlaceFrame {
     type Target = DataFrame;
+
     fn deref(&self) -> &Self::Target {
         &self.0
     }

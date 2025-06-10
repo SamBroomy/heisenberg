@@ -1,6 +1,9 @@
 [workspace]
-members = ["crates/*"]
 resolver = "2"
+members = [
+    "crates/*",
+] #,"python"] # In the future move python bindings to a separate workspace member
+default-members = ["crates/*"]
 
 [workspace.package]
 edition = "2024"
@@ -83,3 +86,7 @@ pyo3-polars = { version = "0.21.0" }
 pythonize = { version = "0.24.0" }
 pyo3-log = { version = "0.12.4" }
 num-traits = "0.2"
+
+
+heisenberg = { version = "*", path = "crates/heisenberg" }
+heisenberg-data-processing = { version = "*", path = "crates/heisenberg-data-processing" }

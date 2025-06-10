@@ -4,23 +4,26 @@
 //! whether to perform administrative search, place search, or a combination of both.
 //! It handles complex multi-term queries and coordinates between different search types.
 
-use super::Result;
-use super::admin_search::{
-    AdminFrame, AdminSearchParams, SearchScoreAdminParams, admin_search_inner,
+use std::{
+    cmp::{max, min},
+    hash::{Hash, Hasher},
+    ops::{Deref, DerefMut},
 };
-use super::place_search::{
-    PlaceFrame, PlaceSearchParams, SearchScorePlaceParams, place_search_inner,
-};
-use crate::SearchConfigBuilder;
-use crate::index::{AdminIndexDef, FTSIndex, FTSIndexSearchParams, PlacesIndexDef};
-use ahash::AHashMap as HashMap;
-use ahash::AHasher as DefaultHasher;
+
+use ahash::{AHashMap as HashMap, AHasher as DefaultHasher};
 use polars::prelude::*;
 use rayon::prelude::*;
-use std::cmp::{max, min};
-use std::hash::{Hash, Hasher};
-use std::ops::{Deref, DerefMut};
 use tracing::{debug, info, instrument, warn};
+
+use super::{
+    Result,
+    admin_search::{AdminFrame, AdminSearchParams, SearchScoreAdminParams, admin_search_inner},
+    place_search::{PlaceFrame, PlaceSearchParams, SearchScorePlaceParams, place_search_inner},
+};
+use crate::{
+    SearchConfigBuilder,
+    index::{AdminIndexDef, FTSIndex, FTSIndexSearchParams, PlacesIndexDef},
+};
 
 const MAX_ADMIN_LEVELS: usize = 5; // Admin levels 0 through 4
 
