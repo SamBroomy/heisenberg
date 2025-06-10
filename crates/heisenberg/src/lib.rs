@@ -7,7 +7,7 @@
 //! # Quick Start
 //!
 //! ```rust
-//! use heisenberg::{LocationSearcher, GenericEntry, LocationEntryCore};
+//! use heisenberg::{GenericEntry, LocationEntryCore, LocationSearcher};
 //!
 //! // Create a searcher (downloads data on first run)
 //! let searcher = LocationSearcher::new(false)?;
@@ -46,7 +46,7 @@
 //! Heisenberg ships with embedded geographic data (cities with population > 15,000)
 //! that is processed at build time. This ensures the library works out of the box
 //! without requiring external downloads or configuration.
-
+#![feature(once_cell_try)]
 use once_cell::sync::OnceCell;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};
@@ -63,12 +63,13 @@ mod search;
 pub use heisenberg_data_processing as data_processing;
 
 pub extern crate polars;
+pub use core::{LocationSearcher, ResolveSearchConfig};
+
 pub use backfill::{
     BasicEntry, GenericEntry, LocationContext, LocationEntry, LocationEntryCore, ResolveConfig,
     ResolvedSearchResult,
 };
 pub use config::SearchConfigBuilder;
-pub use core::{LocationSearcher, ResolveSearchConfig};
 pub use index::FTSIndexSearchParams;
 pub use search::{
     AdminFrame, AdminSearchParams, PlaceFrame, PlaceSearchParams, SearchConfig, SearchResult,
@@ -115,7 +116,6 @@ pub fn init_logging(level: impl Into<LevelFilter>) -> Result<&'static (), error:
     })
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -140,20 +140,20 @@ mod tests {
         setup_test_env();
 
         let searcher = LocationSearcher::new(false).unwrap();
-        
+
         // Try a few different search terms that should exist in cities15000
         let test_terms = vec!["New York", "London", "Tokyo", "Berlin", "Paris"];
-        
+
         for term in test_terms {
             let results = searcher.search(&[term]);
-            assert!(results.is_ok(), "Basic search for '{}' should work", term);
+            assert!(results.is_ok(), "Basic search for '{term}' should work");
             let results = results.unwrap();
             if !results.is_empty() {
                 println!("Found {} results for '{}'", results.len(), term);
                 return; // Test passes if we find any results for any term
             }
         }
-        
+
         panic!("Should find results for at least one major city");
     }
 

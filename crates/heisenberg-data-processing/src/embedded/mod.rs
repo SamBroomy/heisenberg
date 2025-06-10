@@ -1,130 +1,160 @@
-use super::error::Result;
+use std::{path::PathBuf, sync::LazyLock};
+
 use polars::prelude::*;
-use std::io::Cursor;
+use serde::{Deserialize, Serialize};
+use tempfile::NamedTempFile;
+use tracing::info;
 
-// Embedded data files (generated at build time)
-const EMBEDDED_ADMIN: &[u8] = include_bytes!("admin_search.parquet");
-const EMBEDDED_PLACES: &[u8] = include_bytes!("place_search.parquet");
-const EMBEDDED_METADATA: &[u8] = include_bytes!("metadata.json");
+use crate::{
+    Result,
+    processed::{generate_processed_data, save_processed_data_to_parquet},
+    raw::DataSource,
+    test_data::TestDataConfig,
+};
 
-/// Load embedded dataset that ships with the library
-/// 
-/// This dataset contains:
-/// - All national capitals
-/// - Cities with population > 15,000
-/// - Administrative divisions and seats
-/// - Approximately 25,000 high-quality global locations
-pub fn load_embedded_data() -> Result<EmbeddedData> {
-    tracing::info!("Loading embedded dataset from built-in data");
-    
-    // For the initial implementation, we'll create a minimal dataset
-    // TODO: Replace with actual Parquet loading once build script generates real data
-    let (admin_df, place_df) = create_minimal_embedded_dataset()?;
-    
-    Ok(EmbeddedData {
-        admin_search: admin_df,
-        place_search: place_df,
-        metadata: load_metadata()?,
-    })
+// Sweaty workaround to let us use the same string as a static here and also in the include_bytes! macro
+#[macro_export]
+macro_rules! embedded_file_paths {
+    (admin) => {
+        "embedded_admin_search.parquet"
+    };
+    (place) => {
+        "embedded_place_search.parquet"
+    };
+    (metadata) => {
+        "embedded_data_metadata.json"
+    };
 }
 
-/// Embedded dataset container
-#[derive(Clone)]
-pub struct EmbeddedData {
-    pub admin_search: LazyFrame,
-    pub place_search: LazyFrame,
-    pub metadata: EmbeddedMetadata,
+// Also provide constants for runtime use
+pub static ADMIN_DATA_PATH: &str = embedded_file_paths!(admin);
+pub static PLACE_DATA_PATH: &str = embedded_file_paths!(place);
+pub static METADATA_PATH: &str = embedded_file_paths!(metadata);
+
+static EMBEDDED_DIR_DEFAULT: &str = "src/data/embedded";
+
+pub static EMBEDDED_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
+    std::env::var("EMBEDDED_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from(EMBEDDED_DIR_DEFAULT))
+});
+
+/// Generate embedded data from cities15000.zip and write as Rust source files
+pub fn generate_embedded_dataset(data_source: DataSource) -> Result<()> {
+    #[cfg(feature = "download_data")]
+    {
+        crate::raw::fetch::download_data(&data_source)
+            .and_then(|temp_files| embed_data(&temp_files, data_source))
+    }
+
+    #[cfg(not(feature = "download_data"))]
+    {
+        tracing::warn!("download_data feature not enabled, falling back to test data");
+        Self::generate_test_data_rust_code(output_dir)
+    }
 }
 
-#[derive(Debug, Clone)]
+/// Generate embedded data from test data and write as Rust source files
+pub fn generate_test_data_rust_code() -> Result<()> {
+    tracing::info!("Generating embedded dataset from test data");
+
+    crate::test_data::create_test_data(&TestDataConfig::sample())
+        .and_then(|temp_files| embed_data(&temp_files, DataSource::TestData))
+}
+
+fn embed_data(
+    temp_files: &(NamedTempFile, NamedTempFile, NamedTempFile),
+    data_source: DataSource,
+) -> Result<()> {
+    info!("Generating processed data for {}", data_source);
+
+    std::fs::create_dir_all(EMBEDDED_DIR.as_path())?;
+
+    let (admin_df, place_df) = generate_processed_data(temp_files)?;
+
+    let metadata = EmbeddedMetadata::from_dfs(&admin_df, &place_df, data_source)?;
+    let metadata_path = EMBEDDED_DIR.join(METADATA_PATH);
+    metadata.write_to_file(&metadata_path)?;
+
+    let admin_path = EMBEDDED_DIR.join(ADMIN_DATA_PATH);
+    let place_path = EMBEDDED_DIR.join(PLACE_DATA_PATH);
+
+    save_processed_data_to_parquet(admin_df.clone(), &admin_path)?;
+    save_processed_data_to_parquet(place_df.clone(), &place_path)?;
+    Ok(())
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct DataFrameMetadata {
+    pub rows: usize,
+    pub size_bytes: usize,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct EmbeddedMetadata {
     pub version: String,
-    pub source: String,
+    pub source: DataSource,
     pub generated_at: String,
-    pub description: String,
-    pub admin_rows: usize,
-    pub place_rows: usize,
+    pub admin_df: DataFrameMetadata,
+    pub place_df: DataFrameMetadata,
 }
 
-fn load_metadata() -> Result<EmbeddedMetadata> {
-    // For now, return hardcoded metadata
-    // TODO: Parse from embedded metadata.json once build script generates it
-    Ok(EmbeddedMetadata {
-        version: "1.0.0".to_string(),
-        source: "cities15000.zip".to_string(),
-        generated_at: "build-time".to_string(),
-        description: "Embedded dataset with capitals and cities >15k population".to_string(),
-        admin_rows: 0, // Will be updated when real data is generated
-        place_rows: 0,
-    })
-}
+impl EmbeddedMetadata {
+    pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-fn create_minimal_embedded_dataset() -> Result<(LazyFrame, LazyFrame)> {
-    // Create a minimal dataset using our enhanced test data
-    // This provides immediate functionality while we build out the full pipeline
-    
-    use crate::data::test_data::{TestDataConfig, create_test_data};
-    
-    tracing::info!("Creating embedded dataset from enhanced test data");
-    
-    // Use sample config for more comprehensive embedded data
-    let config = TestDataConfig::sample();
-    let (all_countries_file, country_info_file, feature_codes_file) = create_test_data(&config)?;
-    
-    // Process through the existing pipeline
-    let (all_countries_lf, country_info_lf, feature_codes_lf) = 
-        super::raw::get_raw_data_as_lazy_frames(&(all_countries_file, country_info_file, feature_codes_file))?;
-    
-    let admin_lf = super::processed::create_admin_search::get_admin_search_lf(
-        all_countries_lf.clone(), 
-        country_info_lf
-    )?;
-    
-    let place_lf = super::processed::create_place_search::get_place_search_lf(
-        all_countries_lf,
-        feature_codes_lf,
-        admin_lf.clone(),
-    )?;
-    
-    Ok((admin_lf, place_lf))
-}
-
-/// Try to load embedded data as Parquet (once build script generates real files)
-#[allow(dead_code)]
-fn load_embedded_parquet() -> Result<(LazyFrame, LazyFrame)> {
-    // This will be used once the build script generates actual Parquet files
-    let admin_cursor = Cursor::new(EMBEDDED_ADMIN);
-    let place_cursor = Cursor::new(EMBEDDED_PLACES);
-    
-    // Note: Polars doesn't support reading Parquet from Cursor yet
-    // We'll need to write to temp files or use a different approach
-    todo!("Implement Parquet loading from embedded bytes once build script generates real data")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_load_embedded_data() {
-        let embedded = load_embedded_data().expect("Should load embedded data");
-        
-        // Verify we have some data
-        let admin_count = embedded.admin_search.clone().select([len()]).collect().unwrap()
-            .column("len").unwrap().get(0).unwrap().try_extract::<u32>().unwrap();
-        let place_count = embedded.place_search.clone().select([len()]).collect().unwrap()
-            .column("len").unwrap().get(0).unwrap().try_extract::<u32>().unwrap();
-        
-        assert!(admin_count > 0, "Should have admin data");
-        assert!(place_count > 0, "Should have place data");
-        
-        println!("Embedded data: {} admin entries, {} place entries", admin_count, place_count);
+    pub fn new(
+        source: DataSource,
+        admin_rows: usize,
+        place_rows: usize,
+        admin_size_bytes: usize,
+        place_size_bytes: usize,
+    ) -> Self {
+        let admin_df_metadata = DataFrameMetadata {
+            rows: admin_rows,
+            size_bytes: admin_size_bytes,
+        };
+        let place_df_metadata = DataFrameMetadata {
+            rows: place_rows,
+            size_bytes: place_size_bytes,
+        };
+        Self {
+            version: Self::VERSION.to_string(),
+            source,
+            generated_at: chrono::Utc::now().to_rfc3339(),
+            admin_df: admin_df_metadata,
+            place_df: place_df_metadata,
+        }
     }
-    
-    #[test]
-    fn test_embedded_metadata() {
-        let metadata = load_metadata().expect("Should load metadata");
-        assert_eq!(metadata.version, "1.0.0");
-        assert_eq!(metadata.source, "cities15000.zip");
+
+    pub fn from_dfs(
+        admin_df: &DataFrame,
+        place_df: &DataFrame,
+        data_source: DataSource,
+    ) -> Result<Self> {
+        Ok(Self::new(
+            data_source,
+            admin_df.height(),
+            place_df.height(),
+            admin_df.estimated_size(),
+            place_df.estimated_size(),
+        ))
+    }
+
+    pub fn to_json(&self) -> Result<String> {
+        serde_json::to_string_pretty(self).map_err(Into::into)
+    }
+
+    pub fn write_to_file(&self, path: &std::path::Path) -> Result<()> {
+        let json = self.to_json()?;
+        std::fs::write(path, json).map_err(Into::into)
+    }
+
+    pub fn load_from_file(path: &std::path::Path) -> Result<Self> {
+        let content = std::fs::read_to_string(path)?;
+        serde_json::from_str(&content).map_err(Into::into)
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        serde_json::from_slice(bytes).map_err(Into::into)
     }
 }

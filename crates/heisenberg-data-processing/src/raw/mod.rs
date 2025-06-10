@@ -1,8 +1,8 @@
 use polars::prelude::LazyFrame;
-use std::fs;
-use std::path::Path;
-use tempfile::NamedTempFile;
-use tracing::{info, instrument, warn};
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+use std::{fmt, str::FromStr};
+use tracing::{instrument, warn};
 
 #[cfg(feature = "download_data")]
 pub mod fetch;
@@ -13,63 +13,75 @@ pub(super) mod feature_codes;
 
 pub use super::error::Result;
 
-/// Get all raw data from GeoNames.
-///
-/// It first checks for existing raw text files (allCountries.txt, etc.) in the specified
-/// or default raw data directory.
-/// - If `data_dir_override` is `Some(path)`, it looks in `path`.
-/// - If `data_dir_override` is `None`, it looks in `<DATA_DIR>/raw/`.
-///
-/// If files are found, they are copied to temporary files for processing.
-/// If files are not found:
-///   - If the `download_data` feature is enabled, data is downloaded to temporary files.
-///   - If the `download_data` feature is disabled, a `RequiredFilesNotFound` error is returned.
-///
-/// Returns a tuple of `NamedTempFile`s: (all_countries, country_info, feature_codes).
+#[derive(Debug, Copy, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+/// Enum representing the available data sources for GeoNames data processing
+#[serde(rename_all = "snake_case")]
+pub enum DataSource {
+    #[default]
+    /// Download and process cities15000.zip
+    Cities15000,
+    /// Download and process cities5000.zip
+    Cities5000,
+    /// Download and process cities1000.zip
+    Cities1000,
+    /// Download and process cities500.zip
+    Cities500,
+    /// Download and process allCountries.zip (full dataset)
+    AllCountries,
+    /// Use Test data for development
+    TestData,
+}
 
-#[instrument(name = "Get GeoNames raw data", skip_all, level = "info")]
-pub fn get_raw_data() -> Result<(NamedTempFile, NamedTempFile, NamedTempFile)> {
-    // Try to load from disk or download
-    let raw_dir = crate::get_data_dir().join("raw");
-    info!("Checking for raw data in: {}", raw_dir.display());
-
-    let all_countries_path = raw_dir.join("allCountries.txt");
-    let country_info_path = raw_dir.join("countryInfo.txt");
-    let feature_codes_path = raw_dir.join("featureCodes_en.txt");
-
-    if all_countries_path.exists() && country_info_path.exists() && feature_codes_path.exists() {
-        info!("Found existing raw data files, copying to temp files");
-        return copy_files_to_temp(&all_countries_path, &country_info_path, &feature_codes_path);
-    }
-
-    warn!("Raw data files not found");
-
-    #[cfg(feature = "download_data")]
-    {
-        info!("Attempting to download raw data as download_data feature is enabled.");
-        fetch::download_raw_data()
-    }
-    #[cfg(not(feature = "download_data"))]
-    {
-        warn!("Download_data feature is disabled. Cannot download missing files.");
-        Err(crate::DataError::RequiredFilesNotFound)
+impl fmt::Display for DataSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Cities15000 => write!(f, "cities15000"),
+            Self::Cities5000 => write!(f, "cities5000"),
+            Self::Cities1000 => write!(f, "cities1000"),
+            Self::Cities500 => write!(f, "cities500"),
+            Self::AllCountries => write!(f, "allCountries"),
+            Self::TestData => write!(f, "test_data"),
+        }
     }
 }
 
-fn copy_files_to_temp(
-    all_countries_path: &Path,
-    country_info_path: &Path,
-    feature_codes_path: &Path,
-) -> Result<(NamedTempFile, NamedTempFile, NamedTempFile)> {
-    let all_countries_temp = NamedTempFile::new()?;
-    let country_info_temp = NamedTempFile::new()?;
-    let feature_codes_temp = NamedTempFile::new()?;
+impl DataSource {
+    pub const BASE_URL: &str = "https://download.geonames.org/export/dump/";
 
-    fs::copy(all_countries_path, all_countries_temp.path())?;
-    fs::copy(country_info_path, country_info_temp.path())?;
-    fs::copy(feature_codes_path, feature_codes_temp.path())?;
+    pub fn geonames_url(&self) -> Option<String> {
+        match self {
+            Self::TestData => {
+                warn!("Using test data, no download URL available");
+                None
+            }
+            _ => Some(format!("{}{}.zip", Self::BASE_URL, &self)),
+        }
+    }
 
-    Ok((all_countries_temp, country_info_temp, feature_codes_temp))
+    pub fn admin_parquet(&self) -> PathBuf {
+        PathBuf::from(format!("{}_admin_search.parquet", &self))
+    }
+    pub fn place_parquet(&self) -> PathBuf {
+        PathBuf::from(format!("{}_place_search.parquet", &self))
+    }
+}
+
+impl FromStr for DataSource {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "cities15000" => Ok(Self::Cities15000),
+            "cities5000" => Ok(Self::Cities5000),
+            "cities1000" => Ok(Self::Cities1000),
+            "cities500" => Ok(Self::Cities500),
+            "allcountries" => Ok(Self::AllCountries),
+            "test_data" => Ok(Self::TestData),
+            _ => Err(format!(
+                "Invalid DataSource: {s}. Valid options are: cities15000, cities5000, cities1000, cities500, allCountries, test_data"
+            )),
+        }
+    }
 }
 
 #[instrument(name = "Transform GeoNames data", skip_all, level = "info")]
@@ -131,8 +143,7 @@ mod tests {
         for expected_id in expected_ids {
             assert!(
                 geoname_ids.contains(&expected_id),
-                "Missing geonameId: {:?}",
-                expected_id
+                "Missing geonameId: {expected_id:?}"
             );
         }
 
@@ -149,8 +160,7 @@ mod tests {
         for expected_name in expected_names {
             assert!(
                 names.contains(&Some(expected_name)),
-                "Missing name: {}",
-                expected_name
+                "Missing name: {expected_name}",
             );
         }
 
@@ -167,8 +177,7 @@ mod tests {
         for expected_class in expected_classes {
             assert!(
                 feature_classes.contains(&Some(expected_class)),
-                "Missing feature_class: {}",
-                expected_class
+                "Missing feature_class: {expected_class}",
             );
         }
 
@@ -185,8 +194,7 @@ mod tests {
         for expected_pop in expected_pops {
             assert!(
                 populations.contains(&expected_pop),
-                "Missing population: {:?}",
-                expected_pop
+                "Missing population: {expected_pop:?}",
             );
         }
 

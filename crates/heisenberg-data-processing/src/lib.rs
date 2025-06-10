@@ -1,188 +1,170 @@
-use std::path::PathBuf;
+use crate::processed::{generate_processed_data, save_processed_data_to_parquet};
+pub use error::{DataError, Result};
+use polars::prelude::LazyFrame;
+pub use raw::DataSource;
+use std::{
+    path::{Path, PathBuf},
+    sync::LazyLock,
+};
+pub use test_data::{TestDataConfig, create_test_data};
+use tracing::{info, warn};
 
+pub mod embedded;
+pub mod error;
 pub mod processed;
 pub mod raw;
 pub mod test_data;
 
-// DataError will be imported from the error module below
+pub const DATA_DIR_DEFAULT: &str = "./heisenberg_data";
 
-pub const DATA_DIR_DEFAULT: &str = "./hberg_data";
+pub static DATA_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
+    std::env::var("DATA_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from(DATA_DIR_DEFAULT))
+});
+pub static PROCESSED_DIR: LazyLock<PathBuf> = LazyLock::new(|| DATA_DIR.join("processed"));
 
-/// Global data directory path for persistent data storage.
-pub fn get_data_dir() -> PathBuf {
-    let dir = std::env::var("DATA_DIR").unwrap_or_else(|_| DATA_DIR_DEFAULT.to_string());
-    PathBuf::from(dir)
+fn load_single_parquet_file(path: &Path) -> Result<LazyFrame> {
+    LazyFrame::scan_parquet(path, Default::default()).map_err(Into::into)
 }
 
-mod error {
-    use polars::prelude::PolarsError;
-    use thiserror::Error;
+fn load_parquet_files(admin_path: &Path, place_path: &Path) -> Result<(LazyFrame, LazyFrame)> {
+    let admin_df = load_single_parquet_file(admin_path)?;
+    let place_df = load_single_parquet_file(place_path)?;
+    Ok((admin_df, place_df))
+}
 
-    #[derive(Error, Debug)]
-    pub enum DataError {
-        #[error("IO error: {0}")]
-        Io(#[from] std::io::Error),
-        #[error("Polars error: {0}")]
-        Polars(#[from] PolarsError),
-        #[cfg(feature = "download_data")]
-        #[error("HTTP error: {0}")]
-        Http(#[from] reqwest::Error),
-        #[cfg(feature = "download_data")]
-        #[error("Join error: {0}")]
-        JoinError(#[from] tokio::task::JoinError),
-        #[cfg(feature = "download_data")]
-        #[error("Zip error: {0}")]
-        ZipError(#[from] zip::result::ZipError),
-        #[error("No data directory provided and download_data feature is disabled")]
-        NoDataDirProvided,
-        #[error("Required data files not found in the provided directory")]
-        RequiredFilesNotFound,
+/// Check if both admin and place files exist and are readable
+fn validate_data_files(data_source: &DataSource) -> Result<(PathBuf, PathBuf)> {
+    let admin_path = PROCESSED_DIR.join(data_source.admin_parquet());
+    let place_path = PROCESSED_DIR.join(data_source.place_parquet());
+
+    // Check if both files exist
+    if !admin_path.exists() || !place_path.exists() {
+        return Err(DataError::RequiredFilesNotFound);
     }
 
-    pub type Result<T> = std::result::Result<T, DataError>;
-}
-
-pub use error::{DataError, Result};
-
-// Re-export main types
-pub use processed::LocationSearchData;
-pub use test_data::{TestDataConfig, create_test_data};
-
-/// Generate embedded dataset for build-time inclusion
-///
-/// This function can be called from build.rs to create optimized datasets
-/// that ship with the library binary.
-pub fn generate_embedded_dataset(source: EmbeddedDataSource) -> Result<EmbeddedDataset> {
-    match source {
-        EmbeddedDataSource::TestData(config) => generate_from_test_data(config),
-        EmbeddedDataSource::Cities15000 => generate_from_cities15000(),
+    // Try to validate files by attempting to read their metadata
+    if let Err(e) = LazyFrame::scan_parquet(&admin_path, Default::default()) {
+        warn!("Admin file corrupted or unreadable: {}", e);
+        return Err(DataError::RequiredFilesNotFound);
     }
+
+    if let Err(e) = LazyFrame::scan_parquet(&place_path, Default::default()) {
+        warn!("Place file corrupted or unreadable: {}", e);
+        return Err(DataError::RequiredFilesNotFound);
+    }
+
+    Ok((admin_path, place_path))
 }
 
-#[derive(Debug, Clone)]
-pub enum EmbeddedDataSource {
-    /// Use enhanced test data (good for development)
-    TestData(TestDataConfig),
-    /// Download and process cities15000.zip (production recommended)
-    Cities15000,
+/// Remove existing data files to force regeneration
+fn clean_data_files(data_source: &DataSource) -> Result<()> {
+    let admin_path = PROCESSED_DIR.join(data_source.admin_parquet());
+    let place_path = PROCESSED_DIR.join(data_source.place_parquet());
+
+    if admin_path.exists() {
+        std::fs::remove_file(&admin_path)?;
+        info!("Removed corrupted admin file: {:?}", admin_path);
+    }
+
+    if place_path.exists() {
+        std::fs::remove_file(&place_path)?;
+        info!("Removed corrupted place file: {:?}", place_path);
+    }
+
+    Ok(())
 }
 
-#[derive(Debug)]
-pub struct EmbeddedDataset {
-    pub admin_data: polars::prelude::DataFrame,
-    pub place_data: polars::prelude::DataFrame,
-    pub metadata: EmbeddedMetadata,
-}
+/// Ensure both admin and place data files exist and are valid, regenerating if necessary
+fn ensure_data_files(data_source: &DataSource) -> Result<(PathBuf, PathBuf)> {
+    // First try to validate existing files
+    match validate_data_files(data_source) {
+        Ok(paths) => {
+            info!("Using existing processed data for {}", data_source);
+            return Ok(paths);
+        }
+        Err(_) => {
+            info!(
+                "Data files missing or corrupted for {}, regenerating...",
+                data_source
+            );
+            // Clean up any partial files
+            clean_data_files(data_source)?;
+        }
+    }
 
-#[derive(Debug, Clone)]
-pub struct EmbeddedMetadata {
-    pub version: String,
-    pub source: String,
-    pub generated_at: String,
-    pub description: String,
-    pub admin_rows: usize,
-    pub place_rows: usize,
-    pub size_bytes: usize,
-}
-
-fn generate_from_test_data(config: TestDataConfig) -> Result<EmbeddedDataset> {
-    tracing::info!(
-        "Generating embedded dataset from test data with config: {:?}",
-        config
-    );
-
-    let temp_files = test_data::create_test_data(&config)?;
-
-    // Keep temp files alive by storing the tuple longer
-    let (all_countries_lf, country_info_lf, feature_codes_lf) =
-        raw::get_raw_data_as_lazy_frames(&temp_files)?;
-
-    let admin_lf = processed::create_admin_search::get_admin_search_lf(
-        all_countries_lf.clone(),
-        country_info_lf,
-    )?;
-    let place_lf = processed::create_place_search::get_place_search_lf(
-        all_countries_lf,
-        feature_codes_lf,
-        admin_lf.clone(),
-    )?;
-
-    // Collect immediately to ensure temp files are read before they can be dropped
-    let admin_data = admin_lf.collect()?;
-    let place_data = place_lf.collect()?;
-
-    // Now we can safely drop the temp files
-    drop(temp_files);
-
-    let metadata = EmbeddedMetadata {
-        version: "1.0.0".to_string(),
-        source: "enhanced_test_data".to_string(),
-        generated_at: chrono::Utc::now().to_rfc3339(),
-        description: "Embedded dataset from enhanced test data".to_string(),
-        admin_rows: admin_data.height(),
-        place_rows: place_data.height(),
-        size_bytes: 0, // Will be calculated when serializing
-    };
-
-    Ok(EmbeddedDataset {
-        admin_data,
-        place_data,
-        metadata,
-    })
-}
-
-fn generate_from_cities15000() -> Result<EmbeddedDataset> {
-    tracing::info!("Generating embedded dataset from cities15000.zip");
-
+    // Generate new data files
     #[cfg(feature = "download_data")]
     {
-        let temp_files = raw::fetch::download_cities15000_data()?;
+        let temp_files = crate::raw::fetch::download_data(data_source)?;
 
-        // Keep temp files alive by storing the tuple longer
-        let (all_countries_lf, country_info_lf, feature_codes_lf) =
-            raw::get_raw_data_as_lazy_frames(&temp_files)?;
+        info!("Generating processed data for {}", data_source);
+        std::fs::create_dir_all(PROCESSED_DIR.as_path())?;
 
-        let admin_lf = processed::create_admin_search::get_admin_search_lf(
-            all_countries_lf.clone(),
-            country_info_lf,
-        )?;
-        let place_lf = processed::create_place_search::get_place_search_lf(
-            all_countries_lf,
-            feature_codes_lf,
-            admin_lf.clone(),
-        )?;
+        let (admin_df, place_df) = generate_processed_data(&temp_files)?;
 
-        // Collect immediately to ensure temp files are read before they can be dropped
-        let admin_data = admin_lf.collect()?;
-        let place_data = place_lf.collect()?;
+        let admin_path = PROCESSED_DIR.join(data_source.admin_parquet());
+        let place_path = PROCESSED_DIR.join(data_source.place_parquet());
 
-        // Now we can safely drop the temp files
-        drop(temp_files);
+        save_processed_data_to_parquet(admin_df, &admin_path)?;
+        save_processed_data_to_parquet(place_df, &place_path)?;
 
-        let metadata = EmbeddedMetadata {
-            version: "1.0.0".to_string(),
-            source: "cities15000.zip".to_string(),
-            generated_at: chrono::Utc::now().to_rfc3339(),
-            description:
-                "Embedded dataset from GeoNames cities15000.zip (cities with population > 15,000)"
-                    .to_string(),
-            admin_rows: admin_data.height(),
-            place_rows: place_data.height(),
-            size_bytes: 0, // Will be calculated when serializing
-        };
+        info!(
+            "Processed data saved to {:?} and {:?}",
+            admin_path, place_path
+        );
 
-        Ok(EmbeddedDataset {
-            admin_data,
-            place_data,
-            metadata,
-        })
+        // Validate the newly created files
+        validate_data_files(data_source)
     }
-
     #[cfg(not(feature = "download_data"))]
     {
-        tracing::warn!("download_data feature not enabled, falling back to test data");
-        generate_from_test_data(TestDataConfig::sample())
+        warn!("download_data feature not enabled, cannot regenerate data");
+        Err(DataError::RequiredFilesNotFound)
     }
+}
+
+/// Get both admin and place data as LazyFrames
+pub fn get_data(data_source: &DataSource) -> Result<(LazyFrame, LazyFrame)> {
+    let (admin_path, place_path) = ensure_data_files(data_source)?;
+    load_parquet_files(&admin_path, &place_path)
+}
+
+/// Get only admin search data as LazyFrame
+///
+/// This function ensures data consistency by validating that both admin and place files exist.
+/// If either file is missing or corrupted, both will be regenerated.
+pub fn get_admin_data(data_source: &DataSource) -> Result<LazyFrame> {
+    let (admin_path, _place_path) = ensure_data_files(data_source)?;
+    load_single_parquet_file(&admin_path)
+}
+
+/// Get only place search data as LazyFrame
+///
+/// This function ensures data consistency by validating that both admin and place files exist.
+/// If either file is missing or corrupted, both will be regenerated.
+pub fn get_place_data(data_source: &DataSource) -> Result<LazyFrame> {
+    let (_admin_path, place_path) = ensure_data_files(data_source)?;
+    load_single_parquet_file(&place_path)
+}
+
+/// Check if processed data exists for the given data source without loading it
+pub fn data_exists(data_source: &DataSource) -> bool {
+    validate_data_files(data_source).is_ok()
+}
+
+/// Force regeneration of processed data for the given data source
+///
+/// This will delete existing files and download/process fresh data.
+pub fn regenerate_data(data_source: &DataSource) -> Result<(LazyFrame, LazyFrame)> {
+    info!("Force regenerating data for {}", data_source);
+
+    // Clean existing files
+    clean_data_files(data_source)?;
+
+    // Generate fresh data
+    get_data(data_source)
 }
 
 #[cfg(test)]
@@ -291,25 +273,5 @@ pub(crate) mod tests_utils {
         .unwrap();
         file.flush().unwrap();
         file
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_generate_embedded_from_test_data() {
-        let source = EmbeddedDataSource::TestData(TestDataConfig::minimal());
-        let dataset = generate_embedded_dataset(source).expect("Should generate dataset");
-
-        assert!(dataset.admin_data.height() > 0, "Should have admin data");
-        assert!(dataset.place_data.height() > 0, "Should have place data");
-        assert_eq!(dataset.metadata.source, "enhanced_test_data");
-
-        println!(
-            "Generated embedded dataset: {} admin rows, {} place rows",
-            dataset.metadata.admin_rows, dataset.metadata.place_rows
-        );
     }
 }

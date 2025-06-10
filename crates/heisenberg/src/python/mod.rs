@@ -38,8 +38,7 @@ impl PyLocationSearcher {
         py.allow_threads(|| match LocationSearcher::new(overwrite_indexes) {
             Ok(inner) => Ok(PyLocationSearcher { inner }),
             Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-                "Failed to initialize LocationSearcher: {}",
-                e
+                "Failed to initialize LocationSearcher: {e}"
             ))),
         })
     }
@@ -75,8 +74,7 @@ impl PyLocationSearcher {
                 Ok(Some(df)) => Ok(Some(PyDataFrame(df))),
                 Ok(None) => Ok(None),
                 Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-                    "Admin search error: {}",
-                    e
+                    "Admin search error: {e}"
                 ))),
             }
         })
@@ -108,8 +106,7 @@ impl PyLocationSearcher {
                 Ok(Some(df)) => Ok(Some(PyDataFrame(df))),
                 Ok(None) => Ok(None),
                 Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-                    "Place search error: {}",
-                    e
+                    "Place search error: {e}"
                 ))),
             }
         })
@@ -135,8 +132,7 @@ impl PyLocationSearcher {
                 Ok(py_results)
             }
             Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-                "Search error: {}",
-                e
+                "Search error: {e}"
             ))),
         })
     }
@@ -168,8 +164,7 @@ impl PyLocationSearcher {
                     Ok(py_results)
                 }
                 Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-                    "Search with config error: {}",
-                    e
+                    "Search with config error: {e}"
                 ))),
             },
         )
@@ -193,8 +188,7 @@ impl PyLocationSearcher {
         py.allow_threads(|| {
             let results = self.inner.search_bulk(&input_terms).map_err(|e| {
                 PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-                    "Batch search error: {}",
-                    e
+                    "Batch search error: {e}"
                 ))
             })?;
             let py_results = results
@@ -233,8 +227,7 @@ impl PyLocationSearcher {
                 .search_bulk_with_config(&input_terms, &config.inner)
                 .map_err(|e| {
                     PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-                        "Batch search with config error: {}",
-                        e
+                        "Batch search with config error: {e}"
                     ))
                 })?;
             let py_results = results
@@ -283,8 +276,7 @@ impl PyLocationSearcher {
                 Ok(py_results)
             }
             Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-                "Resolve location error: {}",
-                e
+                "Resolve location error: {e}"
             ))),
         }
     }
@@ -331,8 +323,7 @@ impl PyLocationSearcher {
                 Ok(py_results)
             }
             Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-                "Resolve location with config error: {}",
-                e
+                "Resolve location with config error: {e}"
             ))),
         }
     }
@@ -372,8 +363,7 @@ impl PyLocationSearcher {
                 Ok(py_results)
             }
             Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-                "Resolve location batch error: {}",
-                e
+                "Resolve location batch error: {e}"
             ))),
         }
     }
@@ -425,8 +415,7 @@ impl PyLocationSearcher {
                 Ok(py_results)
             }
             Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-                "Resolve location batch with config error: {}",
-                e
+                "Resolve location batch with config error: {e}"
             ))),
         }
     }

@@ -18,6 +18,8 @@ pub enum HeisenbergError {
     ConfigError(String),
     #[error("Init Logging error: {0}")]
     InitLoggingError(#[from] tracing_subscriber::filter::ParseError),
+    #[error("Data source error: {0}")]
+    DataSourceError(String),
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }

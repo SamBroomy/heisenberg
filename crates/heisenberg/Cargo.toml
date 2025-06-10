@@ -19,6 +19,7 @@ keywords = [
     "location",
     "parsing",
 ]
+build = "build.rs"
 
 [lib]
 name = "heisenberg"
@@ -38,6 +39,7 @@ serde = ["dep:serde"]
 
 [dependencies]
 # Workspace dependencies
+once_cell = { workspace = true }
 polars = { workspace = true }
 tempfile = { workspace = true }
 tracing = { workspace = true }
@@ -51,12 +53,12 @@ heisenberg-data-processing = { path = "../heisenberg-data-processing" }
 # Main crate specific dependencies
 ahash = { workspace = true }
 itertools = { workspace = true }
-once_cell = { workspace = true }
 rapidfuzz = { workspace = true }
 rayon = { workspace = true }
 regex = { workspace = true }
 tantivy = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
+bytes = { workspace = true }
 
 # Python bindings (optional)
 pyo3 = { workspace = true, default-features = false, features = [
@@ -68,7 +70,9 @@ pythonize = { workspace = true, optional = true }
 pyo3-log = { workspace = true, optional = true }
 
 [build-dependencies]
-heisenberg-data-processing = { path = "../heisenberg-data-processing" }
+heisenberg-data-processing = { path = "../heisenberg-data-processing", features = [
+    "download_data",
+] }
 polars = { workspace = true }
 tempfile = { workspace = true }
 serde_json = { workspace = true }

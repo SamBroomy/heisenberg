@@ -1,3 +1,5 @@
+use crate::{DataError, raw::DataSource};
+
 use super::Result;
 use futures::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -9,33 +11,21 @@ use tokio::io::AsyncWriteExt;
 use tracing::{info, instrument};
 use zip::ZipArchive;
 
-#[instrument(name = "Download GeoNames data", skip_all, level = "info")]
-pub fn download_raw_data() -> Result<(NamedTempFile, NamedTempFile, NamedTempFile)> {
+#[instrument(name = "Download data", skip_all, level = "info")]
+pub fn download_data(
+    data_source: &DataSource,
+) -> Result<(NamedTempFile, NamedTempFile, NamedTempFile)> {
     let rt = tokio::runtime::Runtime::new()?;
 
-    rt.block_on(async {
-        let client = reqwest::Client::new();
-
-        let (all_countries_df, country_info_df, feature_codes_df) = tokio::try_join!(
-            download_all_countries(&client),
-            download_country_info(&client),
-            download_feature_codes(&client),
-        )?;
-
-        Ok((all_countries_df, country_info_df, feature_codes_df))
-    })
-}
-
-/// Downloads cities15000.zip data for embedded dataset generation
-#[instrument(name = "Download cities15000 data", skip_all, level = "info")]
-pub fn download_cities15000_data() -> Result<(NamedTempFile, NamedTempFile, NamedTempFile)> {
-    let rt = tokio::runtime::Runtime::new()?;
+    let data_source_url = data_source
+        .geonames_url()
+        .ok_or_else(|| DataError::NoDataDirProvided)?;
 
     rt.block_on(async {
         let client = reqwest::Client::new();
 
         let (cities15000_file, country_info_df, feature_codes_df) = tokio::try_join!(
-            download_cities15000(&client),
+            download_raw_data(&client, &data_source_url),
             download_country_info(&client),
             download_feature_codes(&client),
         )?;
@@ -66,17 +56,9 @@ warning: heisenberg@0.1.0:   Admin: 5293457 bytes (5169.4 KB)
 warning: heisenberg@0.1.0:   Place: 9504661 bytes (9281.9 KB)
 warning: heisenberg@0.1.0:   Total: 14798118 bytes (14451.3 KB)
 */
-const ALL_COUNTRIES_URL: &str = "https://download.geonames.org/export/dump/allCountries.zip";
-const CITIES15000_URL: &str = "https://download.geonames.org/export/dump/cities1000.zip";
 
-/// Downloads the all countries file from GeoNames and extracts it to a temporary file.
-async fn download_all_countries(client: &Client) -> Result<NamedTempFile> {
-    download_zip_and_extract_first_entry_to_temp_file(client, ALL_COUNTRIES_URL).await
-}
-
-/// Downloads the cities15000 file from GeoNames and extracts it to a temporary file.
-pub async fn download_cities15000(client: &Client) -> Result<NamedTempFile> {
-    download_zip_and_extract_first_entry_to_temp_file(client, CITIES15000_URL).await
+async fn download_raw_data(client: &Client, url: &str) -> Result<NamedTempFile> {
+    download_zip_and_extract_first_entry_to_temp_file(client, url).await
 }
 
 const COUNTRY_INFO_URL: &str = "https://download.geonames.org/export/dump/countryInfo.txt";

@@ -1,117 +1,89 @@
-use heisenberg_data_processing::{EmbeddedDataSource, TestDataConfig, generate_embedded_dataset};
-use polars::prelude::*;
-use std::fs;
-use std::path::Path;
+use heisenberg_data_processing::DataError;
+use heisenberg_data_processing::embedded::ADMIN_DATA_PATH;
+use heisenberg_data_processing::embedded::EMBEDDED_DIR;
+use heisenberg_data_processing::embedded::EmbeddedMetadata;
+use heisenberg_data_processing::embedded::METADATA_PATH;
+use heisenberg_data_processing::embedded::PLACE_DATA_PATH;
+use heisenberg_data_processing::embedded::generate_embedded_dataset;
+use heisenberg_data_processing::error::Result;
+use heisenberg_data_processing::raw::DataSource;
+use std::env;
+use std::str::FromStr;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<()> {
     // Only generate embedded data when explicitly requested or if files don't exist
-    if should_generate_embedded_data() {
-        generate_embedded_dataset_files()?;
+    if let Some(data_source) = should_generate_embedded_data() {
+        generate_embedded_dataset_files(data_source)?;
     } else {
         println!(
             "cargo:warning=Skipping embedded dataset generation (set GENERATE_EMBEDDED_DATA=1 to force)"
         );
     }
 
-    // Tell cargo to rerun if embedded data files change
-    println!("cargo:rerun-if-changed=src/data/embedded/");
+    // Tell cargo to rerun if embedded data files change or relevant env vars change
+    println!("cargo:rerun-if-changed={}", EMBEDDED_DIR.display());
     println!("cargo:rerun-if-env-changed=GENERATE_EMBEDDED_DATA");
-    println!("cargo:rerun-if-env-changed=USE_CITIES15000");
+    println!("cargo:rerun-if-env-changed=EMBEDDED_DATA_SOURCE");
 
     Ok(())
 }
 
-fn should_generate_embedded_data() -> bool {
-    // Generate if explicitly requested
-    if std::env::var("GENERATE_EMBEDDED_DATA").unwrap_or_default() == "1" {
-        return true;
+fn get_configured_data_source() -> DataSource {
+    match env::var("EMBEDDED_DATA_SOURCE") {
+        Ok(source) => DataSource::from_str(&source).unwrap_or_default(),
+        Err(_) => DataSource::default(),
     }
-
-    // Generate if embedded files don't exist
-    let embedded_dir = Path::new("src/data/embedded");
-    if !embedded_dir.exists()
-        || !embedded_dir.join("admin_search.parquet").exists()
-        || !embedded_dir.join("place_search.parquet").exists()
-    {
-        return true;
-    }
-
-    false
 }
 
-fn generate_embedded_dataset_files() -> Result<(), Box<dyn std::error::Error>> {
-    println!("cargo:warning=Generating embedded dataset using data processing subcrate...");
+fn should_generate_embedded_data() -> Option<DataSource> {
+    // Generate if explicitly requested
+    if env::var("GENERATE_EMBEDDED_DATA").unwrap_or_default() == "1" {
+        return Some(get_configured_data_source());
+    }
 
-    // Create embedded directory
-    let embedded_dir = Path::new("src/data/embedded");
-    fs::create_dir_all(embedded_dir)?;
+    if !EMBEDDED_DIR.exists()
+        || !EMBEDDED_DIR.join(ADMIN_DATA_PATH).exists()
+        || !EMBEDDED_DIR.join(PLACE_DATA_PATH).exists()
+        || !EMBEDDED_DIR.join(METADATA_PATH).exists()
+    {
+        return Some(get_configured_data_source());
+    }
 
-    // Generate dataset using the data processing subcrate
-    // Use cities15000.zip for production embedded data
-    let source = if std::env::var("USE_CITIES15000").unwrap_or_default() == "1" {
-        println!("cargo:warning=Using cities15000.zip data source");
-        EmbeddedDataSource::Cities15000
-    } else {
-        println!("cargo:warning=Using enhanced test data (set USE_CITIES15000=1 for real data)");
-        EmbeddedDataSource::TestData(TestDataConfig::sample())
-    };
-    let dataset = generate_embedded_dataset(source)?;
-
-    println!(
-        "cargo:warning=Generated dataset with {} admin rows, {} place rows",
-        dataset.metadata.admin_rows, dataset.metadata.place_rows
-    );
-
-    // Save as Parquet files
-    let admin_path = embedded_dir.join("admin_search.parquet");
-    let place_path = embedded_dir.join("place_search.parquet");
-    let metadata_path = embedded_dir.join("metadata.json");
-
-    // Write Parquet files
-    use std::fs::File;
-    let admin_file = File::create(&admin_path)?;
-    let place_file = File::create(&place_path)?;
-
-    ParquetWriter::new(admin_file).finish(&mut dataset.admin_data.clone())?;
-    ParquetWriter::new(place_file).finish(&mut dataset.place_data.clone())?;
-
-    // Write metadata
-    let metadata_json = serde_json::to_string_pretty(&serde_json::json!({
-        "version": dataset.metadata.version,
-        "source": dataset.metadata.source,
-        "generated_at": dataset.metadata.generated_at,
-        "description": dataset.metadata.description,
-        "admin_rows": dataset.metadata.admin_rows,
-        "place_rows": dataset.metadata.place_rows,
-        "files": {
-            "admin_search": "admin_search.parquet",
-            "place_search": "place_search.parquet"
+    // Generate if the data source has changed (check metadata)
+    if let Ok(existing_metadata) = check_existing_metadata() {
+        let configured_source = get_configured_data_source();
+        if existing_metadata.source != configured_source {
+            println!(
+                "cargo:warning=Data source changed from {:?} to {:?}, regenerating embedded data",
+                existing_metadata.source, configured_source
+            );
+            return Some(configured_source);
         }
-    }))?;
+    }
 
-    fs::write(&metadata_path, metadata_json)?;
+    None
+}
 
-    // Calculate actual file sizes
-    let admin_size = fs::metadata(&admin_path)?.len();
-    let place_size = fs::metadata(&place_path)?.len();
-    let total_size = admin_size + place_size;
+fn check_existing_metadata() -> Result<EmbeddedMetadata> {
+    let metadata_path = EMBEDDED_DIR.join(METADATA_PATH);
+    if metadata_path.exists() {
+        EmbeddedMetadata::load_from_file(&metadata_path)
+    } else {
+        Err(DataError::MetadataFileNotFound)
+    }
+}
 
-    println!("cargo:warning=Embedded dataset saved:");
+fn generate_embedded_dataset_files(data_source: DataSource) -> Result<()> {
+    println!("cargo:info=Generating embedded dataset using data processing subcrate...");
+
+    // Generate based on configured data source
+    generate_embedded_dataset(data_source)?;
+
     println!(
-        "cargo:warning=  Admin: {} bytes ({:.1} KB)",
-        admin_size,
-        admin_size as f64 / 1024.0
+        "cargo:info=Generated embedded Rust source files in {:?}",
+        EMBEDDED_DIR.display()
     );
-    println!(
-        "cargo:warning=  Place: {} bytes ({:.1} KB)",
-        place_size,
-        place_size as f64 / 1024.0
-    );
-    println!(
-        "cargo:warning=  Total: {} bytes ({:.1} KB)",
-        total_size,
-        total_size as f64 / 1024.0
-    );
+    println!("cargo:info=Embedded data will be compiled into the binary using include_bytes!");
 
     Ok(())
 }
