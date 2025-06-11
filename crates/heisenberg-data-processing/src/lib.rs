@@ -307,12 +307,11 @@ pub fn regenerate_data(data_source: &DataSource) -> Result<(LazyFrame, LazyFrame
 
 #[cfg(test)]
 pub(crate) mod tests_utils {
-    use std::{io::Write, sync::atomic::AtomicUsize};
+    use std::io::Write;
 
     use num_traits::NumCast;
     use polars::prelude::*;
     use tempfile::NamedTempFile;
-    static TEST_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
     pub fn assert_has_columns(df: &DataFrame, expected_columns: &[&str]) {
         let actual_columns: Vec<_> = df.get_column_names().iter().map(|s| s.as_str()).collect();

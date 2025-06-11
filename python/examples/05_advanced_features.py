@@ -8,6 +8,7 @@ and advanced configuration patterns.
 """
 
 import heisenberg
+from heisenberg._internal import RustLocationSearcher, RustSearchConfigBuilder
 
 
 def main():
@@ -15,7 +16,7 @@ def main():
 
     # Create both high-level and low-level searchers
     searcher = heisenberg.LocationSearcher()
-    rust_searcher = heisenberg.Heisenberg()
+    rust_searcher = RustLocationSearcher()
 
     # 1. Direct Rust API access
     print("1. Direct Rust API Access")
@@ -36,7 +37,7 @@ def main():
             print(f"    Top result: {name or 'Unknown'} (Score: {score or 0.0:.3f})")
 
     # Search with Rust configuration
-    rust_config = heisenberg.RustSearchConfigBuilder().limit(3).build()
+    rust_config = RustSearchConfigBuilder().limit(3).build()
     config_results = rust_searcher.search_with_config(["London"], rust_config)
     print(f"  Configured search for 'London': {len(config_results)} results")
     print()

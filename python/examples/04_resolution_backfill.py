@@ -7,14 +7,14 @@ enriches location data by finding the complete administrative hierarchy
 for a given location (e.g., finding the country, state, county for a city).
 """
 
-import heisenberg
+from heisenberg._internal import RustLocationSearcher, RustSearchConfigBuilder
 
 
 def main():
     print("=== Heisenberg Resolution and Backfill Examples ===\n")
 
     # Create the Rust searcher for direct access to resolution methods
-    rust_searcher = heisenberg.Heisenberg()
+    rust_searcher = RustLocationSearcher()
 
     # 1. Basic location resolution
     print("1. Basic Location Resolution")
@@ -107,7 +107,7 @@ def main():
 
     # BasicEntry provides minimal information
     print("Using BasicEntry (minimal data):")
-    config = heisenberg.RustSearchConfigBuilder.fast().build()
+    config = RustSearchConfigBuilder.fast().build()
     basic_results = rust_searcher.resolve_location_with_config(["Paris"], config)
 
     if basic_results:
@@ -125,7 +125,7 @@ def main():
 
     # Create configuration optimized for quality
     quality_config = (
-        heisenberg.RustSearchConfigBuilder()
+        RustSearchConfigBuilder()
         .limit(5)
         .place_importance_threshold(2)  # Higher quality places only
         .comprehensive()  # Use comprehensive preset as base

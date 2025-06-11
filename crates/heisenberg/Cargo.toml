@@ -41,7 +41,6 @@ serde = ["dep:serde"]
 # Workspace dependencies
 once_cell = { workspace = true }
 polars = { workspace = true }
-tempfile = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }

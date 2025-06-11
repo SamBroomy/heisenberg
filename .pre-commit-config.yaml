@@ -43,7 +43,31 @@ repos:
 
   - repo: local
     hooks:
+      # Justfile hooks
+      - id: just-fmt
+        name: just fmt
+        entry: just --unstable --fmt
+        language: system
+        files: ^justfile$
+        stages: [pre-commit]
+        pass_filenames: false
       # Rust hooks
+      - id: cargo-machete
+        name: cargo machete
+        description: This hook runs cargo machete on the project and checks for any issues.
+        entry: cargo machete --fix
+        language: system
+        types: [rust]
+        stages: [pre-commit]
+        pass_filenames: false
+      - id: cargo-audit
+        name: cargo audit
+        description: This hook runs cargo audit on the project and fails if any vulnerabilities are found.
+        entry: cargo audit --deny unsound --deny yanked
+        language: system
+        types: [rust]
+        stages: [pre-commit]
+        pass_filenames: false
       - id: clippy
         name: cargo clippy
         description: This hook runs cargo clippy on the project and fixes any issues.
@@ -60,12 +84,11 @@ repos:
         types: [rust]
         stages: [pre-commit]
         pass_filenames: false
-
-      # Justfile hooks
-      - id: just-fmt
-        name: just fmt
-        entry: just --unstable --fmt
+      - id: rust-docs
+        name: cargo doc
+        description: This hook runs cargo doc on the project and checks for any issues.
+        entry: cargo doc --open --all-features
         language: system
-        files: ^justfile$
+        types: [rust]
         stages: [pre-commit]
         pass_filenames: false

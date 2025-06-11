@@ -9,6 +9,19 @@ and catch any breaking changes in the API.
 import pytest
 import heisenberg
 
+# Import raw Rust bindings for testing purposes
+from heisenberg._internal import (
+    RustLocationSearcher,
+    RustSearchConfig,
+    RustSearchConfigBuilder,
+    BasicEntry,
+    GenericEntry,
+    LocationContextBasic,
+    LocationContextGeneric,
+    ResolvedBasicSearchResult,
+    ResolvedGenericSearchResult,
+)
+
 
 class TestBasicFunctionality:
     """Test basic search functionality works."""
@@ -204,19 +217,19 @@ class TestRustAPIAccess:
 
     def test_rust_searcher_creation(self):
         """Test creating the direct Rust searcher."""
-        rust_searcher = heisenberg.Heisenberg()
+        rust_searcher = RustLocationSearcher()
         assert rust_searcher is not None
 
     def test_rust_search_methods(self):
         """Test direct Rust search methods."""
-        rust_searcher = heisenberg.Heisenberg()
+        rust_searcher = RustLocationSearcher()
 
         # Test basic search
         results = rust_searcher.search(["London"])
         assert isinstance(results, list)
 
         # Test search_with_config
-        config = heisenberg.RustSearchConfigBuilder().limit(5).build()
+        config = RustSearchConfigBuilder().limit(5).build()
         config_results = rust_searcher.search_with_config(["Paris"], config)
         assert isinstance(config_results, list)
 
@@ -234,14 +247,14 @@ class TestRustAPIAccess:
 
     def test_rust_resolve_methods(self):
         """Test direct Rust resolve methods."""
-        rust_searcher = heisenberg.Heisenberg()
+        rust_searcher = RustLocationSearcher()
 
         # Test resolve_location
         resolved = rust_searcher.resolve_location(["Paris"])
         assert isinstance(resolved, list)
 
         # Test resolve_location_with_config
-        config = heisenberg.RustSearchConfigBuilder().limit(3).build()
+        config = RustSearchConfigBuilder().limit(3).build()
         resolved_config = rust_searcher.resolve_location_with_config(["London"], config)
         assert isinstance(resolved_config, list)
 
@@ -259,7 +272,7 @@ class TestRustAPIAccess:
 
     def test_rust_admin_and_place_search(self):
         """Test direct Rust admin and place search methods."""
-        rust_searcher = heisenberg.Heisenberg()
+        rust_searcher = RustLocationSearcher()
 
         # Test admin_search
         admin_results = rust_searcher.admin_search("France", [0], None)
@@ -349,7 +362,7 @@ class TestRustConfigBuilder:
     def test_rust_config_builder_methods(self):
         """Test all RustSearchConfigBuilder methods."""
         config = (
-            heisenberg.RustSearchConfigBuilder()
+            RustSearchConfigBuilder()
             .limit(10)
             .place_importance_threshold(3)
             .proactive_admin_search(False)
@@ -359,19 +372,17 @@ class TestRustConfigBuilder:
             .build()
         )
 
-        assert isinstance(config, heisenberg.RustSearchConfig)
+        assert isinstance(config, RustSearchConfig)
 
     def test_rust_config_builder_presets(self):
         """Test RustSearchConfigBuilder preset methods."""
-        fast_config = heisenberg.RustSearchConfigBuilder.fast().build()
-        comprehensive_config = (
-            heisenberg.RustSearchConfigBuilder.comprehensive().build()
-        )
-        quality_config = heisenberg.RustSearchConfigBuilder.quality_places().build()
+        fast_config = RustSearchConfigBuilder.fast().build()
+        comprehensive_config = RustSearchConfigBuilder.comprehensive().build()
+        quality_config = RustSearchConfigBuilder.quality_places().build()
 
-        assert isinstance(fast_config, heisenberg.RustSearchConfig)
-        assert isinstance(comprehensive_config, heisenberg.RustSearchConfig)
-        assert isinstance(quality_config, heisenberg.RustSearchConfig)
+        assert isinstance(fast_config, RustSearchConfig)
+        assert isinstance(comprehensive_config, RustSearchConfig)
+        assert isinstance(quality_config, RustSearchConfig)
 
 
 class TestEntryTypes:
@@ -379,17 +390,24 @@ class TestEntryTypes:
 
     def test_basic_entry_functionality(self):
         """Test BasicEntry methods and attributes."""
-        # We can't easily create these directly, but we can test they exist
-        assert hasattr(heisenberg, "BasicEntry")
+        # BasicEntry should NOT be available in main heisenberg module
+        assert not hasattr(heisenberg, "BasicEntry")
+
+        # But should be available via _internal import
+        assert BasicEntry is not None
 
         # Test that BasicEntry has expected attributes
         basic_entry_attrs = ["geoname_id", "name"]
         for attr in basic_entry_attrs:
-            assert hasattr(heisenberg.BasicEntry, attr)
+            assert hasattr(BasicEntry, attr)
 
     def test_generic_entry_functionality(self):
         """Test GenericEntry methods and attributes."""
-        assert hasattr(heisenberg, "GenericEntry")
+        # GenericEntry should NOT be available in main heisenberg module
+        assert not hasattr(heisenberg, "GenericEntry")
+
+        # But should be available via _internal import
+        assert GenericEntry is not None
 
         # Test that GenericEntry has expected attributes
         generic_entry_attrs = [
@@ -406,17 +424,27 @@ class TestEntryTypes:
             "population",
         ]
         for attr in generic_entry_attrs:
-            assert hasattr(heisenberg.GenericEntry, attr)
+            assert hasattr(GenericEntry, attr)
 
     def test_location_context_types(self):
         """Test LocationContext types exist."""
-        assert hasattr(heisenberg, "LocationContextBasic")
-        assert hasattr(heisenberg, "LocationContextGeneric")
+        # LocationContext types should NOT be available in main heisenberg module
+        assert not hasattr(heisenberg, "LocationContextBasic")
+        assert not hasattr(heisenberg, "LocationContextGeneric")
+
+        # But should be available via _internal import
+        assert LocationContextBasic is not None
+        assert LocationContextGeneric is not None
 
     def test_resolved_search_result_types(self):
         """Test ResolvedSearchResult types exist."""
-        assert hasattr(heisenberg, "ResolvedBasicSearchResult")
-        assert hasattr(heisenberg, "ResolvedGenericSearchResult")
+        # ResolvedSearchResult types should NOT be available in main heisenberg module
+        assert not hasattr(heisenberg, "ResolvedBasicSearchResult")
+        assert not hasattr(heisenberg, "ResolvedGenericSearchResult")
+
+        # But should be available via _internal import
+        assert ResolvedBasicSearchResult is not None
+        assert ResolvedGenericSearchResult is not None
 
 
 class TestResolvedSearchResultProperties:
@@ -429,7 +457,7 @@ class TestResolvedSearchResultProperties:
     def test_resolved_search_result_properties(self, searcher):
         """Test ResolvedSearchResult context and score properties."""
         # Get raw resolved results to test properties
-        rust_searcher = heisenberg.Heisenberg()
+        rust_searcher = RustLocationSearcher()
         resolved_results = rust_searcher.resolve_location(["London"])
 
         if resolved_results:
@@ -450,7 +478,7 @@ class TestResolvedSearchResultProperties:
 
     def test_location_context_admin_properties(self, searcher):
         """Test LocationContext admin level properties."""
-        rust_searcher = heisenberg.Heisenberg()
+        rust_searcher = RustLocationSearcher()
         resolved_results = rust_searcher.resolve_location(["London"])
 
         if resolved_results:
@@ -464,7 +492,7 @@ class TestResolvedSearchResultProperties:
 
     def test_resolved_result_methods(self, searcher):
         """Test ResolvedSearchResult methods."""
-        rust_searcher = heisenberg.Heisenberg()
+        rust_searcher = RustLocationSearcher()
         resolved_results = rust_searcher.resolve_location(["Paris"])
 
         if resolved_results:
