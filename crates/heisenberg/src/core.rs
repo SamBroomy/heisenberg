@@ -10,7 +10,7 @@
 //! use heisenberg::LocationSearcher;
 //!
 //! // Create a searcher (will build indexes on first run)
-//! let searcher = LocationSearcher::new(false)?;
+//! let searcher = LocationSearcher::new_embedded()?;
 //!
 //! // Simple search
 //! let results = searcher.search(&["London"])?;
@@ -69,7 +69,7 @@ pub struct ResolveSearchConfig {
 /// ```rust
 /// use heisenberg::LocationSearcher;
 ///
-/// let searcher = LocationSearcher::new(false)?;
+/// let searcher = LocationSearcher::new_embedded()?;
 /// let results = searcher.search(&["Tokyo", "Japan"])?;
 /// println!("Found {} search results", results.len());
 /// # Ok::<(), heisenberg::error::HeisenbergError>(())
@@ -84,7 +84,7 @@ pub struct ResolveSearchConfig {
 ///     .place_importance_threshold(2)
 ///     .build();
 ///
-/// let searcher = LocationSearcher::new(false)?;
+/// let searcher = LocationSearcher::new_embedded()?;
 /// let results = searcher.search_with_config(&["Berlin"], &config)?;
 /// # Ok::<(), heisenberg::error::HeisenbergError>(())
 /// ```
@@ -310,7 +310,7 @@ impl LocationSearcher {
     /// use heisenberg::{DataSource, LocationSearcher};
     ///
     /// // Legacy API (backward compatible)
-    /// let searcher = LocationSearcher::new(DataSource::Cities15000, false)?;
+    /// let searcher = LocationSearcher::initialize(DataSource::Cities15000)?;
     /// # Ok::<(), heisenberg::error::HeisenbergError>(())
     /// ```
     #[instrument(name = "Initialize LocationSearcher (Legacy)", level = "info")]
@@ -371,7 +371,7 @@ impl LocationSearcher {
     /// ```rust
     /// use heisenberg::{AdminSearchParams, LocationSearcher};
     ///
-    /// let searcher = LocationSearcher::new(false)?;
+    /// let searcher = LocationSearcher::new_embedded()?;
     ///
     /// // Search for countries
     /// let countries = searcher.admin_search("France", &[0], None, &AdminSearchParams::default())?;
@@ -421,7 +421,7 @@ impl LocationSearcher {
     /// ```rust
     /// use heisenberg::{LocationSearcher, PlaceSearchParams};
     ///
-    /// let searcher = LocationSearcher::new(false)?;
+    /// let searcher = LocationSearcher::new_embedded()?;
     /// let places = searcher.place_search("Tokyo", None, &PlaceSearchParams::default())?;
     ///
     /// if let Some(results) = places {

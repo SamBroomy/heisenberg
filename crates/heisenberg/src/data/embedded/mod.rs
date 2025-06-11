@@ -3,7 +3,7 @@ use std::sync::OnceLock;
 
 use bytes::Bytes;
 use heisenberg_data_processing::{embedded::EmbeddedMetadata, embedded_file_paths};
-use polars::prelude::*;
+use polars::{io::HiveOptions, prelude::*};
 
 use super::error::{HeisenbergDataError, Result};
 
@@ -56,5 +56,13 @@ pub(crate) fn load_embedded_place_search_data() -> Result<LazyFrame> {
 fn load_embedded_data(data: &'static [u8]) -> Result<LazyFrame> {
     let bytes = Bytes::from_static(data);
     let source = ScanSource::Buffer(bytes.into()).into_sources();
-    LazyFrame::scan_parquet_sources(source, Default::default()).map_err(From::from)
+
+    LazyFrame::scan_parquet_sources(
+        source,
+        ScanArgsParquet {
+            hive_options: HiveOptions::new_disabled(),
+            ..Default::default()
+        },
+    )
+    .map_err(From::from)
 }

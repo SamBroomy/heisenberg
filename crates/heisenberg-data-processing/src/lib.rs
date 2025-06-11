@@ -100,7 +100,7 @@ impl FromStr for DataSource {
             "cities1000" => Ok(Self::Cities1000),
             "cities500" => Ok(Self::Cities500),
             "allcountries" => Ok(Self::AllCountries),
-            "test_data" => Ok(Self::TestData),
+            "test_data" | "test" => Ok(Self::TestData),
             _ => Err(format!(
                 "Invalid DataSource: {s}. Valid options are: cities15000, cities5000, cities1000, cities500, allCountries, test_data"
             )),
@@ -108,34 +108,58 @@ impl FromStr for DataSource {
     }
 }
 
+static TEST_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+static TEST_DIR: LazyLock<tempfile::TempDir> =
+    LazyLock::new(|| tempfile::tempdir().expect("Failed to create temporary test directory"));
+
 /// Get the default data directory based on environment and platform
 fn get_default_data_dir() -> PathBuf {
-    // 1. Check for explicit override
-    if let Ok(data_dir) = std::env::var("HEISENBERG_DATA_DIR") {
-        return PathBuf::from(data_dir);
+    // Check if we're in a doctest environment
+    if std::env::var("CARGO_TARGET_TMPDIR").is_ok() {
+        // In doctests, create a unique directory
+        let test_id = TEST_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        return TEST_DIR
+            .path()
+            .join(format!("heisenberg_doctest_{test_id}"));
     }
-
-    // 2. Check for workspace root via environment (set by build scripts)
-    if let Ok(workspace_root) = std::env::var("CARGO_WORKSPACE_DIR") {
-        return PathBuf::from(workspace_root).join(DATA_DIR_DEFAULT);
-    }
-
-    // 3. Development detection
-    if std::env::var("CARGO_PKG_NAME").is_ok() {
-        // We're being built by cargo, use relative to workspace
-        return PathBuf::from(format!("../../{DATA_DIR_DEFAULT}"));
-    }
-
-    // 4. Production: use system directories
-    #[cfg(feature = "system-dirs")]
+    #[cfg(any(test, doctest))]
     {
-        if let Some(proj_dirs) = directories::ProjectDirs::from("com", "yourorg", "heisenberg") {
-            return proj_dirs.cache_dir().to_path_buf();
-        }
+        TEST_DIR.path().to_path_buf().join(format!(
+            "heisenberg_data_test_{}",
+            TEST_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        ))
     }
+    #[cfg(not(any(test, doctest)))]
+    {
+        // 1. Check for explicit override
+        if let Ok(data_dir) = std::env::var("HEISENBERG_DATA_DIR") {
+            return PathBuf::from(data_dir);
+        }
 
-    // 5. Final fallback
-    PathBuf::from(format!("./{DATA_DIR_DEFAULT}"))
+        // 2. Check for workspace root via environment (set by build scripts)
+        if let Ok(workspace_root) = std::env::var("CARGO_WORKSPACE_DIR") {
+            return PathBuf::from(workspace_root).join(DATA_DIR_DEFAULT);
+        }
+
+        // 3. Development detection
+        if std::env::var("CARGO_PKG_NAME").is_ok() {
+            // We're being built by cargo, use relative to workspace
+            return PathBuf::from(format!("../../{DATA_DIR_DEFAULT}"));
+        }
+
+        // 4. Production: use system directories
+        #[cfg(feature = "system-dirs")]
+        {
+            if let Some(proj_dirs) = directories::ProjectDirs::from("com", "yourorg", "heisenberg")
+            {
+                return proj_dirs.cache_dir().to_path_buf();
+            }
+        }
+
+        // 5. Final fallback
+        PathBuf::from(format!("./{DATA_DIR_DEFAULT}"))
+    }
 }
 
 fn load_single_parquet_file(path: &Path) -> Result<LazyFrame> {
@@ -283,20 +307,19 @@ pub fn regenerate_data(data_source: &DataSource) -> Result<(LazyFrame, LazyFrame
 
 #[cfg(test)]
 pub(crate) mod tests_utils {
-    use std::io::Write;
+    use std::{io::Write, sync::atomic::AtomicUsize};
 
     use num_traits::NumCast;
     use polars::prelude::*;
     use tempfile::NamedTempFile;
+    static TEST_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
     pub fn assert_has_columns(df: &DataFrame, expected_columns: &[&str]) {
         let actual_columns: Vec<_> = df.get_column_names().iter().map(|s| s.as_str()).collect();
         for expected_col in expected_columns {
             assert!(
                 actual_columns.contains(expected_col),
-                "Missing column: {}. Available columns: {:?}",
-                expected_col,
-                actual_columns
+                "Missing column: {expected_col}. Available columns: {actual_columns:?}"
             );
         }
     }
@@ -304,24 +327,22 @@ pub(crate) mod tests_utils {
     pub fn assert_column_type(df: &DataFrame, column: &str, expected_type: &DataType) {
         let actual_type = df
             .column(column)
-            .unwrap_or_else(|_| panic!("Column '{}' not found", column))
+            .unwrap_or_else(|_| panic!("Column '{column}' not found"))
             .dtype();
         assert_eq!(
             actual_type, expected_type,
-            "Column '{}' has wrong type. Expected: {:?}, Got: {:?}",
-            column, expected_type, actual_type
+            "Column '{column}' has wrong type. Expected: {expected_type:?}, Got: {actual_type:?}"
         );
     }
 
     pub fn assert_no_nulls_in_column(df: &DataFrame, column: &str) {
         let null_count = df
             .column(column)
-            .unwrap_or_else(|_| panic!("Column '{}' not found", column))
+            .unwrap_or_else(|_| panic!("Column '{column}' not found"))
             .null_count();
         assert_eq!(
             null_count, 0,
-            "Column '{}' contains {} null values",
-            column, null_count
+            "Column '{column}' contains {null_count} null values"
         );
     }
 
@@ -331,7 +352,7 @@ pub(crate) mod tests_utils {
     {
         let series = df
             .column(column)
-            .unwrap_or_else(|_| panic!("Column '{}' not found", column));
+            .unwrap_or_else(|_| panic!("Column '{column}' not found"));
 
         if let (Ok(min_actual), Ok(max_actual)) = (
             series
@@ -343,17 +364,11 @@ pub(crate) mod tests_utils {
         ) {
             assert!(
                 min_actual >= min_val,
-                "Column '{}' min value {:?} is below expected minimum {:?}",
-                column,
-                min_actual,
-                min_val
+                "Column '{column}' min value {min_actual:?} is below expected minimum {min_val:?}"
             );
             assert!(
                 max_actual <= max_val,
-                "Column '{}' max value {:?} is above expected maximum {:?}",
-                column,
-                max_actual,
-                max_val
+                "Column '{column}' max value {max_actual:?} is above expected maximum {max_val:?}"
             );
         }
     }
@@ -370,7 +385,7 @@ pub(crate) mod tests_utils {
     pub fn create_test_country_info_file() -> NamedTempFile {
         let mut file = NamedTempFile::new().unwrap();
         for i in 1..=51 {
-            writeln!(file, "# Header line {}", i).unwrap();
+            writeln!(file, "# Header line {i}").unwrap();
         }
         writeln!(file, "US\tUSA\t840\tUS\tUnited States\tWashington\t9629091\t331002651\tNA\t.us\tUSD\tDollar\t1\t#####-####\t^\\d{{5}}(-\\d{{4}})?$\ten-US,es-US,haw,fr\t6252001\tCA,MX\t").unwrap();
         file.flush().unwrap();

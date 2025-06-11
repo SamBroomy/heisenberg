@@ -8,7 +8,6 @@ repository = "https://github.com/SamBroomy/heisenberg"
 homepage = "https://github.com/SamBroomy/heisenberg"
 readme = "../../readme.md"
 description = "Backfill and enrich unstructured location data into structured data using the Geonames Dataset."
-include = ["src/data/embedded/*.parquet", "src/data/embedded/*.json"]
 categories = ["science::geo"]
 keywords = [
     "geonames",

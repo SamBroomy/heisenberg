@@ -6,10 +6,9 @@
 !**/*.rs
 !justfile
 /target
-!**/*.py
-!readme.md
+!/python/*.py
 !LICENSE
-!sql/*.sql
 !rust-toolchain.toml
 !rustfmt.toml
-!*.md
+!README.md
+!.pre-commit-config.yaml

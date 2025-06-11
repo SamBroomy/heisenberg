@@ -9,8 +9,8 @@
 //! ```rust
 //! use heisenberg::{GenericEntry, LocationEntryCore, LocationSearcher};
 //!
-//! // Create a searcher (downloads data on first run)
-//! let searcher = LocationSearcher::new(false)?;
+//! // Create a searcher using embedded data
+//! let searcher = LocationSearcher::new_embedded()?;
 //!
 //! // Simple search
 //! let results = searcher.search(&["Tokyo"])?;
@@ -61,16 +61,18 @@ mod search;
 
 // Re-export data processing from subcrate
 pub use heisenberg_data_processing as data_processing;
+pub use heisenberg_data_processing::DataSource;
 
 pub extern crate polars;
-pub use core::{LocationSearcher, ResolveSearchConfig};
+pub use core::{LocationSearcher, LocationSearcherBuilder, ResolveSearchConfig};
 
 pub use backfill::{
     BasicEntry, GenericEntry, LocationContext, LocationEntry, LocationEntryCore, ResolveConfig,
     ResolvedSearchResult,
 };
 pub use config::SearchConfigBuilder;
-pub use index::FTSIndexSearchParams;
+pub use data::LocationSearchData;
+pub use index::{FTSIndexSearchParams, LocationSearchIndex};
 pub use search::{
     AdminFrame, AdminSearchParams, PlaceFrame, PlaceSearchParams, SearchConfig, SearchResult,
     SearchScoreAdminParams, SearchScorePlaceParams,
@@ -79,7 +81,7 @@ pub use search::{
 #[cfg(feature = "python")]
 pub mod python;
 
-static PLACES_DF_CACHE: OnceCell<()> = OnceCell::new();
+static LOGGER_INIT: OnceCell<()> = OnceCell::new();
 
 /// Initialize logging for the Heisenberg library.
 ///
@@ -102,7 +104,7 @@ static PLACES_DF_CACHE: OnceCell<()> = OnceCell::new();
 /// # Ok::<(), heisenberg::error::HeisenbergError>(())
 /// ```
 pub fn init_logging(level: impl Into<LevelFilter>) -> Result<&'static (), error::HeisenbergError> {
-    PLACES_DF_CACHE.get_or_try_init(|| {
+    LOGGER_INIT.get_or_try_init(|| {
         let filter = EnvFilter::try_from_default_env()
             .or_else(|_| EnvFilter::try_new(level.into().to_string()))?
             .add_directive("tantivy=warn".parse().unwrap())
@@ -165,7 +167,7 @@ mod tests {
         let results = searcher.search(&["New York", "USA"]);
 
         assert!(results.is_ok(), "Multi-term search should work");
-        let results = results.unwrap();
+        let _results = results.unwrap();
         // Results may be empty if search is too specific, but shouldn't error
     }
 

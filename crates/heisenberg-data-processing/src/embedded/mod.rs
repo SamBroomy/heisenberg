@@ -45,11 +45,10 @@ pub fn generate_embedded_dataset(data_source: DataSource) -> Result<()> {
         crate::raw::fetch::download_data(&data_source)
             .and_then(|temp_files| embed_data(&temp_files, data_source))
     }
-
     #[cfg(not(feature = "download_data"))]
     {
         tracing::warn!("download_data feature not enabled, falling back to test data");
-        Self::generate_test_data_rust_code(output_dir)
+        return generate_test_data_rust_code();
     }
 }
 

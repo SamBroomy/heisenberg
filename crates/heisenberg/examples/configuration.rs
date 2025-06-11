@@ -6,7 +6,8 @@
 use heisenberg::{LocationSearcher, SearchConfig, SearchConfigBuilder};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let searcher = LocationSearcher::new(false)?;
+    // Use embedded data for fast startup
+    let searcher = LocationSearcher::new_embedded()?;
     let query = &["Cambridge"];
 
     println!("Comparing different search configurations for 'Cambridge':\n");
@@ -143,18 +144,19 @@ fn demonstrate_advanced_config() -> SearchConfig {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
-    use std::env;
 
     fn setup_test_env() {
-        unsafe {
-            env::set_var("USE_TEST_DATA", "true");
-        }
+        let _ = heisenberg::init_logging(tracing::Level::WARN);
     }
 
     #[test]
     fn test_configuration_example() {
         setup_test_env();
-        assert!(main().is_ok(), "Configuration example should run successfully");
+        assert!(
+            main().is_ok(),
+            "Configuration example should run successfully"
+        );
     }
 }

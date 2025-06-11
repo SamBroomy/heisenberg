@@ -8,7 +8,7 @@ use heisenberg::{AdminSearchParams, LocationSearcher};
 use polars::prelude::DataFrame;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let searcher = LocationSearcher::new(false)?;
+    let searcher = LocationSearcher::new_embedded()?;
 
     // Search for a country (admin level 0)
     println!("Searching for country 'United States':");
@@ -101,7 +101,7 @@ fn print_admin_result(df: &DataFrame) -> Result<(), Box<dyn std::error::Error>> 
     if !available_columns.is_empty() {
         let subset = df.select(available_columns)?;
         let preview = subset.head(Some(3));
-        println!("      Preview: {}", preview);
+        println!("      Preview: {preview}");
     }
 
     Ok(())
@@ -109,18 +109,20 @@ fn print_admin_result(df: &DataFrame) -> Result<(), Box<dyn std::error::Error>> 
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::env;
 
+    use super::*;
+
     fn setup_test_env() {
-        unsafe {
-            env::set_var("USE_TEST_DATA", "true");
-        }
+        let _ = heisenberg::init_logging(tracing::Level::WARN);
     }
 
     #[test]
     fn test_administrative_search_example() {
         setup_test_env();
-        assert!(main().is_ok(), "Administrative search example should run successfully");
+        assert!(
+            main().is_ok(),
+            "Administrative search example should run successfully"
+        );
     }
 }

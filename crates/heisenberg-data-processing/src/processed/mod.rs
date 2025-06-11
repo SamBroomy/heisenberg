@@ -190,12 +190,12 @@ mod tests {
             .collect()
             .unwrap();
         println!("After filter: {} rows", after_filter.height());
-        println!("After filter data: {:?}", after_filter);
+        println!("After filter data: {after_filter:?}");
 
         // Debug: Check if feature_codes parsing is working
         let feature_codes_df = feature_codes_lf.clone().collect().unwrap();
         println!("Feature codes data: {} rows", feature_codes_df.height());
-        println!("Feature codes: {:?}", feature_codes_df);
+        println!("Feature codes: {feature_codes_df:?}");
 
         // Debug the actual transformation - run it but collect intermediate steps
         let result = create_place_search::get_place_search_lf(
@@ -208,7 +208,7 @@ mod tests {
         let df = result.collect().unwrap();
         println!("Final result: {} rows", df.height());
         if df.height() > 0 {
-            println!("Final data: {:?}", df);
+            println!("Final data: {df:?}");
         }
 
         // Test that transformation worked

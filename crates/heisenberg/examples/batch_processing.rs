@@ -4,22 +4,23 @@
 //! efficiently using batch operations, which are significantly faster
 //! than processing queries individually.
 
-use heisenberg::{GenericEntry, LocationEntryCore, LocationSearcher, SearchConfigBuilder};
 use std::time::Instant;
 
+use heisenberg::{GenericEntry, LocationEntryCore, LocationSearcher, SearchConfigBuilder};
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let searcher = LocationSearcher::new(false)?;
+    let searcher = LocationSearcher::new_embedded()?;
 
     // Define multiple queries to process
     let queries = vec![
-        vec!["London", "UK"],
-        vec!["Paris", "France"],
-        vec!["Tokyo", "Japan"],
-        vec!["New York", "USA"],
-        vec!["Berlin", "Germany"],
-        vec!["Sydney", "Australia"],
-        vec!["Toronto", "Canada"],
-        vec!["Rome", "Italy"],
+        vec!["UK", "London"],
+        vec!["France", "Paris"],
+        vec!["Japan", "Tokyo"],
+        vec!["USA", "New York"],
+        vec!["Germany", "Berlin"],
+        vec!["Australia", "Sydney"],
+        vec!["Canada", "Toronto"],
+        vec!["Italy", "Rome"],
     ];
 
     println!("Processing {} queries...", queries.len());
@@ -70,7 +71,7 @@ fn compare_performance(
 
     if individual_time > batch_time {
         let speedup = individual_time.as_secs_f32() / batch_time.as_secs_f32();
-        println!("  Speedup:    {:.1}x faster", speedup);
+        println!("  Speedup:    {speedup:.1}x faster");
     }
 
     // Verify results are equivalent
@@ -148,18 +149,20 @@ fn build_hierarchy_string(context: &heisenberg::LocationContext<GenericEntry>) -
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::env;
 
+    use super::*;
+
     fn setup_test_env() {
-        unsafe {
-            env::set_var("USE_TEST_DATA", "true");
-        }
+        let _ = heisenberg::init_logging(tracing::Level::WARN);
     }
 
     #[test]
     fn test_batch_processing_example() {
         setup_test_env();
-        assert!(main().is_ok(), "Batch processing example should run successfully");
+        assert!(
+            main().is_ok(),
+            "Batch processing example should run successfully"
+        );
     }
 }

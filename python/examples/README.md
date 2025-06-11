@@ -6,7 +6,7 @@ This directory contains comprehensive examples demonstrating the various feature
 
 ### 1. Basic Usage (`01_basic_usage.py`)
 - Creating a LocationSearcher
-- Simple location searches  
+- Simple location searches
 - Working with search results
 - Using convenience functions
 - Accessing result attributes and methods
@@ -56,7 +56,7 @@ This directory contains comprehensive examples demonstrating the various feature
    ```bash
    pip install heisenberg
    ```
-   
+
    Or for development:
    ```bash
    maturin develop --features python
@@ -73,7 +73,7 @@ This directory contains comprehensive examples demonstrating the various feature
 
 ### Configuration Options
 - **Fast**: Optimized for speed, fewer results
-- **Comprehensive**: Optimized for accuracy, more results  
+- **Comprehensive**: Optimized for accuracy, more results
 - **Quality Places**: Focus on important places and landmarks
 - **Custom**: Build your own configuration with specific parameters
 

@@ -9,21 +9,17 @@ and catch any breaking changes in the API.
 import pytest
 import heisenberg
 
-import os
-
-os.environ["USE_TEST_DATA"] = "true"
-
 
 class TestBasicFunctionality:
     """Test basic search functionality works."""
 
     @pytest.fixture
     def searcher(self):
-        return heisenberg.LocationSearcher(rebuild_indexes=True)
+        return heisenberg.LocationSearcher()
 
     def test_searcher_creation(self):
         """Test that LocationSearcher can be created."""
-        searcher = heisenberg.LocationSearcher(rebuild_indexes=True)
+        searcher = heisenberg.LocationSearcher()
         assert searcher is not None
 
     def test_simple_search(self, searcher):
@@ -208,12 +204,12 @@ class TestRustAPIAccess:
 
     def test_rust_searcher_creation(self):
         """Test creating the direct Rust searcher."""
-        rust_searcher = heisenberg.Heisenberg(overwrite_indexes=False)
+        rust_searcher = heisenberg.Heisenberg()
         assert rust_searcher is not None
 
     def test_rust_search_methods(self):
         """Test direct Rust search methods."""
-        rust_searcher = heisenberg.Heisenberg(overwrite_indexes=False)
+        rust_searcher = heisenberg.Heisenberg()
 
         # Test basic search
         results = rust_searcher.search(["London"])
@@ -238,7 +234,7 @@ class TestRustAPIAccess:
 
     def test_rust_resolve_methods(self):
         """Test direct Rust resolve methods."""
-        rust_searcher = heisenberg.Heisenberg(overwrite_indexes=False)
+        rust_searcher = heisenberg.Heisenberg()
 
         # Test resolve_location
         resolved = rust_searcher.resolve_location(["Paris"])
@@ -263,7 +259,7 @@ class TestRustAPIAccess:
 
     def test_rust_admin_and_place_search(self):
         """Test direct Rust admin and place search methods."""
-        rust_searcher = heisenberg.Heisenberg(overwrite_indexes=False)
+        rust_searcher = heisenberg.Heisenberg()
 
         # Test admin_search
         admin_results = rust_searcher.admin_search("France", [0], None)
@@ -433,7 +429,7 @@ class TestResolvedSearchResultProperties:
     def test_resolved_search_result_properties(self, searcher):
         """Test ResolvedSearchResult context and score properties."""
         # Get raw resolved results to test properties
-        rust_searcher = heisenberg.Heisenberg(overwrite_indexes=False)
+        rust_searcher = heisenberg.Heisenberg()
         resolved_results = rust_searcher.resolve_location(["London"])
 
         if resolved_results:
@@ -454,7 +450,7 @@ class TestResolvedSearchResultProperties:
 
     def test_location_context_admin_properties(self, searcher):
         """Test LocationContext admin level properties."""
-        rust_searcher = heisenberg.Heisenberg(overwrite_indexes=False)
+        rust_searcher = heisenberg.Heisenberg()
         resolved_results = rust_searcher.resolve_location(["London"])
 
         if resolved_results:
@@ -468,7 +464,7 @@ class TestResolvedSearchResultProperties:
 
     def test_resolved_result_methods(self, searcher):
         """Test ResolvedSearchResult methods."""
-        rust_searcher = heisenberg.Heisenberg(overwrite_indexes=False)
+        rust_searcher = heisenberg.Heisenberg()
         resolved_results = rust_searcher.resolve_location(["Paris"])
 
         if resolved_results:

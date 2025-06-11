@@ -38,7 +38,7 @@ const MAX_ADMIN_LEVELS: usize = 5; // Admin levels 0 through 4
 /// ```rust
 /// use heisenberg::{LocationSearcher, SearchResult};
 ///
-/// let searcher = LocationSearcher::new(false)?;
+/// let searcher = LocationSearcher::new_embedded()?;
 /// let results = searcher.search(&["Tokyo"])?;
 ///
 /// for result in results {

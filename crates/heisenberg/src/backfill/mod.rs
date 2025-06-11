@@ -31,7 +31,7 @@ pub use resolve::{
 /// ```rust
 /// use heisenberg::{GenericEntry, LocationEntryCore, LocationSearcher};
 ///
-/// let searcher = LocationSearcher::new(false)?;
+/// let searcher = LocationSearcher::new_embedded()?;
 /// let results = searcher.resolve_location::<_, GenericEntry>(&["Paris", "France"])?;
 ///
 /// if let Some(result) = results.first() {
@@ -128,7 +128,7 @@ impl<E: LocationEntry> LocationContext<E> {
 /// ```rust
 /// use heisenberg::{GenericEntry, LocationEntryCore, LocationSearcher};
 ///
-/// let searcher = LocationSearcher::new(false)?;
+/// let searcher = LocationSearcher::new_embedded()?;
 /// let results = searcher.resolve_location::<_, GenericEntry>(&["Berlin", "Germany"])?;
 ///
 /// for result in results {

@@ -5,14 +5,10 @@
 //! for faster execution.
 
 use heisenberg::{
-    BasicEntry, GenericEntry, LocationEntryCore, LocationSearcher, SearchConfigBuilder,
+    BasicEntry, GenericEntry, LocationEntryCore, LocationSearcher, SearchConfigBuilder, DataSource,
 };
-use std::env;
 
 fn setup_test_env() {
-    unsafe {
-        env::set_var("USE_TEST_DATA", "true");
-    }
     let _ = heisenberg::init_logging(tracing::Level::WARN);
 }
 
@@ -21,7 +17,7 @@ fn test_full_workflow() {
     setup_test_env();
 
     // Test the complete workflow from search to resolution
-    let searcher = LocationSearcher::new(false).expect("Should create searcher");
+    let searcher = LocationSearcher::new_embedded().expect("Should create searcher");
 
     // 1. Basic search
     let search_results = searcher
@@ -72,7 +68,7 @@ fn test_full_workflow() {
 fn test_batch_operations() {
     setup_test_env();
 
-    let searcher = LocationSearcher::new(false).expect("Should create searcher");
+    let searcher = LocationSearcher::new_embedded().expect("Should create searcher");
 
     // Test batch search
     let queries = vec![
@@ -119,7 +115,7 @@ fn test_batch_operations() {
 fn test_configuration_presets() {
     setup_test_env();
 
-    let searcher = LocationSearcher::new(false).expect("Should create searcher");
+    let searcher = LocationSearcher::new_embedded().expect("Should create searcher");
 
     // Test all preset configurations
     let configs = vec![
@@ -152,7 +148,7 @@ fn test_configuration_presets() {
 fn test_error_handling() {
     setup_test_env();
 
-    let searcher = LocationSearcher::new(false).expect("Should create searcher");
+    let searcher = LocationSearcher::new_embedded().expect("Should create searcher");
 
     // Test various edge cases that should not panic
     let long_string = "a".repeat(1000);
@@ -186,7 +182,7 @@ fn test_error_handling() {
 fn test_search_result_properties() {
     setup_test_env();
 
-    let searcher = LocationSearcher::new(false).expect("Should create searcher");
+    let searcher = LocationSearcher::new_embedded().expect("Should create searcher");
     let results = searcher
         .search(&["United States"])
         .expect("Search should work");
@@ -229,7 +225,7 @@ fn test_search_result_properties() {
 fn test_resolution_context() {
     setup_test_env();
 
-    let searcher = LocationSearcher::new(false).expect("Should create searcher");
+    let searcher = LocationSearcher::new_embedded().expect("Should create searcher");
 
     // Test resolution with multi-term query for better context
     let resolved = searcher
@@ -281,7 +277,7 @@ fn test_resolution_context() {
 fn test_custom_configuration() {
     setup_test_env();
 
-    let searcher = LocationSearcher::new(false).expect("Should create searcher");
+    let searcher = LocationSearcher::new_embedded().expect("Should create searcher");
 
     // Test custom configuration building
     let custom_config = SearchConfigBuilder::new()
@@ -311,7 +307,7 @@ fn test_custom_configuration() {
 fn test_concurrent_access() {
     setup_test_env();
 
-    let searcher = LocationSearcher::new(false).expect("Should create searcher");
+    let searcher = LocationSearcher::new_embedded().expect("Should create searcher");
 
     // Test that the searcher can be used concurrently
     use std::sync::Arc;
@@ -342,4 +338,52 @@ fn test_concurrent_access() {
         .collect();
 
     assert_eq!(all_results.len(), 3, "Should have results from all threads");
+}
+
+#[test]
+fn test_constructor_patterns() {
+    setup_test_env();
+
+    // Test 1: new_embedded (should always work with test data)
+    let embedded_searcher = LocationSearcher::new_embedded().expect("Embedded searcher should work");
+    let results = embedded_searcher.search(&["United States"]).expect("Search should work");
+    assert!(!results.is_empty(), "Embedded searcher should find results");
+
+    // Test 2: initialize with test data source
+    let smart_searcher = LocationSearcher::initialize(DataSource::TestData).expect("Smart initialization should work");
+    let results = smart_searcher.search(&["California"]).expect("Search should work");
+    // Note: results might be empty for test data, but the call should succeed
+
+    // Test 3: load_existing (might return None, but should not error)
+    let existing_result = LocationSearcher::load_existing(DataSource::TestData).expect("Load existing should not error");
+    match existing_result {
+        Some(existing_searcher) => {
+            let results = existing_searcher.search(&["San Francisco"]).expect("Search should work");
+            println!("Found existing searcher with {} results for San Francisco", results.len());
+        }
+        None => {
+            println!("No existing searcher found for TestData (expected)");
+        }
+    }
+
+    // Test 4: new_with_fresh_indexes (should work but might take longer)
+    let fresh_searcher = LocationSearcher::new_with_fresh_indexes(DataSource::TestData).expect("Fresh searcher should work");
+    let results = fresh_searcher.search(&["United States"]).expect("Search should work");
+    // Note: results might be empty for test data, but the call should succeed
+}
+
+#[test]
+fn test_data_source_enum() {
+    // Test DataSource functionality
+    assert_eq!(DataSource::default(), DataSource::Cities15000);
+
+    // Test string conversion
+    assert_eq!(DataSource::Cities15000.to_string(), "cities15000");
+    assert_eq!(DataSource::TestData.to_string(), "test_data");
+
+    // Test parsing from string
+    use std::str::FromStr;
+    assert_eq!(DataSource::from_str("cities15000").unwrap(), DataSource::Cities15000);
+    assert_eq!(DataSource::from_str("test_data").unwrap(), DataSource::TestData);
+    assert!(DataSource::from_str("invalid").is_err());
 }

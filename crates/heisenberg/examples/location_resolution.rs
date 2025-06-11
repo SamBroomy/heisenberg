@@ -6,7 +6,7 @@
 use heisenberg::{BasicEntry, GenericEntry, LocationEntryCore, LocationSearcher};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let searcher = LocationSearcher::new(false)?;
+    let searcher = LocationSearcher::new_embedded()?;
 
     // Resolve location with minimal data (BasicEntry)
     println!("Basic resolution for 'Tokyo':");
@@ -17,9 +17,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Resolve location with full data (GenericEntry)
-    println!("\nFull resolution for ['San Francisco', 'California']:");
+    println!("\nFull resolution for ['California','San Francisco']:");
+
     let full_results =
-        searcher.resolve_location::<_, GenericEntry>(&["San Francisco", "California"])?;
+        searcher.resolve_location::<_, GenericEntry>(&["California", "San Francisco"])?;
     for (i, result) in full_results.iter().take(2).enumerate() {
         println!("  {}. Score: {:.3}", i + 1, result.score);
         print_full_context(&result.context);
@@ -28,9 +29,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Batch resolution for multiple locations
     println!("\nBatch resolution:");
     let queries = vec![
-        vec!["Berlin", "Germany"],
-        vec!["Toronto", "Canada"],
-        vec!["Sydney", "Australia"],
+        vec!["Germany", "Berlin"],
+        vec!["Canada", "Toronto"],
+        vec!["Australia", "Sydney"],
     ];
 
     let batch_results = searcher.resolve_location_batch::<BasicEntry, _, _>(&queries)?;
@@ -79,7 +80,7 @@ fn print_full_context(context: &heisenberg::LocationContext<GenericEntry>) {
     }
     if let Some(place) = &context.place {
         let coords = if let (Some(lat), Some(lon)) = (place.latitude, place.longitude) {
-            format!(" ({:.3}, {:.3})", lat, lon)
+            format!(" ({lat:.3}, {lon:.3})")
         } else {
             String::new()
         };
@@ -93,18 +94,20 @@ fn print_full_context(context: &heisenberg::LocationContext<GenericEntry>) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::env;
 
+    use super::*;
+
     fn setup_test_env() {
-        unsafe {
-            env::set_var("USE_TEST_DATA", "true");
-        }
+        let _ = heisenberg::init_logging(tracing::Level::WARN);
     }
 
     #[test]
     fn test_location_resolution_example() {
         setup_test_env();
-        assert!(main().is_ok(), "Location resolution example should run successfully");
+        assert!(
+            main().is_ok(),
+            "Location resolution example should run successfully"
+        );
     }
 }

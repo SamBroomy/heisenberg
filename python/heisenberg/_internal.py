@@ -17,18 +17,228 @@ if TYPE_CHECKING:
 # Import the Rust bindings
 from .heisenberg import (
     LocationSearcher as RustLocationSearcher,
+    LocationSearcherBuilder as RustLocationSearcherBuilder,
     SearchConfig as RustSearchConfig,
     SearchConfigBuilder as RustSearchConfigBuilder,
     BasicEntry,
     GenericEntry,
-    LocationContextBasic,
+    LocationContext as LocationContextBasic,
     LocationContextGeneric,
-    ResolvedBasicSearchResult,
-    ResolvedGenericSearchResult,
+    ResolvedSearchResult as ResolvedBasicSearchResult,
+    ResolvedSearchResultGeneric as ResolvedGenericSearchResult,
+    DataSource,
     __version__,
 )
 
 logger = logging.getLogger(__name__)
+
+
+class DataSourceWrapper:
+    """High-level Python wrapper for DataSource.
+
+    This provides a clean Python interface for selecting data sources without
+    directly exposing the Rust bindings to end users.
+
+    Examples:
+        Using embedded data (recommended):
+
+        >>> ds = DataSourceWrapper.embedded()
+        >>> searcher = LocationSearcher(data_source=ds)
+
+        Using different population thresholds:
+
+        >>> ds = DataSourceWrapper.cities5000()  # Cities with pop > 5,000
+        >>> searcher = LocationSearcher.with_data_source(ds)
+
+        For comprehensive global coverage:
+
+        >>> ds = DataSourceWrapper.all_countries()
+        >>> searcher = LocationSearcher.with_data_source(ds)
+    """
+
+    def __init__(self, rust_data_source: DataSource):
+        """Initialize with a Rust DataSource object.
+
+        Args:
+            rust_data_source: The underlying Rust DataSource object.
+        """
+        self._rust_data_source = rust_data_source
+
+    @classmethod
+    def embedded(cls) -> "DataSourceWrapper":
+        """Get the embedded data source.
+
+        This uses the data that was compiled into the library at build time.
+        This is the fastest option and works without any downloads.
+
+        Returns:
+            DataSourceWrapper: Wrapper for embedded data source.
+        """
+        return cls(DataSource.embedded())
+
+    @classmethod
+    def cities15000(cls) -> "DataSourceWrapper":
+        """Get cities with population > 15,000.
+
+        This provides good coverage of major cities worldwide while keeping
+        the dataset manageable in size.
+
+        Returns:
+            DataSourceWrapper: Wrapper for cities15000 data source.
+        """
+        return cls(DataSource.cities15000())
+
+    @classmethod
+    def cities5000(cls) -> "DataSourceWrapper":
+        """Get cities with population > 5,000.
+
+        This includes more smaller cities and towns, providing more comprehensive
+        coverage at the cost of larger dataset size.
+
+        Returns:
+            DataSourceWrapper: Wrapper for cities5000 data source.
+        """
+        return cls(DataSource.cities5000())
+
+    @classmethod
+    def cities1000(cls) -> "DataSourceWrapper":
+        """Get cities with population > 1,000.
+
+        This includes small towns and villages, providing very comprehensive
+        coverage but with a significantly larger dataset.
+
+        Returns:
+            DataSourceWrapper: Wrapper for cities1000 data source.
+        """
+        return cls(DataSource.cities1000())
+
+    @classmethod
+    def cities500(cls) -> "DataSourceWrapper":
+        """Get cities with population > 500.
+
+        This includes very small settlements, providing maximum coverage
+        but with the largest dataset size.
+
+        Returns:
+            DataSourceWrapper: Wrapper for cities500 data source.
+        """
+        return cls(DataSource.cities500())
+
+    @classmethod
+    def all_countries(cls) -> "DataSourceWrapper":
+        """Get the complete GeoNames dataset.
+
+        This includes all geographic features from the GeoNames database,
+        not just populated places. This is the most comprehensive option
+        but also the largest.
+
+        Returns:
+            DataSourceWrapper: Wrapper for all_countries data source.
+        """
+        return cls(DataSource.all_countries())
+
+    def __str__(self) -> str:
+        """Return string representation."""
+        return str(self._rust_data_source)
+
+    def __repr__(self) -> str:
+        """Return detailed string representation."""
+        return f"DataSourceWrapper({self._rust_data_source!r})"
+
+
+class LocationSearcherBuilderWrapper:
+    """High-level Python wrapper for LocationSearcherBuilder.
+
+    This provides a fluent interface for building LocationSearcher instances with
+    customizable data sources and configuration options.
+
+    Examples:
+        Basic usage:
+
+        >>> builder = LocationSearcherBuilderWrapper()
+        >>> searcher = builder.build()
+
+        With custom data source:
+
+        >>> ds = DataSourceWrapper.cities5000()
+        >>> builder = LocationSearcherBuilderWrapper()
+        >>> searcher = builder.data_source(ds).build()
+
+        Force rebuild indexes:
+
+        >>> builder = LocationSearcherBuilderWrapper()
+        >>> searcher = builder.force_rebuild(True).build()
+
+        Complete configuration:
+
+        >>> ds = DataSourceWrapper.cities15000()
+        >>> builder = LocationSearcherBuilderWrapper()
+        >>> searcher = (builder
+        ...     .data_source(ds)
+        ...     .force_rebuild(True)
+        ...     .embedded_fallback(False)
+        ...     .build())
+    """
+
+    def __init__(self):
+        """Initialize a new LocationSearcherBuilderWrapper."""
+        self._rust_builder = RustLocationSearcherBuilder()
+
+    def data_source(
+        self, data_source: DataSourceWrapper
+    ) -> "LocationSearcherBuilderWrapper":
+        """Set the data source to use.
+
+        Args:
+            data_source: The data source to use.
+
+        Returns:
+            LocationSearcherBuilderWrapper: Self for method chaining.
+        """
+        self._rust_builder.data_source(data_source._rust_data_source)
+        return self
+
+    def force_rebuild(self, rebuild: bool) -> "LocationSearcherBuilderWrapper":
+        """Set whether to force rebuild indexes.
+
+        Args:
+            rebuild: Whether to force rebuild of indexes.
+
+        Returns:
+            LocationSearcherBuilderWrapper: Self for method chaining.
+        """
+        self._rust_builder.force_rebuild(rebuild)
+        return self
+
+    def embedded_fallback(self, fallback: bool) -> "LocationSearcherBuilderWrapper":
+        """Set whether to use embedded data as fallback.
+
+        Args:
+            fallback: Whether to enable embedded data fallback.
+
+        Returns:
+            LocationSearcherBuilderWrapper: Self for method chaining.
+        """
+        self._rust_builder.embedded_fallback(fallback)
+        return self
+
+    def build(self) -> "LocationSearcher":
+        """Build the LocationSearcher.
+
+        Returns:
+            LocationSearcher: A new LocationSearcher instance.
+
+        Raises:
+            RuntimeError: If building fails.
+        """
+        rust_searcher = self._rust_builder.build()
+        instance = LocationSearcher.__new__(LocationSearcher)
+        instance._rust_searcher = rust_searcher
+        return instance
+
+    def __repr__(self) -> str:
+        """Return string representation."""
+        return f"LocationSearcherBuilderWrapper({self._rust_builder!r})"
 
 
 @dataclass
@@ -639,15 +849,104 @@ class LocationSearcher:
         >>> important_results = searcher.find_important_places("Berlin")
     """
 
-    def __init__(self, rebuild_indexes: bool = False):
+    def __init__(
+        self,
+        rebuild_indexes: bool = False,
+        data_source: Optional[DataSourceWrapper] = None,
+    ):
         """Initialize the location searcher.
 
         Args:
             rebuild_indexes: Whether to rebuild the search indexes from scratch.
                             Set to True if you want to force a fresh index build,
                             which may take several minutes but ensures up-to-date data.
+            data_source: Optional data source to use. If None, uses embedded data.
         """
-        self._rust_searcher = RustLocationSearcher(rebuild_indexes)
+        if rebuild_indexes:
+            if data_source is None:
+                data_source = DataSourceWrapper.embedded()
+            self._rust_searcher = RustLocationSearcher.with_fresh_indexes(
+                data_source._rust_data_source
+            )
+        else:
+            # Use default embedded data loading
+            self._rust_searcher = RustLocationSearcher()
+
+    @classmethod
+    def with_data_source(cls, data_source: DataSourceWrapper) -> "LocationSearcher":
+        """Create a LocationSearcher with a specific data source.
+
+        This method will use smart initialization with fallback, trying embedded data first,
+        then downloading and processing the specified data source if needed.
+
+        Args:
+            data_source: The data source to use.
+
+        Returns:
+            LocationSearcher: New LocationSearcher instance.
+
+        Examples:
+            >>> ds = DataSourceWrapper.cities5000()
+            >>> searcher = LocationSearcher.with_data_source(ds)
+        """
+        instance = cls.__new__(cls)
+        instance._rust_searcher = RustLocationSearcher.with_data_source(
+            data_source._rust_data_source
+        )
+        return instance
+
+    @classmethod
+    def with_fresh_indexes(cls, data_source: DataSourceWrapper) -> "LocationSearcher":
+        """Create a LocationSearcher with fresh indexes for a specific data source.
+
+        This forces rebuilding of all indexes from scratch, which may take longer
+        but ensures the most up-to-date data.
+
+        Args:
+            data_source: The data source to use.
+
+        Returns:
+            LocationSearcher: New LocationSearcher instance.
+
+        Examples:
+            >>> ds = DataSourceWrapper.cities15000()
+            >>> searcher = LocationSearcher.with_fresh_indexes(ds)
+        """
+        instance = cls.__new__(cls)
+        instance._rust_searcher = RustLocationSearcher.with_fresh_indexes(
+            data_source._rust_data_source
+        )
+        return instance
+
+    @classmethod
+    def load_existing(
+        cls, data_source: DataSourceWrapper
+    ) -> Optional["LocationSearcher"]:
+        """Try to load an existing LocationSearcher instance.
+
+        This method attempts to load existing cached indexes without rebuilding.
+        Returns None if no existing indexes are found.
+
+        Args:
+            data_source: The data source to use.
+
+        Returns:
+            LocationSearcher instance if found, None otherwise.
+
+        Examples:
+            >>> ds = DataSourceWrapper.embedded()
+            >>> searcher = LocationSearcher.load_existing(ds)
+            >>> if searcher is None:
+            ...     searcher = LocationSearcher.with_data_source(ds)
+        """
+        rust_searcher = RustLocationSearcher.load_existing(
+            data_source._rust_data_source
+        )
+        if rust_searcher is None:
+            return None
+        instance = cls.__new__(cls)
+        instance._rust_searcher = rust_searcher
+        return instance
 
     def find(
         self, query: Union[str, List[str]], config: Optional[SearchOptions] = None
@@ -928,13 +1227,16 @@ def find_locations_batch(queries: List[List[str]]) -> List[List[SearchResult]]:
 # Re-export the Rust types for advanced users
 __all__ = [
     "LocationSearcher",
+    "LocationSearcherBuilderWrapper",
     "SearchOptions",
     "SearchConfigBuilder",
     "SearchResult",
     "find_location",
     "find_locations_batch",
+    "DataSourceWrapper",
     # Rust types
     "RustLocationSearcher",
+    "RustLocationSearcherBuilder",
     "RustSearchConfig",
     "RustSearchConfigBuilder",
     "BasicEntry",
@@ -943,5 +1245,6 @@ __all__ = [
     "LocationContextGeneric",
     "ResolvedBasicSearchResult",
     "ResolvedGenericSearchResult",
+    "DataSource",
     "__version__",
 ]

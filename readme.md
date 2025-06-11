@@ -11,8 +11,10 @@ Heisenberg transforms incomplete location data into complete administrative hier
 
 ## Features
 
+- **Embedded dataset**: Ships with data included, no downloads required
 - Fast full-text search with Tantivy indexing
 - Complete administrative hierarchy resolution (country → state → county → place)
+- Multiple data sources (cities15000, cities5000, etc.) with smart fallback
 - Batch processing for high-throughput applications
 - Python and Rust APIs
 - Configurable search behavior and scoring
@@ -40,7 +42,7 @@ print(f"Found: {results[0].name}")
 results = searcher.find(["Paris", "France"])
 print(f"Found: {results[0].name}")
 
-# Resolve complete administrative hierarchy  
+# Resolve complete administrative hierarchy
 resolved = searcher.resolve_location(["San Francisco", "California"])
 context = resolved[0].context
 
@@ -58,14 +60,17 @@ heisenberg = "0.1"
 ```
 
 ```rust
-use heisenberg::{LocationSearcher, GenericEntry};
+use heisenberg::{LocationSearcher, DataSource, GenericEntry};
 
-// Create searcher
-let searcher = LocationSearcher::new(false)?;
+// Create searcher using embedded data (fastest, no downloads)
+let searcher = LocationSearcher::new_embedded()?;
+
+// Or use specific data source with smart fallback
+let searcher = LocationSearcher::initialize(DataSource::Cities15000)?;
 
 // Simple search
 let results = searcher.search(&["Tokyo"])?;
-println!("Found: {}", results[0].name);
+println!("Found: {}", results[0].name().unwrap_or("Unknown"));
 
 // Resolve complete hierarchy
 let resolved = searcher.resolve_location::<_, GenericEntry>(&["Berlin", "Germany"])?;
@@ -81,7 +86,7 @@ if let Some(place) = &context.place {
 
 ## Examples
 
-The problem: inconsistent and incomplete location data. 
+The problem: inconsistent and incomplete location data.
 
 | Input | Output |
 |-------|--------|
@@ -93,7 +98,7 @@ The problem: inconsistent and incomplete location data.
 ### Administrative Levels
 
 - **Admin0**: Countries
-- **Admin1**: States/Provinces  
+- **Admin1**: States/Provinces
 - **Admin2**: Counties/Regions
 - **Admin3**: Local administrative divisions
 - **Admin4**: Sub-local administrative divisions
@@ -139,19 +144,36 @@ heisenberg = "0.1"
 
 ## Data
 
-Heisenberg downloads and processes GeoNames data on first use (~500MB download, ~1GB processed). Data is cached locally. First run takes 2-5 minutes; subsequent runs are instant.
+**Embedded by Default**: Heisenberg ships with the Cities15000 dataset embedded (~25MB compressed), providing instant startup with no downloads required.
 
-For testing and development:
+**Multiple Data Sources**: Choose from different datasets based on your needs:
+- `Cities15000`: Cities with population > 15,000 (default, embedded)
+- `Cities5000`: Cities with population > 5,000
+- `Cities1000`: Cities with population > 1,000
+- `Cities500`: Cities with population > 500
+- `AllCountries`: Complete GeoNames dataset (~1GB)
+
+**Smart Fallback**: When requesting non-embedded datasets, Heisenberg automatically downloads and processes data on first use, then caches locally.
+
+**Development**:
 ```bash
-USE_TEST_DATA=true cargo test --features test_data
+# Use embedded test data for development
+USE_TEST_DATA=true cargo test
+
+# Force regeneration of embedded data at build time
+GENERATE_EMBEDDED_DATA=1 cargo build
+
+# Use specific data source
+EMBEDDED_DATA_SOURCE=cities5000 cargo build
 ```
 
 ## Performance
 
-- Search: ~1ms per query (after initial setup)
-- Batch processing: 10-100x faster than individual queries  
+- **Instant startup**: Using embedded data (no download/processing time)
+- Search: ~1ms per query
+- Batch processing: 10-100x faster than individual queries
 - Memory: ~200MB RAM
-- Storage: ~1GB processed data and indexes
+- Storage: ~25MB embedded + indexes, or ~1GB for larger datasets
 
 ## License
 
@@ -160,5 +182,5 @@ MIT License - see [LICENSE](LICENSE) for details.
 ## Links
 
 - [Documentation](https://docs.rs/heisenberg)
-- [Contributing](CONTRIBUTING.md) 
+- [Contributing](CONTRIBUTING.md)
 - [GeoNames Database](http://www.geonames.org/)

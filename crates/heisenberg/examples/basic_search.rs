@@ -1,15 +1,15 @@
 //! Basic location search functionality
 //!
 //! This example demonstrates the fundamental search operations:
-//! - Creating a searcher instance
+//! - Creating a searcher instance using embedded data
 //! - Simple location searches
 //! - Working with search results
 
 use heisenberg::{LocationSearcher, SearchConfigBuilder};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Create searcher instance (downloads/processes data on first run)
-    let searcher = LocationSearcher::new(false)?;
+    // Create searcher instance using embedded data (default, no downloads needed)
+    let searcher = LocationSearcher::new_embedded()?;
 
     // Simple single-term search
     println!("Searching for 'London':");
@@ -17,8 +17,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     print_search_results(&results, 3);
 
     // Multi-term search for better precision
-    println!("\nSearching for ['Paris', 'France']:");
-    let results = searcher.search(&["Paris", "France"])?;
+    println!("\nSearching for ['France', 'Paris']:");
+    let results = searcher.search(&["France", "Paris"])?;
     print_search_results(&results, 3);
 
     // Search with configuration
@@ -54,18 +54,19 @@ fn print_search_results(results: &[heisenberg::SearchResult], limit: usize) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::env;
 
-    fn setup_test_env() {
-        unsafe {
-            env::set_var("USE_TEST_DATA", "true");
-        }
-    }
+    use super::*;
 
+    fn setup_test_env() {
+        let _ = heisenberg::init_logging(tracing::Level::WARN);
+    }
     #[test]
     fn test_basic_search_example() {
         setup_test_env();
-        assert!(main().is_ok(), "Basic search example should run successfully");
+        assert!(
+            main().is_ok(),
+            "Basic search example should run successfully"
+        );
     }
 }

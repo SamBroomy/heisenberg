@@ -3,12 +3,15 @@
 //! This module provides the main Python interface to the Rust implementation,
 //! wrapping the core functionality in Python-friendly types and methods.
 
-use pyo3::prelude::*;
+use heisenberg_data_processing::DataSource;
+use pyo3::{prelude::*, types::PyType};
 use pyo3_polars::PyDataFrame;
 
 use crate::{
-    backfill::python_wrappers::*, config::SearchConfigBuilder, core::LocationSearcher,
-    search::SearchConfig,
+    LocationEntryCore, LocationSearcher, LocationSearcherBuilder, ResolveSearchConfig,
+    SearchConfig, SearchConfigBuilder, SearchResult,
+    backfill::{BasicEntry, GenericEntry, LocationContext, ResolvedSearchResult},
+    data::embedded::METADATA,
 };
 
 /// Python wrapper for the main LocationSearcher.
@@ -23,10 +26,10 @@ struct PyLocationSearcher {
 
 #[pymethods]
 impl PyLocationSearcher {
-    /// Create a new LocationSearcher instance.
+    /// Create a new LocationSearcher instance using embedded data.
     ///
-    /// Args:
-    ///     overwrite_indexes: Whether to rebuild search indexes from scratch.
+    /// This is the default constructor that uses the embedded dataset
+    /// for instant startup with no downloads required.
     ///
     /// Returns:
     ///     A new LocationSearcher instance.
@@ -34,13 +37,88 @@ impl PyLocationSearcher {
     /// Raises:
     ///     RuntimeError: If initialization fails.
     #[new]
-    fn py_new(py: Python, overwrite_indexes: bool) -> PyResult<Self> {
-        py.allow_threads(|| match LocationSearcher::new(overwrite_indexes) {
+    fn py_new(py: Python) -> PyResult<Self> {
+        py.allow_threads(|| match LocationSearcher::new_embedded() {
             Ok(inner) => Ok(PyLocationSearcher { inner }),
             Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
                 "Failed to initialize LocationSearcher: {e}"
             ))),
         })
+    }
+
+    /// Create a new LocationSearcher instance with a specific data source.
+    ///
+    /// This method will use smart initialization with fallback, trying embedded data first,
+    /// then downloading and processing the specified data source if needed.
+    ///
+    /// Args:
+    ///     data_source: The data source to use (DataSource.cities15000(), etc.)
+    ///
+    /// Returns:
+    ///     A new LocationSearcher instance.
+    ///
+    /// Raises:
+    ///     RuntimeError: If initialization fails.
+    #[staticmethod]
+    fn with_data_source(py: Python, data_source: &PyDataSource) -> PyResult<Self> {
+        py.allow_threads(|| match LocationSearcher::initialize(data_source.inner) {
+            Ok(inner) => Ok(PyLocationSearcher { inner }),
+            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                "Failed to initialize LocationSearcher with data source {:?}: {e}",
+                data_source.inner
+            ))),
+        })
+    }
+
+    /// Create a new LocationSearcher instance with fresh indexes.
+    ///
+    /// This method forces rebuilding of all indexes from scratch, which may take longer
+    /// but ensures the most up-to-date data.
+    ///
+    /// Args:
+    ///     data_source: The data source to use (DataSource.cities15000(), etc.)
+    ///
+    /// Returns:
+    ///     A new LocationSearcher instance.
+    ///
+    /// Raises:
+    ///     RuntimeError: If initialization fails.
+    #[staticmethod]
+    fn with_fresh_indexes(py: Python, data_source: &PyDataSource) -> PyResult<Self> {
+        py.allow_threads(
+            || match LocationSearcher::new_with_fresh_indexes(data_source.inner) {
+                Ok(inner) => Ok(PyLocationSearcher { inner }),
+                Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                    "Failed to initialize LocationSearcher with fresh indexes: {e}"
+                ))),
+            },
+        )
+    }
+
+    /// Try to load an existing LocationSearcher instance.
+    ///
+    /// This method attempts to load existing cached indexes without rebuilding.
+    /// Returns None if no existing indexes are found.
+    ///
+    /// Args:
+    ///     data_source: The data source to use (DataSource.cities15000(), etc.)
+    ///
+    /// Returns:
+    ///     A LocationSearcher instance if found, None otherwise.
+    ///
+    /// Raises:
+    ///     RuntimeError: If loading fails.
+    #[staticmethod]
+    fn load_existing(py: Python, data_source: &PyDataSource) -> PyResult<Option<Self>> {
+        py.allow_threads(
+            || match LocationSearcher::load_existing(data_source.inner) {
+                Ok(Some(inner)) => Ok(Some(PyLocationSearcher { inner })),
+                Ok(None) => Ok(None),
+                Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                    "Failed to load existing LocationSearcher: {e}"
+                ))),
+            },
+        )
     }
 
     /// Search for administrative entities at specific levels.
@@ -118,17 +196,14 @@ impl PyLocationSearcher {
     ///     input_terms: List of search terms to process.
     ///
     /// Returns:
-    ///     List of DataFrames containing search results for each term.
+    ///     List of search results.
     ///
     /// Raises:
     ///     RuntimeError: If the search operation fails.
-    fn search(&self, py: Python, input_terms: Vec<String>) -> PyResult<Vec<PyDataFrame>> {
+    fn search(&self, py: Python, input_terms: Vec<String>) -> PyResult<Vec<PySearchResult>> {
         py.allow_threads(|| match self.inner.search(&input_terms) {
             Ok(results) => {
-                let py_results = results
-                    .into_iter()
-                    .map(|df| PyDataFrame(df.into_df()))
-                    .collect();
+                let py_results = results.into_iter().map(PySearchResult::from).collect();
                 Ok(py_results)
             }
             Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
@@ -144,7 +219,7 @@ impl PyLocationSearcher {
     ///     config: Custom search configuration.
     ///
     /// Returns:
-    ///     List of DataFrames containing search results for each term.
+    ///     List of search results.
     ///
     /// Raises:
     ///     RuntimeError: If the search operation fails.
@@ -153,14 +228,11 @@ impl PyLocationSearcher {
         py: Python,
         input_terms: Vec<String>,
         config: &PySearchConfig,
-    ) -> PyResult<Vec<PyDataFrame>> {
+    ) -> PyResult<Vec<PySearchResult>> {
         py.allow_threads(
             || match self.inner.search_with_config(&input_terms, &config.inner) {
                 Ok(results) => {
-                    let py_results = results
-                        .into_iter()
-                        .map(|df| PyDataFrame(df.into_df()))
-                        .collect();
+                    let py_results = results.into_iter().map(PySearchResult::from).collect();
                     Ok(py_results)
                 }
                 Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
@@ -176,7 +248,7 @@ impl PyLocationSearcher {
     ///     input_terms: List of lists, where each inner list contains terms for one search.
     ///
     /// Returns:
-    ///     List of lists of DataFrames, one per input term set.
+    ///     List of lists of search results, one per input term set.
     ///
     /// Raises:
     ///     RuntimeError: If the search operation fails.
@@ -184,7 +256,7 @@ impl PyLocationSearcher {
         &self,
         py: Python,
         input_terms: Vec<Vec<String>>,
-    ) -> PyResult<Vec<Vec<PyDataFrame>>> {
+    ) -> PyResult<Vec<Vec<PySearchResult>>> {
         py.allow_threads(|| {
             let results = self.inner.search_bulk(&input_terms).map_err(|e| {
                 PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
@@ -193,10 +265,10 @@ impl PyLocationSearcher {
             })?;
             let py_results = results
                 .into_iter()
-                .map(|df_vec| {
-                    df_vec
+                .map(|search_results| {
+                    search_results
                         .into_iter()
-                        .map(|df| PyDataFrame(df.into_df()))
+                        .map(PySearchResult::from)
                         .collect()
                 })
                 .collect();
@@ -211,7 +283,7 @@ impl PyLocationSearcher {
     ///     config: Custom search configuration.
     ///
     /// Returns:
-    ///     List of lists of DataFrames, one per input term set.
+    ///     List of lists of search results, one per input term set.
     ///
     /// Raises:
     ///     RuntimeError: If the search operation fails.
@@ -220,7 +292,7 @@ impl PyLocationSearcher {
         py: Python,
         input_terms: Vec<Vec<String>>,
         config: &PySearchConfig,
-    ) -> PyResult<Vec<Vec<PyDataFrame>>> {
+    ) -> PyResult<Vec<Vec<PySearchResult>>> {
         py.allow_threads(|| {
             let results = self
                 .inner
@@ -232,10 +304,10 @@ impl PyLocationSearcher {
                 })?;
             let py_results = results
                 .into_iter()
-                .map(|df_vec| {
-                    df_vec
+                .map(|search_results| {
+                    search_results
                         .into_iter()
-                        .map(|df| PyDataFrame(df.into_df()))
+                        .map(PySearchResult::from)
                         .collect()
                 })
                 .collect();
@@ -262,10 +334,8 @@ impl PyLocationSearcher {
         py: Python,
         input_terms: Vec<String>,
     ) -> PyResult<Vec<PyResolvedGenericSearchResult>> {
-        let resolved_results_rust = py.allow_threads(|| {
-            self.inner
-                .resolve_location::<_, crate::backfill::GenericEntry>(&input_terms)
-        });
+        let resolved_results_rust =
+            py.allow_threads(|| self.inner.resolve_location::<_, GenericEntry>(&input_terms));
 
         match resolved_results_rust {
             Ok(resolved_vec) => {
@@ -299,8 +369,6 @@ impl PyLocationSearcher {
         input_terms: Vec<String>,
         config: &PySearchConfig,
     ) -> PyResult<Vec<PyResolvedGenericSearchResult>> {
-        use crate::core::ResolveSearchConfig;
-
         let resolve_config = ResolveSearchConfig {
             search_config: config.inner.clone(),
             resolve_config: Default::default(),
@@ -308,10 +376,7 @@ impl PyLocationSearcher {
 
         let resolved_results_rust = py.allow_threads(|| {
             self.inner
-                .resolve_location_with_config::<_, crate::backfill::GenericEntry>(
-                    &input_terms,
-                    &resolve_config,
-                )
+                .resolve_location_with_config::<_, GenericEntry>(&input_terms, &resolve_config)
         });
 
         match resolved_results_rust {
@@ -346,7 +411,7 @@ impl PyLocationSearcher {
     ) -> PyResult<Vec<Vec<PyResolvedGenericSearchResult>>> {
         let resolved_results_rust = py.allow_threads(|| {
             self.inner
-                .resolve_location_batch::<crate::backfill::GenericEntry, _, _>(&input_terms_batch)
+                .resolve_location_batch::<GenericEntry, _, _>(&input_terms_batch)
         });
 
         match resolved_results_rust {
@@ -386,8 +451,6 @@ impl PyLocationSearcher {
         input_terms_batch: Vec<Vec<String>>,
         config: &PySearchConfig,
     ) -> PyResult<Vec<Vec<PyResolvedGenericSearchResult>>> {
-        use crate::core::ResolveSearchConfig;
-
         let resolve_config = ResolveSearchConfig {
             search_config: config.inner.clone(),
             resolve_config: Default::default(),
@@ -395,7 +458,7 @@ impl PyLocationSearcher {
 
         let resolved_results_rust = py.allow_threads(|| {
             self.inner
-                .resolve_location_batch_with_config::<crate::backfill::GenericEntry, _, _>(
+                .resolve_location_batch_with_config::<GenericEntry, _, _>(
                     &input_terms_batch,
                     &resolve_config,
                 )
@@ -591,6 +654,378 @@ impl PySearchConfigBuilder {
     }
 }
 
+/// Python wrapper for SearchResult.
+#[pyclass(name = "SearchResult")]
+#[derive(Clone)]
+struct PySearchResult {
+    inner: SearchResult,
+}
+
+impl From<SearchResult> for PySearchResult {
+    fn from(inner: SearchResult) -> Self {
+        Self { inner }
+    }
+}
+
+#[pymethods]
+impl PySearchResult {
+    /// Get the name of the location.
+    fn name(&self) -> Option<String> {
+        self.inner.name().map(|s| s.to_string())
+    }
+
+    /// Get the geoname ID.
+    fn geoname_id(&self) -> Option<u64> {
+        self.inner.geoname_id().map(|id| id as u64)
+    }
+
+    /// Get the search score.
+    fn score(&self) -> Option<f32> {
+        self.inner.score().map(|s| s as f32)
+    }
+
+    /// Get the feature code.
+    fn feature_code(&self) -> Option<String> {
+        self.inner.feature_code().map(|s| s.to_string())
+    }
+
+    /// Return a string representation.
+    fn __repr__(&self) -> String {
+        format!(
+            "SearchResult(name={:?}, score={:?})",
+            self.name(),
+            self.score()
+        )
+    }
+}
+
+/// Python wrapper for LocationContext with BasicEntry.
+#[pyclass(name = "LocationContext")]
+#[derive(Clone)]
+struct PyLocationContextBasic {
+    inner: LocationContext<BasicEntry>,
+}
+
+impl From<LocationContext<BasicEntry>> for PyLocationContextBasic {
+    fn from(inner: LocationContext<BasicEntry>) -> Self {
+        Self { inner }
+    }
+}
+
+#[pymethods]
+impl PyLocationContextBasic {
+    /// Get the admin0 (country) entry.
+    #[getter]
+    fn admin0(&self) -> Option<BasicEntry> {
+        self.inner.admin0.clone()
+    }
+
+    /// Get the admin1 (state/province) entry.
+    #[getter]
+    fn admin1(&self) -> Option<BasicEntry> {
+        self.inner.admin1.clone()
+    }
+
+    /// Get the admin2 (county) entry.
+    #[getter]
+    fn admin2(&self) -> Option<BasicEntry> {
+        self.inner.admin2.clone()
+    }
+
+    /// Get the admin3 entry.
+    #[getter]
+    fn admin3(&self) -> Option<BasicEntry> {
+        self.inner.admin3.clone()
+    }
+
+    /// Get the admin4 entry.
+    #[getter]
+    fn admin4(&self) -> Option<BasicEntry> {
+        self.inner.admin4.clone()
+    }
+
+    /// Get the place entry.
+    #[getter]
+    fn place(&self) -> Option<BasicEntry> {
+        self.inner.place.clone()
+    }
+
+    /// Return a string representation.
+    fn __repr__(&self) -> String {
+        format!(
+            "LocationContext(admin0={:?}, place={:?})",
+            self.inner.admin0.as_ref().map(|e| e.name()),
+            self.inner.place.as_ref().map(|e| e.name())
+        )
+    }
+}
+
+/// Python wrapper for LocationContext with GenericEntry.
+#[pyclass(name = "LocationContextGeneric")]
+#[derive(Clone)]
+struct PyLocationContextGeneric {
+    inner: LocationContext<GenericEntry>,
+}
+
+impl From<LocationContext<GenericEntry>> for PyLocationContextGeneric {
+    fn from(inner: LocationContext<GenericEntry>) -> Self {
+        Self { inner }
+    }
+}
+
+#[pymethods]
+impl PyLocationContextGeneric {
+    /// Get the admin0 (country) entry.
+    #[getter]
+    fn admin0(&self) -> Option<GenericEntry> {
+        self.inner.admin0.clone()
+    }
+
+    /// Get the admin1 (state/province) entry.
+    #[getter]
+    fn admin1(&self) -> Option<GenericEntry> {
+        self.inner.admin1.clone()
+    }
+
+    /// Get the admin2 (county) entry.
+    #[getter]
+    fn admin2(&self) -> Option<GenericEntry> {
+        self.inner.admin2.clone()
+    }
+
+    /// Get the admin3 entry.
+    #[getter]
+    fn admin3(&self) -> Option<GenericEntry> {
+        self.inner.admin3.clone()
+    }
+
+    /// Get the admin4 entry.
+    #[getter]
+    fn admin4(&self) -> Option<GenericEntry> {
+        self.inner.admin4.clone()
+    }
+
+    /// Get the place entry.
+    #[getter]
+    fn place(&self) -> Option<GenericEntry> {
+        self.inner.place.clone()
+    }
+
+    /// Return a string representation.
+    fn __repr__(&self) -> String {
+        format!(
+            "LocationContextGeneric(admin0={:?}, place={:?})",
+            self.inner.admin0.as_ref().map(|e| e.name()),
+            self.inner.place.as_ref().map(|e| e.name())
+        )
+    }
+}
+
+/// Python wrapper for ResolvedSearchResult with BasicEntry.
+#[pyclass(name = "ResolvedSearchResult")]
+#[derive(Clone)]
+struct PyResolvedBasicSearchResult {
+    inner: ResolvedSearchResult<BasicEntry>,
+}
+
+impl From<ResolvedSearchResult<BasicEntry>> for PyResolvedBasicSearchResult {
+    fn from(inner: ResolvedSearchResult<BasicEntry>) -> Self {
+        Self { inner }
+    }
+}
+
+#[pymethods]
+impl PyResolvedBasicSearchResult {
+    /// Get the location context.
+    #[getter]
+    fn context(&self) -> PyLocationContextBasic {
+        PyLocationContextBasic::from(self.inner.context.clone())
+    }
+
+    /// Get the resolution score.
+    #[getter]
+    fn score(&self) -> f32 {
+        self.inner.score as f32
+    }
+
+    /// Return a string representation.
+    fn __repr__(&self) -> String {
+        format!("ResolvedSearchResult(score={:.3})", self.inner.score)
+    }
+}
+
+/// Python wrapper for ResolvedSearchResult with GenericEntry.
+#[pyclass(name = "ResolvedSearchResultGeneric")]
+#[derive(Clone)]
+struct PyResolvedGenericSearchResult {
+    inner: ResolvedSearchResult<GenericEntry>,
+}
+
+impl From<ResolvedSearchResult<GenericEntry>> for PyResolvedGenericSearchResult {
+    fn from(inner: ResolvedSearchResult<GenericEntry>) -> Self {
+        Self { inner }
+    }
+}
+
+#[pymethods]
+impl PyResolvedGenericSearchResult {
+    /// Get the location context.
+    #[getter]
+    fn context(&self) -> PyLocationContextGeneric {
+        PyLocationContextGeneric::from(self.inner.context.clone())
+    }
+
+    /// Get the resolution score.
+    #[getter]
+    fn score(&self) -> f32 {
+        self.inner.score as f32
+    }
+
+    /// Return a string representation.
+    fn __repr__(&self) -> String {
+        format!("ResolvedSearchResultGeneric(score={:.3})", self.inner.score)
+    }
+}
+
+/// Python wrapper for DataSource enum.
+///
+/// Represents the different data sources available for location search.
+/// This provides a strongly-typed way to specify data sources in Python.
+#[pyclass(name = "DataSource")]
+#[derive(Clone)]
+struct PyDataSource {
+    inner: DataSource,
+}
+
+#[pymethods]
+impl PyDataSource {
+    /// Create Cities15000 data source (cities with population > 15,000).
+    ///
+    /// This is the default embedded data source with comprehensive coverage
+    /// of major cities worldwide.
+    #[classmethod]
+    fn cities15000(_cls: &Bound<PyType>) -> Self {
+        PyDataSource {
+            inner: DataSource::Cities15000,
+        }
+    }
+
+    /// Create Cities5000 data source (cities with population > 5,000).
+    #[classmethod]
+    fn cities5000(_cls: &Bound<PyType>) -> Self {
+        PyDataSource {
+            inner: DataSource::Cities5000,
+        }
+    }
+
+    /// Create Cities1000 data source (cities with population > 1,000).
+    #[classmethod]
+    fn cities1000(_cls: &Bound<PyType>) -> Self {
+        PyDataSource {
+            inner: DataSource::Cities1000,
+        }
+    }
+
+    /// Create Cities500 data source (cities with population > 500).
+    #[classmethod]
+    fn cities500(_cls: &Bound<PyType>) -> Self {
+        PyDataSource {
+            inner: DataSource::Cities500,
+        }
+    }
+
+    /// Create AllCountries data source (complete GeoNames dataset).
+    #[classmethod]
+    fn all_countries(_cls: &Bound<PyType>) -> Self {
+        PyDataSource {
+            inner: DataSource::AllCountries,
+        }
+    }
+
+    #[classmethod]
+    fn embedded(_cls: &Bound<PyType>) -> Self {
+        PyDataSource {
+            inner: METADATA.source,
+        }
+    }
+
+    /// Return a string representation.
+    fn __repr__(&self) -> String {
+        format!("DataSource.{:?}", self.inner)
+    }
+
+    /// Return the string name of the data source.
+    fn __str__(&self) -> String {
+        format!("{:?}", self.inner)
+    }
+}
+
+/// Python wrapper for LocationSearcherBuilder.
+///
+/// Provides a fluent interface for building LocationSearcher instances with
+/// customizable data sources and configuration options.
+#[pyclass(name = "LocationSearcherBuilder")]
+#[derive(Clone)]
+struct PyLocationSearcherBuilder {
+    inner: LocationSearcherBuilder,
+}
+
+#[pymethods]
+impl PyLocationSearcherBuilder {
+    /// Create a new LocationSearcherBuilder.
+    #[new]
+    fn py_new() -> Self {
+        PyLocationSearcherBuilder {
+            inner: LocationSearcherBuilder::new(),
+        }
+    }
+
+    /// Set the data source to use.
+    ///
+    /// Args:
+    ///     data_source: The data source to use.
+    fn data_source(&mut self, data_source: &PyDataSource) {
+        self.inner = self.inner.clone().data_source(data_source.inner);
+    }
+
+    /// Set whether to force rebuild indexes.
+    ///
+    /// Args:
+    ///     rebuild: Whether to force rebuild of indexes.
+    fn force_rebuild(&mut self, rebuild: bool) {
+        self.inner = self.inner.clone().force_rebuild(rebuild);
+    }
+
+    /// Set whether to use embedded data as fallback.
+    ///
+    /// Args:
+    ///     fallback: Whether to enable embedded data fallback.
+    fn embedded_fallback(&mut self, fallback: bool) {
+        self.inner = self.inner.clone().embedded_fallback(fallback);
+    }
+
+    /// Build the LocationSearcher.
+    ///
+    /// Returns:
+    ///     A new LocationSearcher instance.
+    ///
+    /// Raises:
+    ///     RuntimeError: If building fails.
+    fn build(&self, py: Python) -> PyResult<PyLocationSearcher> {
+        py.allow_threads(|| match self.inner.clone().build() {
+            Ok(inner) => Ok(PyLocationSearcher { inner }),
+            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                "Failed to build LocationSearcher: {e}"
+            ))),
+        })
+    }
+
+    /// Return a string representation.
+    fn __repr__(&self) -> String {
+        format!("LocationSearcherBuilder(inner={:?})", self.inner)
+    }
+}
+
 //Define the Python module
 
 /// The main Heisenberg Python module.
@@ -609,6 +1044,9 @@ fn heisenberg(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyLocationSearcher>()?;
     m.add_class::<PySearchConfig>()?;
     m.add_class::<PySearchConfigBuilder>()?;
+    m.add_class::<PySearchResult>()?;
+    m.add_class::<PyDataSource>()?;
+    m.add_class::<PyLocationSearcherBuilder>()?;
 
     // Add entry types (not exposed in high-level API but available for advanced users)
     m.add_class::<BasicEntry>()?;
