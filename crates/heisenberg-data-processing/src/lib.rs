@@ -1,3 +1,10 @@
+//! Heisenberg Data Processing Library
+//! This functionality was moved to a separate crate in order for us to be able to embed data into the main crate.
+//!
+//! This embedding allows us to ship the library with a small, self-contained dataset
+//! This data is built as part of the build process of the main heisenberg crate,
+//! so it is always available without requiring any external downloads or configuration.
+
 use std::{
     fmt,
     path::{Path, PathBuf},
@@ -6,7 +13,7 @@ use std::{
 };
 
 pub use error::{DataError, Result};
-use polars::prelude::LazyFrame;
+use polars::prelude::*;
 use serde::{Deserialize, Serialize};
 pub use test_data::{TestDataConfig, create_test_data};
 use tracing::{info, warn};
@@ -28,7 +35,7 @@ pub static DATA_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
 });
 
 #[derive(Debug, Copy, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-/// Enum representing the available data sources for GeoNames data processing
+/// Enum representing the available data sources for `GeoNames` data processing
 #[serde(rename_all = "snake_case")]
 pub enum DataSource {
     #[default]
@@ -163,7 +170,7 @@ fn get_default_data_dir() -> PathBuf {
 }
 
 fn load_single_parquet_file(path: &Path) -> Result<LazyFrame> {
-    LazyFrame::scan_parquet(path, Default::default()).map_err(Into::into)
+    LazyFrame::scan_parquet(path, ScanArgsParquet::default()).map_err(Into::into)
 }
 
 fn load_parquet_files(admin_path: &Path, place_path: &Path) -> Result<(LazyFrame, LazyFrame)> {
@@ -173,7 +180,7 @@ fn load_parquet_files(admin_path: &Path, place_path: &Path) -> Result<(LazyFrame
 }
 
 /// Check if both admin and place files exist and are readable
-fn validate_data_files(data_source: &DataSource) -> Result<(PathBuf, PathBuf)> {
+fn validate_data_files(data_source: DataSource) -> Result<(PathBuf, PathBuf)> {
     let admin_path = data_source.admin_parquet();
     let place_path = data_source.place_parquet();
 
@@ -183,12 +190,12 @@ fn validate_data_files(data_source: &DataSource) -> Result<(PathBuf, PathBuf)> {
     }
 
     // Try to validate files by attempting to read their metadata
-    if let Err(e) = LazyFrame::scan_parquet(&admin_path, Default::default()) {
+    if let Err(e) = LazyFrame::scan_parquet(&admin_path, ScanArgsParquet::default()) {
         warn!("Admin file corrupted or unreadable: {}", e);
         return Err(DataError::RequiredFilesNotFound);
     }
 
-    if let Err(e) = LazyFrame::scan_parquet(&place_path, Default::default()) {
+    if let Err(e) = LazyFrame::scan_parquet(&place_path, ScanArgsParquet::default()) {
         warn!("Place file corrupted or unreadable: {}", e);
         return Err(DataError::RequiredFilesNotFound);
     }
@@ -197,7 +204,7 @@ fn validate_data_files(data_source: &DataSource) -> Result<(PathBuf, PathBuf)> {
 }
 
 /// Remove existing data files to force regeneration
-fn clean_data_files(data_source: &DataSource) -> Result<()> {
+fn clean_data_files(data_source: DataSource) -> Result<()> {
     let admin_path = data_source.admin_parquet();
     let place_path = data_source.place_parquet();
 
@@ -215,7 +222,7 @@ fn clean_data_files(data_source: &DataSource) -> Result<()> {
 }
 
 /// Ensure both admin and place data files exist and are valid, regenerating if necessary
-fn ensure_data_files(data_source: &DataSource) -> Result<(PathBuf, PathBuf)> {
+fn ensure_data_files(data_source: DataSource) -> Result<(PathBuf, PathBuf)> {
     // First try to validate existing files
     match validate_data_files(data_source) {
         Ok(paths) => {
@@ -264,7 +271,7 @@ fn ensure_data_files(data_source: &DataSource) -> Result<(PathBuf, PathBuf)> {
 }
 
 /// Get both admin and place data as LazyFrames
-pub fn get_data(data_source: &DataSource) -> Result<(LazyFrame, LazyFrame)> {
+pub fn get_data(data_source: DataSource) -> Result<(LazyFrame, LazyFrame)> {
     let (admin_path, place_path) = ensure_data_files(data_source)?;
     load_parquet_files(&admin_path, &place_path)
 }
@@ -273,29 +280,29 @@ pub fn get_data(data_source: &DataSource) -> Result<(LazyFrame, LazyFrame)> {
 ///
 /// This function ensures data consistency by validating that both admin and place files exist.
 /// If either file is missing or corrupted, both will be regenerated.
-pub fn get_admin_data(data_source: &DataSource) -> Result<LazyFrame> {
+pub fn get_admin_data(data_source: DataSource) -> Result<LazyFrame> {
     let (admin_path, _place_path) = ensure_data_files(data_source)?;
     load_single_parquet_file(&admin_path)
 }
 
-/// Get only place search data as LazyFrame
+/// Get only place search data as `LazyFrame`
 ///
 /// This function ensures data consistency by validating that both admin and place files exist.
 /// If either file is missing or corrupted, both will be regenerated.
-pub fn get_place_data(data_source: &DataSource) -> Result<LazyFrame> {
+pub fn get_place_data(data_source: DataSource) -> Result<LazyFrame> {
     let (_admin_path, place_path) = ensure_data_files(data_source)?;
     load_single_parquet_file(&place_path)
 }
 
 /// Check if processed data exists for the given data source without loading it
-pub fn data_exists(data_source: &DataSource) -> bool {
+pub fn data_exists(data_source: DataSource) -> bool {
     validate_data_files(data_source).is_ok()
 }
 
 /// Force regeneration of processed data for the given data source
 ///
 /// This will delete existing files and download/process fresh data.
-pub fn regenerate_data(data_source: &DataSource) -> Result<(LazyFrame, LazyFrame)> {
+pub fn regenerate_data(data_source: DataSource) -> Result<(LazyFrame, LazyFrame)> {
     info!("Force regenerating data for {}", data_source);
 
     // Clean existing files
@@ -347,7 +354,7 @@ pub(crate) mod tests_utils {
 
     pub fn assert_column_range<T>(df: &DataFrame, column: &str, min_val: T, max_val: T)
     where
-        T: std::fmt::Debug + NumCast + std::cmp::PartialOrd + Clone + 'static,
+        T: std::fmt::Debug + NumCast + PartialOrd + Clone + Copy + 'static,
     {
         let series = df
             .column(column)

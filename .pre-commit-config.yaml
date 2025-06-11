@@ -71,7 +71,7 @@ repos:
       - id: clippy
         name: cargo clippy
         description: This hook runs cargo clippy on the project and fixes any issues.
-        entry: cargo clippy --fix --allow-dirty --allow-staged --all-targets --quiet -- -D warnings
+        entry: cargo clippy --fix --allow-staged --all-targets --quiet -- -D warnings
         language: system
         types: [rust]
         stages: [pre-commit]
