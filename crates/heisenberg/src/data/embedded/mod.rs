@@ -11,17 +11,16 @@ static RAW_METADATA: &[u8] = include_bytes!(embedded_file_paths!(metadata));
 static ADMIN_SEARCH_DATA: &[u8] = include_bytes!(embedded_file_paths!(admin));
 static PLACE_SEARCH_DATA: &[u8] = include_bytes!(embedded_file_paths!(place));
 
-pub(crate) static METADATA: std::sync::LazyLock<EmbeddedMetadata> =
-    std::sync::LazyLock::new(|| {
-        EmbeddedMetadata::from_bytes(RAW_METADATA).expect("Failed to parse embedded metadata")
-    });
+pub static METADATA: std::sync::LazyLock<EmbeddedMetadata> = std::sync::LazyLock::new(|| {
+    EmbeddedMetadata::from_bytes(RAW_METADATA).expect("Failed to parse embedded metadata")
+});
 
 // Use OnceLock for fallible LazyFrame loading
 static ADMIN_SEARCH_CELL: OnceLock<LazyFrame> = OnceLock::new();
 static PLACE_SEARCH_CELL: OnceLock<LazyFrame> = OnceLock::new();
 
-/// Get admin search data as LazyFrame (cached after first load)
-pub(crate) fn load_embedded_admin_search_data() -> Result<LazyFrame> {
+/// Get admin search data as `LazyFrame` (cached after first load)
+pub fn load_embedded_admin_search_data() -> Result<LazyFrame> {
     ADMIN_SEARCH_CELL
         .get_or_try_init(|| {
             if ADMIN_SEARCH_DATA.is_empty() {
@@ -37,7 +36,7 @@ pub(crate) fn load_embedded_admin_search_data() -> Result<LazyFrame> {
         .cloned()
 }
 
-pub(crate) fn load_embedded_place_search_data() -> Result<LazyFrame> {
+pub fn load_embedded_place_search_data() -> Result<LazyFrame> {
     PLACE_SEARCH_CELL
         .get_or_try_init(|| {
             if PLACE_SEARCH_DATA.is_empty() {

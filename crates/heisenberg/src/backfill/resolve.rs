@@ -68,11 +68,11 @@ impl TargetLocationAdminCodes {
         .map(
             |(geoname_id, admin0_code, admin1_code, admin2_code, admin3_code, admin4_code)| Self {
                 _geoname_id: geoname_id.expect("geonameId should never be None"),
-                admin0_code: admin0_code.map(|s| s.to_owned()),
-                admin1_code: admin1_code.map(|s| s.to_owned()),
-                admin2_code: admin2_code.map(|s| s.to_owned()),
-                admin3_code: admin3_code.map(|s| s.to_owned()),
-                admin4_code: admin4_code.map(|s| s.to_owned()),
+                admin0_code: admin0_code.map(ToOwned::to_owned),
+                admin1_code: admin1_code.map(ToOwned::to_owned),
+                admin2_code: admin2_code.map(ToOwned::to_owned),
+                admin3_code: admin3_code.map(ToOwned::to_owned),
+                admin4_code: admin4_code.map(ToOwned::to_owned),
             },
         )
         .collect::<Vec<_>>())
@@ -110,14 +110,14 @@ fn query_admin_level_entity_lazy<E: LocationEntry>(
 /// Build complete administrative context by querying for entities at each level.
 ///
 /// Takes the administrative codes from target locations and builds complete
-/// LocationContext objects by looking up the actual administrative entities
+/// `LocationContext` objects by looking up the actual administrative entities
 /// (countries, states, etc.) that correspond to those codes.
 #[instrument(level = "trace", skip(admin_data_lf), fields(num_target_codes = ?target_codes.len()))]
 fn backfill_administrative_context<E: LocationEntry>(
     target_codes: &[TargetLocationAdminCodes],
     admin_data_lf: &LazyFrame,
 ) -> Result<Vec<LocationContext<E>>> {
-    let codes_hierarchys = target_codes
+    let codes_hierarchy = target_codes
         .iter()
         .map(|tc| tc.codes_hierarchy())
         .collect::<Vec<_>>();
@@ -125,11 +125,11 @@ fn backfill_administrative_context<E: LocationEntry>(
     let mut final_lf_for_all_levels: Vec<Vec<(usize, LazyFrame)>> = Vec::new();
 
     let mut cumulative_filter_parts: Vec<Expr> = Vec::new();
-    for code_hierachys in codes_hierarchys.into_iter() {
+    for codes_hierarchy in codes_hierarchy {
         cumulative_filter_parts.clear();
         let mut final_lf_for_level: Vec<(usize, LazyFrame)> = Vec::new();
         for (admin_level_idx, (level_code_opt, level_code_name)) in
-            code_hierachys.into_iter().enumerate()
+            codes_hierarchy.into_iter().enumerate()
         {
             let Some(current_level_code) = level_code_opt else {
                 trace!(
@@ -145,7 +145,7 @@ fn backfill_administrative_context<E: LocationEntry>(
 
             let final_filter_for_level = level_specific_filter_parts
                 .into_iter()
-                .reduce(|acc, expr| acc.and(expr))
+                .reduce(Expr::and)
                 .expect("Filter parts should not be empty if code is present");
             let lf = query_admin_level_entity_lazy::<E>(admin_data_lf, final_filter_for_level);
             final_lf_for_level.push((admin_level_idx, lf));
@@ -211,7 +211,7 @@ fn backfill_administrative_context<E: LocationEntry>(
     fields(num_batches = 0, limit_per_query = config.limit_per_query)
 )]
 pub fn resolve_search_candidate<E: LocationEntry>(
-    search_results: Vec<SearchResult>,
+    search_results: &[SearchResult],
     admin_data_lf: &LazyFrame,
     config: &ResolveConfig,
 ) -> Result<LocationResults<E>> {
@@ -243,7 +243,7 @@ pub fn resolve_search_candidate<E: LocationEntry>(
     let mut resolved = izip!(final_contexts, candidate_entities, scores)
         .map(|(mut final_context, original_candidate, score)| {
             if !final_context.candidate_already_in_context(&original_candidate) {
-                final_context.place = Some(original_candidate)
+                final_context.place = Some(original_candidate);
             }
             ResolvedSearchResult {
                 context: final_context,
@@ -276,7 +276,7 @@ pub fn resolve_search_candidate_batches<E: LocationEntry>(
         .enumerate()
         .map(|(i, search_results)| {
             let _search_span = debug_span!("Resolve Search Candidate Batches", batch = i).entered();
-            resolve_search_candidate::<E>(search_results, admin_data_lf, config)
+            resolve_search_candidate::<E>(&search_results, admin_data_lf, config)
         })
         .collect::<Result<Vec<_>>>()
 }

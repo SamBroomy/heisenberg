@@ -1,4 +1,4 @@
-use std::{fs, path::PathBuf};
+use std::{fs, path::Path};
 
 use futures::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -13,7 +13,7 @@ use crate::{DataError, DataSource};
 
 #[instrument(name = "Download data", skip_all, level = "info")]
 pub fn download_data(
-    data_source: &DataSource,
+    data_source: DataSource,
 ) -> Result<(NamedTempFile, NamedTempFile, NamedTempFile)> {
     let rt = tokio::runtime::Runtime::new()?;
 
@@ -22,7 +22,7 @@ pub fn download_data(
         .ok_or_else(|| DataError::NoDataDirProvided)?;
 
     rt.block_on(async {
-        let client = reqwest::Client::new();
+        let client = Client::new();
 
         let (cities15000_file, country_info_df, feature_codes_df) = tokio::try_join!(
             download_raw_data(&client, &data_source_url),
@@ -62,13 +62,13 @@ async fn download_raw_data(client: &Client, url: &str) -> Result<NamedTempFile> 
 }
 
 const COUNTRY_INFO_URL: &str = "https://download.geonames.org/export/dump/countryInfo.txt";
-/// Downloads the country info file from GeoNames and extracts it to a temporary file.
+/// Downloads the country info file from `GeoNames` and extracts it to a temporary file.
 async fn download_country_info(client: &Client) -> Result<NamedTempFile> {
     download_to_temp_file(client, COUNTRY_INFO_URL).await
 }
 
 const FEATURE_CODES_URL: &str = "https://download.geonames.org/export/dump/featureCodes_en.txt";
-/// Downloads the feature codes file from GeoNames and extracts it to a temporary file.
+/// Downloads the feature codes file from `GeoNames` and extracts it to a temporary file.
 async fn download_feature_codes(client: &Client) -> Result<NamedTempFile> {
     download_to_temp_file(client, FEATURE_CODES_URL).await
 }
@@ -121,7 +121,7 @@ async fn download_zip_and_extract_first_entry_to_temp_file(
     Ok(extracted_content_temp_file)
 }
 
-fn extract_first_entry_from_zip(zip_file_path: PathBuf) -> Result<NamedTempFile> {
+fn extract_first_entry_from_zip(zip_file_path: impl AsRef<Path>) -> Result<NamedTempFile> {
     let zip_fs_file = fs::File::open(&zip_file_path)?;
     let mut archive = ZipArchive::new(zip_fs_file)?;
 

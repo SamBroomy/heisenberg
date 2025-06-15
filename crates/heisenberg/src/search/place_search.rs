@@ -16,18 +16,18 @@ use crate::index::{FTSIndex, FTSIndexSearchParams, PlacesIndexDef};
 
 const EARTH_RADIUS_KM: f64 = 6371.0;
 
-/// Wrapper around DataFrame for place search results.
+/// Wrapper around `DataFrame` for place search results.
 ///
-/// Provides type safety and place-specific operations on search result DataFrames.
-/// Ensures the DataFrame contains the expected columns for place data.
+/// Provides type safety and place-specific operations on search result `DataFrames`.
+/// Ensures the `DataFrame` contains the expected columns for place data.
 #[derive(Debug, Clone)]
 pub struct PlaceFrame(DataFrame);
 
 impl PlaceFrame {
-    /// Creates a new PlaceFrame from a DataFrame.
-    /// This will panic if the DataFrame does not have the expected columns.
+    /// Creates a new `PlaceFrame` from a `DataFrame`.
+    /// This will panic if the `DataFrame` does not have the expected columns.
     pub fn new(df: DataFrame) -> Self {
-        PlaceFrame::from(df)
+        Self::from(df)
     }
 
     pub fn map<F>(self, f: F) -> Self
@@ -37,13 +37,13 @@ impl PlaceFrame {
         Self(f(self.0))
     }
 
-    /// Returns the underlying DataFrame.
+    /// Returns the underlying `DataFrame`.
     pub fn into_inner(self) -> DataFrame {
         self.0
     }
-
-    /// Convert to LazyFrame for further processing.
-    pub fn lazy(self) -> LazyFrame {
+}
+impl IntoLazy for PlaceFrame {
+    fn lazy(self) -> LazyFrame {
         self.0.lazy()
     }
 }
@@ -87,9 +87,10 @@ impl From<DataFrame> for PlaceFrame {
             .collect::<Vec<_>>();
 
         for col in expected_columns {
-            if !df_cols.contains(&col) {
-                panic!("DataFrame is missing expected column: {col}");
-            }
+            assert!(
+                df_cols.contains(&col),
+                "DataFrame is missing expected column: {col}"
+            );
         }
         Self(df)
     }
@@ -261,15 +262,15 @@ fn search_score_place(
     let lf = if let (Some(clat), Some(clon)) = (center_lat, center_lon) {
         let lat1 = col("latitude").cast(DataType::Float64).radians();
         let lon1 = col("longitude").cast(DataType::Float64).radians();
-        let lat2 = lit(clat as f64).radians();
-        let lon2 = lit(clon as f64).radians();
+        let lat2 = lit(f64::from(clat)).radians();
+        let lon2 = lit(f64::from(clon)).radians();
 
         let d_lat = (lat2 - lat1) / lit(2.0);
         let d_lon = (lon2 - lon1) / lit(2.0);
 
         let a = d_lat.sin().pow(2)
             + col("latitude").cast(DataType::Float64).radians().cos()
-                * lit(clat as f64).radians().cos()
+                * lit(f64::from(clat)).radians().cos()
                 * d_lon.sin().pow(2);
 
         let distance_km = lit(2.0_f64) * a.sqrt().arcsin() * lit(EARTH_RADIUS_KM);
@@ -366,7 +367,7 @@ pub fn place_search_inner(
     params: &PlaceSearchParams,
 ) -> Result<Option<PlaceFrame>> {
     let data = data.lazy();
-    let previous_result = previous_result.map(|df| df.lazy());
+    let previous_result = previous_result.map(IntoLazy::lazy);
 
     // --- Filter by importance tier first ---
     let data_filtered_by_tier =

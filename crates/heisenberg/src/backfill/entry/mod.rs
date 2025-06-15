@@ -9,7 +9,7 @@ mod generic;
 pub use basic::BasicEntry;
 pub use generic::GenericEntry;
 
-/// Trait for entities that can be extracted from a search result row.search_bulk
+/// Trait for entities that can be extracted from a search result `row.search_bulk`
 pub trait LocationEntryCore: Sized + Default + Clone + Send + Sync + 'static {
     fn from_df(df: &DataFrame) -> Result<Vec<Self>>;
     /// Returns the geonameId of the entity.

@@ -3,7 +3,7 @@
 //! This module contains the core search implementations that power location finding.
 //! It includes administrative search, place search, and intelligent search orchestration.
 
-pub(crate) use error::SearchError;
+pub use error::SearchError;
 mod admin_search;
 mod common;
 mod place_search;

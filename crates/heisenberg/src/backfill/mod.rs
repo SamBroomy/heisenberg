@@ -5,7 +5,7 @@ use itertools::Itertools;
 mod entry;
 mod resolve;
 pub use entry::{BasicEntry, GenericEntry, LocationEntry, LocationEntryCore};
-pub(crate) use error::BackfillError;
+pub use error::BackfillError;
 pub use resolve::{
     LocationResults, ResolveConfig, resolve_search_candidate, resolve_search_candidate_batches,
 };

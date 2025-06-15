@@ -1,6 +1,7 @@
 use anyhow::Result;
 use heisenberg::{
-    BasicEntry, LocationSearcher, ResolveSearchConfig, ResolvedSearchResult, SearchConfig,
+    AdminSearchParams, BasicEntry, LocationSearcher, PlaceSearchParams, ResolveSearchConfig,
+    ResolvedSearchResult, SearchConfig,
 };
 use polars::prelude::*;
 use tracing::{debug, info, info_span, warn};
@@ -23,7 +24,7 @@ fn main() -> Result<()> {
         "LocationSearchService setup complete"
     );
 
-    let _example_search_span = info_span!("manual_search_example").entered();
+    let example_search_span = info_span!("manual_search_example").entered();
 
     // Example using the service
     let admins = search_service
@@ -31,7 +32,7 @@ fn main() -> Result<()> {
             "The united states of america",
             &[0, 1],
             None::<DataFrame>,
-            &Default::default(),
+            &AdminSearchParams::default(),
         )?
         .unwrap_or_default();
     debug!(admins = ?admins, "Admin search results");
@@ -41,7 +42,7 @@ fn main() -> Result<()> {
             "California",
             &[1, 2],
             Some(admins), // Pass the DataFrame directly
-            &Default::default(),
+            &AdminSearchParams::default(),
         )?
         .unwrap_or_default();
     debug!(admins1 = ?admins1, "Admin1 search results");
@@ -50,7 +51,7 @@ fn main() -> Result<()> {
             "Los Angeles County",
             &[2, 3],
             Some(admins1),
-            &Default::default(),
+            &AdminSearchParams::default(),
         )?
         .unwrap_or_default();
     debug!(admins2 = ?admins2, "Admin2 search results");
@@ -60,7 +61,7 @@ fn main() -> Result<()> {
             "Beverly Hills",
             &[3, 4],
             Some(admins2.clone()), // Clone if admins2 is used again
-            &Default::default(),
+            &AdminSearchParams::default(),
         )?
         .unwrap_or_default();
     debug!(admin3 = ?admin3, "Admin3 search results");
@@ -76,12 +77,16 @@ fn main() -> Result<()> {
         .collect()?; // Collect to DataFrame for place_search if it expects DataFrame
 
         let place = search_service
-            .place_search("Beverly Hills", Some(places_input_df), &Default::default())?
+            .place_search(
+                "Beverly Hills",
+                Some(places_input_df),
+                &PlaceSearchParams::default(),
+            )?
             .unwrap_or_default();
         debug!(place = ?place, "Place search results");
     }
 
-    drop(_example_search_span);
+    drop(example_search_span);
 
     let examples = vec![
         vec!["US", "CA", "SF", "Golden Gate Bridge"],
@@ -134,7 +139,7 @@ fn main() -> Result<()> {
     };
 
     let t_bulk = std::time::Instant::now();
-    let examples_refs: Vec<&[&str]> = examples.iter().map(|v| v.as_slice()).collect();
+    let examples_refs: Vec<&[&str]> = examples.iter().map(Vec::as_slice).collect();
     let out_bulk: Vec<Vec<ResolvedSearchResult<BasicEntry>>> = search_service
         .resolve_location_batch_with_config(&examples_refs, &resolve_search_config)?;
 

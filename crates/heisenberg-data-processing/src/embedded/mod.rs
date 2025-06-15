@@ -34,15 +34,14 @@ static EMBEDDED_DIR_DEFAULT: &str = "src/data/embedded";
 
 pub static EMBEDDED_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
     std::env::var("EMBEDDED_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(EMBEDDED_DIR_DEFAULT))
+        .map_or_else(|_| PathBuf::from(EMBEDDED_DIR_DEFAULT), PathBuf::from)
 });
 
 /// Generate embedded data from cities15000.zip and write as Rust source files
 pub fn generate_embedded_dataset(data_source: DataSource) -> Result<()> {
     #[cfg(feature = "download_data")]
     {
-        crate::raw::fetch::download_data(&data_source)
+        crate::raw::fetch::download_data(data_source)
             .and_then(|temp_files| embed_data(&temp_files, data_source))
     }
     #[cfg(not(feature = "download_data"))]
@@ -100,6 +99,7 @@ pub struct EmbeddedMetadata {
 impl EmbeddedMetadata {
     pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+    #[must_use]
     pub fn new(
         source: DataSource,
         admin_rows: usize,

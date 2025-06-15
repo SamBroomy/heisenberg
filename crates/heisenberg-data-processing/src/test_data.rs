@@ -8,11 +8,11 @@ use super::error::Result;
 /// Configuration for test data generation
 #[derive(Debug, Clone)]
 pub struct TestDataConfig {
-    /// Number of rows to include for all_countries data
+    /// Number of rows to include for `all_countries` data
     pub all_countries_rows: usize,
-    /// Number of rows to include for country_info data
+    /// Number of rows to include for `country_info` data
     pub country_info_rows: usize,
-    /// Number of rows to include for feature_codes data
+    /// Number of rows to include for `feature_codes` data
     pub feature_codes_rows: usize,
     /// Whether to use realistic data or minimal test data
     pub realistic_data: bool,
@@ -31,6 +31,7 @@ impl Default for TestDataConfig {
 
 impl TestDataConfig {
     /// Minimal data for unit tests
+    #[must_use]
     pub fn minimal() -> Self {
         Self {
             all_countries_rows: 3,
@@ -41,6 +42,7 @@ impl TestDataConfig {
     }
 
     /// Sample data for integration tests
+    #[must_use]
     pub fn sample() -> Self {
         Self {
             all_countries_rows: 100,
@@ -53,7 +55,7 @@ impl TestDataConfig {
 
 /// Create test data files in temporary files
 /// This function generates temporary files containing test data based on the provided configuration.
-/// It creates three files: all_countries, country_info, and feature_codes.
+/// It creates three files: `all_countries`, `country_info`, and `feature_codes`.
 pub fn create_test_data(
     config: &TestDataConfig,
 ) -> Result<(NamedTempFile, NamedTempFile, NamedTempFile)> {

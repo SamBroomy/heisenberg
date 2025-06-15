@@ -17,7 +17,8 @@ pub struct LocationSearchData {
 }
 
 impl LocationSearchData {
-    /// Create new LocationSearchData with specified data source
+    /// Create new `LocationSearchData` with specified data source
+    #[must_use]
     pub fn new(data_source: DataSource) -> Self {
         Self {
             data_source,
@@ -26,12 +27,13 @@ impl LocationSearchData {
         }
     }
 
-    /// Create new LocationSearchData using default embedded data
+    /// Create new `LocationSearchData` using default embedded data
+    #[must_use]
     pub fn new_embedded() -> Self {
         Self::new(METADATA.source)
     }
 
-    /// Get admin search data as LazyFrame with fallback loading
+    /// Get admin search data as `LazyFrame` with fallback loading
     pub fn admin_search_df(&self) -> LazyFrame {
         // Use OnceCell to cache the result after first load
         self.admin_search_df
@@ -39,21 +41,21 @@ impl LocationSearchData {
                 self.load_admin_data()
                     .and_then(|lf| {
                         // Collect the LazyFrame into a DataFrame and then convert it back to LazyFrame
-                        lf.collect().map(|df| df.lazy()).map_err(From::from)
+                        lf.collect().map(IntoLazy::lazy).map_err(From::from)
                     })
                     .expect("Failed to load admin search data")
             })
             .clone()
     }
 
-    /// Get place search data as LazyFrame with fallback loading
+    /// Get place search data as `LazyFrame` with fallback loading
     pub fn place_search_df(&self) -> LazyFrame {
         self.place_search_df
             .get_or_init(|| {
                 self.load_place_data()
                     .and_then(|lf| {
                         // Collect the LazyFrame into a DataFrame and then convert it back to LazyFrame
-                        lf.collect().map(|df| df.lazy()).map_err(From::from)
+                        lf.collect().map(IntoLazy::lazy).map_err(From::from)
                     })
                     .expect("Failed to load admin search data")
             })
@@ -66,7 +68,7 @@ impl LocationSearchData {
             return embedded::load_embedded_admin_search_data();
         }
 
-        match get_admin_data(&self.data_source) {
+        match get_admin_data(self.data_source) {
             // If the data source is the same as the embedded one, we can load the embedded data directly.
             Ok(admin_lf) => Ok(admin_lf),
             Err(e) => {
@@ -86,7 +88,7 @@ impl LocationSearchData {
             return embedded::load_embedded_place_search_data();
         }
 
-        match get_admin_data(&self.data_source) {
+        match get_admin_data(self.data_source) {
             // If the data source is the same as the embedded one, we can load the embedded data directly.
             Ok(place_lf) => Ok(place_lf),
             Err(e) => {

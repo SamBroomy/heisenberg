@@ -14,33 +14,34 @@ use tracing::{debug, info_span, instrument, trace, trace_span, warn};
 use super::Result;
 use crate::index::{AdminIndexDef, FTSIndex, FTSIndexSearchParams};
 
-/// Wrapper around DataFrame for administrative search results.
+/// Wrapper around `DataFrame` for administrative search results.
 ///
-/// Provides type safety and admin-specific operations on search result DataFrames.
-/// Ensures the DataFrame contains expected columns for administrative entity data.
+/// Provides type safety and admin-specific operations on search result `DataFrames`.
+/// Ensures the `DataFrame` contains expected columns for administrative entity data.
 #[derive(Debug, Clone)]
 pub struct AdminFrame(DataFrame);
 
 impl AdminFrame {
-    /// Creates a new AdminFrame from a DataFrame.
-    /// This will panic if the DataFrame does not have the expected columns.
+    /// Creates a new `AdminFrame` from a `DataFrame`.
+    /// This will panic if the `DataFrame` does not have the expected columns.
     pub fn new(df: DataFrame) -> Self {
-        AdminFrame::from(df)
+        Self::from(df)
     }
 
-    pub fn map<F>(self, f: F) -> AdminFrame
+    pub fn map<F>(self, f: F) -> Self
     where
         F: FnOnce(DataFrame) -> DataFrame,
     {
-        AdminFrame(f(self.0))
+        Self(f(self.0))
     }
 
-    /// Returns the underlying DataFrame.
+    /// Returns the underlying `DataFrame`.
     pub fn into_inner(self) -> DataFrame {
         self.0
     }
-
-    pub fn lazy(self) -> LazyFrame {
+}
+impl IntoLazy for AdminFrame {
+    fn lazy(self) -> LazyFrame {
         self.0.lazy()
     }
 }
@@ -84,9 +85,10 @@ impl From<DataFrame> for AdminFrame {
             .collect::<Vec<_>>();
 
         for col in expected_columns {
-            if !df_cols.contains(&col) {
-                panic!("DataFrame is missing expected column: {col}");
-            }
+            assert!(
+                df_cols.contains(&col),
+                "DataFrame is missing expected column: {col}"
+            );
         }
         Self(df)
     }
@@ -258,7 +260,7 @@ pub fn admin_search_inner(
     params: &AdminSearchParams,
 ) -> Result<Option<AdminFrame>> {
     let data = data.lazy();
-    let previous_result = previous_result.map(|df| df.lazy());
+    let previous_result = previous_result.map(IntoLazy::lazy);
 
     let levels_series = Series::new("levels_filter".into(), levels);
 
@@ -399,17 +401,17 @@ pub fn admin_search_inner(
                 lfs_to_concat.push(joined_lf);
             }
 
-            if !lfs_to_concat.is_empty() {
+            if lfs_to_concat.is_empty() {
+                debug!(
+                    "No parent join paths generated, using base FTS results without parent scores."
+                );
+                base_fts_results_lf
+            } else {
                 debug!(
                     "Concatenating {} LazyFrames from different parent join paths.",
                     lfs_to_concat.len()
                 );
                 concat(&lfs_to_concat, UnionArgs::default())?
-            } else {
-                debug!(
-                    "No parent join paths generated, using base FTS results without parent scores."
-                );
-                base_fts_results_lf
             }
         }
         _ => {
@@ -419,7 +421,7 @@ pub fn admin_search_inner(
     };
     let fts_results_for_scoring = fts_results_lf_with_potential_parents;
 
-    let min_level = levels.iter().min().cloned().unwrap_or(0);
+    let min_level = levels.iter().min().copied().unwrap_or(0);
     debug_assert!(min_level < 5, "Level must be between 0 and 4");
     let score_col_name = format!("score_admin_{min_level}");
 

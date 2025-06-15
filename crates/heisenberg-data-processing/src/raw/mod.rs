@@ -20,7 +20,7 @@ pub fn get_raw_data_as_lazy_frames<T: AsRef<Path>>(
     Ok((all_countries_df, country_info_df, feature_codes_df))
 }
 
-/// Transform GeoNames data from separate file paths
+/// Transform `GeoNames` data from separate file paths
 #[instrument(name = "Transform GeoNames data from paths", skip_all, level = "info")]
 pub fn get_raw_data_as_lazy_frames_from_paths(
     all_countries_path: &Path,
@@ -357,16 +357,13 @@ mod tests {
         let result = all_countries::get_all_countries_df(malformed_file.path());
 
         // Should either handle gracefully or return an appropriate error
-        match result {
-            Ok(lf) => {
-                // If it succeeds, it should handle the malformed data somehow
-                let collect_result = lf.collect();
-                // We expect this to either work (with some default handling) or fail gracefully
-                assert!(collect_result.is_ok() || collect_result.is_err());
-            }
-            Err(_) => {
-                // It's also acceptable to return an error for malformed data
-            }
+        if let Ok(lf) = result {
+            // If it succeeds, it should handle the malformed data somehow
+            let collect_result = lf.collect();
+            // We expect this to either work (with some default handling) or fail gracefully
+            assert!(collect_result.is_ok() || collect_result.is_err());
+        } else {
+            // It's also acceptable to return an error for malformed data
         }
     }
 }

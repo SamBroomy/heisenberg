@@ -11,6 +11,7 @@ pub struct SearchConfigBuilder {
 
 impl SearchConfigBuilder {
     /// Create a new builder with sensible defaults
+    #[must_use]
     pub fn new() -> Self {
         Self {
             config: SearchConfig::default(),
@@ -18,6 +19,7 @@ impl SearchConfigBuilder {
     }
 
     /// Create a builder optimized for fast searches (fewer results, less precision)
+    #[must_use]
     pub fn fast() -> Self {
         let mut builder = Self::new();
         builder.config.limit = 10;
@@ -28,6 +30,7 @@ impl SearchConfigBuilder {
     }
 
     /// Create a builder optimized for comprehensive searches (more results, higher precision)
+    #[must_use]
     pub fn comprehensive() -> Self {
         let mut builder = Self::new();
         builder.config.limit = 50;
@@ -39,6 +42,7 @@ impl SearchConfigBuilder {
     }
 
     /// Create a builder optimized for high-quality places (major cities, landmarks)
+    #[must_use]
     pub fn quality_places() -> Self {
         let mut builder = Self::new();
         builder.config.place_min_importance_tier = 2;
@@ -48,30 +52,35 @@ impl SearchConfigBuilder {
     }
 
     /// Set the maximum number of results to return
+    #[must_use]
     pub fn limit(mut self, limit: usize) -> Self {
         self.config.limit = limit;
         self
     }
 
     /// Include all data columns in results (useful for debugging)
+    #[must_use]
     pub fn include_all_columns(mut self) -> Self {
         self.config.all_cols = true;
         self
     }
 
     /// Set the maximum number of sequential administrative terms to process
+    #[must_use]
     pub fn max_admin_terms(mut self, max: usize) -> Self {
         self.config.max_sequential_admin_terms = max;
         self
     }
 
     /// Set the minimum importance tier for places (1=most important, 5=least important)
+    #[must_use]
     pub fn place_importance_threshold(mut self, tier: u8) -> Self {
         self.config.place_min_importance_tier = tier.clamp(1, 5);
         self
     }
 
     /// Enable or disable proactive admin search for place candidates
+    #[must_use]
     pub fn proactive_admin_search(mut self, enabled: bool) -> Self {
         self.config
             .attempt_place_candidate_as_admin_before_place_search = enabled;
@@ -79,6 +88,7 @@ impl SearchConfigBuilder {
     }
 
     /// Configure text search parameters
+    #[must_use]
     pub fn text_search(mut self, fuzzy: bool, limit_multiplier: usize) -> Self {
         let base_limit = self.config.limit;
         self.config.admin_fts_search_params.fuzzy_search = fuzzy;
@@ -89,16 +99,19 @@ impl SearchConfigBuilder {
     }
 
     /// Configure scoring weights for administrative entities
+    #[must_use]
     pub fn admin_scoring(self) -> AdminScoringBuilder {
         AdminScoringBuilder::new(self)
     }
 
     /// Configure scoring weights for places
+    #[must_use]
     pub fn place_scoring(self) -> PlaceScoringBuilder {
         PlaceScoringBuilder::new(self)
     }
 
     /// Build the final configuration
+    #[must_use]
     pub fn build(self) -> SearchConfig {
         self.config
     }
@@ -293,7 +306,7 @@ mod tests {
         assert_eq!(config.limit, 30);
         assert!(config.all_cols);
         assert_eq!(config.place_min_importance_tier, 2);
-        assert_eq!(config.admin_search_score_params.text_weight, 0.6);
+        assert!((config.admin_search_score_params.text_weight - 0.6_f32).abs() < 0.01);
     }
 
     #[test]
@@ -357,11 +370,8 @@ mod tests {
         // Test quality places preset values
         let quality_config = SearchConfigBuilder::quality_places().build();
         assert_eq!(quality_config.place_min_importance_tier, 2);
-        assert_eq!(
-            quality_config.place_search_score_params.importance_weight,
-            0.35
-        );
-        assert_eq!(quality_config.place_search_score_params.text_weight, 0.3);
+        assert!((quality_config.place_search_score_params.importance_weight - 0.35).abs() < 0.01);
+        assert!((quality_config.place_search_score_params.text_weight - 0.3).abs() < 0.01);
     }
 
     #[test]

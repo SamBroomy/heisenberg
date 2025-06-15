@@ -1,6 +1,6 @@
 //! Data source and initialization patterns
 //!
-//! This example demonstrates the different ways to initialize the LocationSearcher
+//! This example demonstrates the different ways to initialize the `LocationSearcher`
 //! with various data sources and loading strategies.
 
 use heisenberg::{DataSource, LocationSearcher};

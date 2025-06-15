@@ -56,7 +56,7 @@ pub enum SearchResult {
     /// Place (city, town, landmark, point of interest, etc.)
     Place(PlaceFrame),
 }
-use SearchResult::*;
+use SearchResult::{Admin, Place};
 impl SearchResult {
     pub fn map<F>(self, f: F) -> Self
     where
@@ -107,7 +107,7 @@ impl SearchResult {
             .and_then(|ca| ca.get(0))
     }
 
-    /// Get the GeoNames ID
+    /// Get the `GeoNames` ID
     pub fn geoname_id(&self) -> Option<u32> {
         self.column("geonameId")
             .ok()
@@ -121,8 +121,8 @@ impl Deref for SearchResult {
 
     fn deref(&self) -> &Self::Target {
         match self {
-            SearchResult::Admin(df) => df,
-            SearchResult::Place(df) => df,
+            Self::Admin(df) => df,
+            Self::Place(df) => df,
         }
     }
 }
@@ -130,8 +130,8 @@ impl Deref for SearchResult {
 impl DerefMut for SearchResult {
     fn deref_mut(&mut self) -> &mut Self::Target {
         match self {
-            SearchResult::Admin(df) => df,
-            SearchResult::Place(df) => df,
+            Self::Admin(df) => df,
+            Self::Place(df) => df,
         }
     }
 }
@@ -186,6 +186,7 @@ pub struct SearchConfig {
     pub place_min_importance_tier: u8,
 }
 impl SearchConfig {
+    #[must_use]
     pub fn builder() -> SearchConfigBuilder {
         SearchConfigBuilder::default()
     }
@@ -203,15 +204,28 @@ impl Default for SearchConfig {
                 limit: default_limit * 3, // Fetch more for ranking
                 ..Default::default()
             },
-            admin_search_score_params: Default::default(),
+            admin_search_score_params: SearchScoreAdminParams::default(),
             place_fts_search_params: FTSIndexSearchParams {
                 limit: default_limit * 3, // Fetch more for ranking
                 ..Default::default()
             },
-            place_search_score_params: Default::default(),
+            place_search_score_params: SearchScorePlaceParams::default(),
             place_min_importance_tier: 5, // Default from PlaceSearchParams
         }
     }
+}
+
+/// Represents the processing state of a query
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum QueryProcessingState {
+    /// Processing administrative terms in sequence
+    ProcessingAdminSequence { current_term_index: usize },
+    /// Administrative sequence complete, ready for proactive search
+    ReadyForProactiveAdmin,
+    /// Proactive admin search complete, ready for place search
+    ReadyForPlaceSearch,
+    /// All processing complete
+    Complete,
 }
 
 /// Represents the state of a location search query during processing
@@ -221,35 +235,161 @@ struct QueryState {
     admin_terms_for_main_sequence: Vec<String>,
     place_candidate_term: Option<String>,
     is_place_candidate_also_last_admin_term_in_sequence: bool,
-    current_admin_term_idx: usize,
+    processing_state: QueryProcessingState,
     last_successful_admin_context_df: Option<AdminFrame>,
     min_level_from_last_success: Option<u8>,
-    admin_sequence_complete: bool,
-    proactive_admin_search_complete: bool,
-    place_search_complete: bool,
     results_for_this_query: Vec<SearchResult>,
 }
 
+#[allow(dead_code)]
 impl QueryState {
     fn new(
-        _unique_id: usize, // For debugging and tracking
+        unique_id: usize,
         admin_terms_for_main_sequence: Vec<String>,
         place_candidate_term: Option<String>,
         is_place_candidate_also_last_admin_term_in_sequence: bool,
     ) -> Self {
+        let initial_state = if admin_terms_for_main_sequence.is_empty() {
+            QueryProcessingState::ReadyForProactiveAdmin
+        } else {
+            QueryProcessingState::ProcessingAdminSequence {
+                current_term_index: 0,
+            }
+        };
+
         Self {
-            _unique_id,
+            _unique_id: unique_id,
             admin_terms_for_main_sequence,
             place_candidate_term,
             is_place_candidate_also_last_admin_term_in_sequence,
-            current_admin_term_idx: 0,
+            processing_state: initial_state,
             last_successful_admin_context_df: None,
             min_level_from_last_success: None,
-            admin_sequence_complete: false,
-            proactive_admin_search_complete: false,
-            place_search_complete: false,
             results_for_this_query: Vec::new(),
         }
+    }
+
+    /// Check if the query is currently processing admin sequence
+    fn is_processing_admin_sequence(&self) -> bool {
+        matches!(
+            self.processing_state,
+            QueryProcessingState::ProcessingAdminSequence { .. }
+        )
+    }
+
+    /// Check if the query is ready for proactive admin search
+    fn is_ready_for_proactive_admin(&self) -> bool {
+        matches!(
+            self.processing_state,
+            QueryProcessingState::ReadyForProactiveAdmin
+        )
+    }
+
+    /// Check if the query is ready for place search
+    fn is_ready_for_place_search(&self) -> bool {
+        matches!(
+            self.processing_state,
+            QueryProcessingState::ReadyForPlaceSearch
+        )
+    }
+
+    /// Check if the query processing is complete
+    fn is_complete(&self) -> bool {
+        matches!(self.processing_state, QueryProcessingState::Complete)
+    }
+
+    /// Get the current admin term index (if processing admin sequence)
+    fn current_admin_term_index(&self) -> Option<usize> {
+        match self.processing_state {
+            QueryProcessingState::ProcessingAdminSequence { current_term_index } => {
+                Some(current_term_index)
+            }
+            _ => None,
+        }
+    }
+
+    /// Get the current admin term (if processing admin sequence)
+    fn current_admin_term(&self) -> Option<&str> {
+        self.current_admin_term_index()
+            .and_then(|idx| self.admin_terms_for_main_sequence.get(idx))
+            .map(String::as_str)
+    }
+
+    /// Advance to the next admin term or complete admin sequence
+    fn advance_admin_sequence(&mut self) {
+        match self.processing_state {
+            QueryProcessingState::ProcessingAdminSequence { current_term_index } => {
+                let next_index = current_term_index + 1;
+                if next_index >= self.admin_terms_for_main_sequence.len() {
+                    self.processing_state = QueryProcessingState::ReadyForProactiveAdmin;
+                } else {
+                    self.processing_state = QueryProcessingState::ProcessingAdminSequence {
+                        current_term_index: next_index,
+                    };
+                }
+            }
+            _ => {
+                warn!(
+                    "Attempted to advance admin sequence from invalid state: {:?}",
+                    self.processing_state
+                );
+            }
+        }
+    }
+
+    /// Mark proactive admin search as complete
+    fn complete_proactive_admin(&mut self) {
+        match self.processing_state {
+            QueryProcessingState::ReadyForProactiveAdmin => {
+                self.processing_state = QueryProcessingState::ReadyForPlaceSearch;
+            }
+            _ => {
+                warn!(
+                    "Attempted to complete proactive admin from invalid state: {:?}",
+                    self.processing_state
+                );
+            }
+        }
+    }
+
+    /// Mark place search as complete
+    fn complete_place_search(&mut self) {
+        match self.processing_state {
+            QueryProcessingState::ReadyForPlaceSearch => {
+                self.processing_state = QueryProcessingState::Complete;
+            }
+            _ => {
+                warn!(
+                    "Attempted to complete place search from invalid state: {:?}",
+                    self.processing_state
+                );
+            }
+        }
+    }
+
+    /// Force complete all processing (for edge cases)
+    fn force_complete(&mut self) {
+        self.processing_state = QueryProcessingState::Complete;
+    }
+
+    // Compatibility methods to replace old boolean flags
+    fn admin_sequence_complete(&self) -> bool {
+        !self.is_processing_admin_sequence()
+    }
+
+    fn proactive_admin_search_complete(&self) -> bool {
+        matches!(
+            self.processing_state,
+            QueryProcessingState::ReadyForPlaceSearch | QueryProcessingState::Complete
+        )
+    }
+
+    fn place_search_complete(&self) -> bool {
+        matches!(self.processing_state, QueryProcessingState::Complete)
+    }
+
+    fn current_admin_term_idx(&self) -> usize {
+        self.current_admin_term_index().unwrap_or(0)
     }
 }
 
@@ -278,10 +418,10 @@ fn clean_search_terms(raw_terms: &[&str]) -> Vec<String> {
         .iter()
         .filter_map(|s| {
             let trimmed = s.trim();
-            if !trimmed.is_empty() {
-                Some(trimmed.to_string())
-            } else {
+            if trimmed.is_empty() {
                 None
+            } else {
+                Some(trimmed.to_string())
             }
         })
         .collect()
@@ -289,7 +429,7 @@ fn clean_search_terms(raw_terms: &[&str]) -> Vec<String> {
 
 /// Determines which terms should be treated as administrative entities
 fn extract_admin_terms(cleaned_terms: &[String], max_admin_terms: usize) -> Vec<String> {
-    let num_admin_terms = std::cmp::min(cleaned_terms.len(), max_admin_terms);
+    let num_admin_terms = min(cleaned_terms.len(), max_admin_terms);
     cleaned_terms[0..num_admin_terms].to_vec()
 }
 
@@ -335,12 +475,12 @@ fn identify_place_candidate(
 pub fn prepare_search_terms(
     search_terms_raw: &[&str],
     max_sequential_admin_terms: usize,
-) -> Result<(Vec<String>, Option<String>, bool)> {
+) -> (Vec<String>, Option<String>, bool) {
     let cleaned_terms = clean_search_terms(search_terms_raw);
 
     if cleaned_terms.is_empty() {
         warn!("No valid search terms provided after cleaning");
-        return Ok((Vec::new(), None, false));
+        return (Vec::new(), None, false);
     }
 
     let admin_terms = extract_admin_terms(&cleaned_terms, max_sequential_admin_terms);
@@ -357,11 +497,11 @@ pub fn prepare_search_terms(
         debug!("No distinct place candidate term identified");
     }
 
-    Ok((
+    (
         admin_terms,
         place_candidate,
         is_place_candidate_also_last_admin,
-    ))
+    )
 }
 
 /// Processes the main administrative sequence of search terms
@@ -374,15 +514,15 @@ pub fn prepare_search_terms(
 ///
 /// # Returns
 /// A tuple containing:
-/// * Vector of DataFrames with admin search results
-/// * Optional DataFrame with last successful context
+/// * Vector of `DataFrames` with admin search results
+/// * Optional `DataFrame` with last successful context
 fn process_admin_sequence(
     admin_terms: &[String],
     admin_fts_index: &FTSIndex<AdminIndexDef>,
-    admin_data_lf: LazyFrame,
+    admin_data_lf: &LazyFrame,
     initial_context: Option<AdminFrame>,
     config: &SearchConfig,
-) -> Result<(Vec<AdminFrame>, Option<AdminFrame>)> {
+) -> (Vec<AdminFrame>, Option<AdminFrame>) {
     let mut results = Vec::new();
     let mut last_context = initial_context;
     let mut min_level_from_last_success: Option<u8> = None;
@@ -401,12 +541,12 @@ fn process_admin_sequence(
     // Process each admin term in sequence
     for (i, term) in admin_terms.iter().enumerate() {
         let natural_start_level = i as u8;
-        let effective_start_level = match min_level_from_last_success {
-            Some(min_prev) => std::cmp::max(natural_start_level, min_prev + 1),
-            None => natural_start_level,
-        };
+        let effective_start_level = min_level_from_last_success
+            .map_or(natural_start_level, |min_prev| {
+                max(natural_start_level, min_prev + 1)
+            });
 
-        let current_search_window_end_level = std::cmp::min(
+        let current_search_window_end_level = min(
             (MAX_ADMIN_LEVELS - 1) as u8, // Max level is 4
             natural_start_level + (empty_admin_slots as u8),
         );
@@ -469,7 +609,7 @@ fn process_admin_sequence(
         }
     }
 
-    Ok((results, last_context))
+    (results, last_context)
 }
 
 /// Processes proactive admin search for a place candidate
@@ -480,8 +620,8 @@ fn process_admin_sequence(
 ///
 /// # Returns
 /// A tuple containing:
-/// * Vector of DataFrames with proactive search results
-/// * Optional DataFrame with last successful context
+/// * Vector of `DataFrames` with proactive search results
+/// * Optional `DataFrame` with last successful context
 fn process_proactive_admin_search(
     place_term: &str,
     admin_terms_count: usize,
@@ -489,7 +629,7 @@ fn process_proactive_admin_search(
     admin_data_lf: LazyFrame,
     last_context: Option<AdminFrame>,
     config: &SearchConfig,
-) -> Result<(Vec<AdminFrame>, Option<AdminFrame>)> {
+) -> (Vec<AdminFrame>, Option<AdminFrame>) {
     let additional_admin_start_level = admin_terms_count as u8;
 
     // Check if there are any valid admin levels to search
@@ -498,7 +638,7 @@ fn process_proactive_admin_search(
             "Skipping proactive admin search for '{}': no subsequent admin levels available (start_level: {})",
             place_term, additional_admin_start_level
         );
-        return Ok((Vec::new(), last_context));
+        return (Vec::new(), last_context);
     }
 
     // Calculate valid admin levels for proactive search
@@ -506,7 +646,7 @@ fn process_proactive_admin_search(
         (additional_admin_start_level..(MAX_ADMIN_LEVELS as u8)).collect();
 
     if additional_admin_levels.is_empty() {
-        return Ok((Vec::new(), last_context));
+        return (Vec::new(), last_context);
     }
 
     debug!(
@@ -538,21 +678,21 @@ fn process_proactive_admin_search(
                 place_term,
                 additional_admin_levels
             );
-            Ok((vec![df.clone()], Some(df)))
+            (vec![df.clone()], Some(df))
         }
         Ok(_) => {
             debug!(
                 "No results for place candidate '{}' as proactive ADMIN in levels {:?}",
                 place_term, additional_admin_levels
             );
-            Ok((Vec::new(), last_context))
+            (Vec::new(), last_context)
         }
         Err(e) => {
             warn!(
                 "Error during proactive admin search for '{}': {:?}",
                 place_term, e
             );
-            Ok((Vec::new(), last_context))
+            (Vec::new(), last_context)
         }
     }
 }
@@ -563,14 +703,14 @@ fn process_proactive_admin_search(
 /// using context from previous administrative searches to refine results.
 ///
 /// # Returns
-/// Optional DataFrame with place search results, if any
+/// Optional `DataFrame` with place search results, if any
 fn process_place_search(
     place_term: &str,
     places_fts_index: &FTSIndex<PlacesIndexDef>,
     places_data_lf: LazyFrame,
     last_context: Option<AdminFrame>,
     config: &SearchConfig,
-) -> Result<Option<PlaceFrame>> {
+) -> Option<PlaceFrame> {
     debug!(
         "Searching for place candidate '{}' as PLACE entity using context",
         place_term
@@ -601,15 +741,15 @@ fn process_place_search(
                 df.height(),
                 place_term
             );
-            Ok(Some(df))
+            Some(df)
         }
         Ok(_) => {
             debug!("No results for place candidate '{}' as PLACE", place_term);
-            Ok(None)
+            None
         }
         Err(e) => {
             warn!("Error searching for place '{}': {:?}", place_term, e);
-            Ok(None)
+            None
         }
     }
 }
@@ -625,15 +765,16 @@ fn process_place_search(
 /// perfectly align with administrative boundaries.
 ///
 /// # Arguments
-/// * `search_terms_raw` - A slice of search terms to process (e.g., ["USA", "California", "Los Angeles"])
-/// * `admin_fts_index` - FTS index for administrative entities
-/// * `admin_data_lf` - LazyFrame containing administrative data
-/// * `places_fts_index` - FTS index for places
-/// * `places_data_lf` - LazyFrame containing place data
-/// * `config` - Configuration parameters for the search process
+///
+/// - `search_terms_raw` - A slice of search terms to process (e.g., `["USA", "California", "Los Angeles"]`)
+/// - `admin_fts_index` - FTS index for administrative entities
+/// - `admin_data_lf` - `LazyFrame` containing administrative data
+/// - `places_fts_index` - FTS index for places
+/// - `places_data_lf` - `LazyFrame` containing place data
+/// - `config` - Configuration parameters for the search process
 ///
 /// # Returns
-/// A vector of DataFrames containing the search results, with each DataFrame
+/// A vector of `DataFrames` containing the search results, with each `DataFrame`
 /// representing a layer in the location hierarchy
 #[instrument(name = "Location Search", level = "info", skip_all, fields(search_terms = ?search_terms_raw))]
 pub fn location_search_inner(
@@ -647,7 +788,7 @@ pub fn location_search_inner(
     let t_start = std::time::Instant::now();
 
     let (admin_terms, place_candidate_term, is_place_candidate_also_last_admin_term) =
-        prepare_search_terms(search_terms_raw, config.max_sequential_admin_terms)?;
+        prepare_search_terms(search_terms_raw, config.max_sequential_admin_terms);
 
     if admin_terms.is_empty() && place_candidate_term.is_none() {
         warn!("No valid search terms provided after cleaning");
@@ -663,13 +804,13 @@ pub fn location_search_inner(
         let (admin_results, context) = process_admin_sequence(
             &admin_terms,
             admin_fts_index,
-            admin_data_lf.clone(),
+            &admin_data_lf,
             last_successful_context,
             config,
-        )?;
+        );
 
         // Update results and context
-        all_results.extend(admin_results.into_iter().map(SearchResult::Admin));
+        all_results.extend(admin_results.into_iter().map(Admin));
         last_successful_context = context;
 
         debug!(
@@ -694,22 +835,22 @@ pub fn location_search_inner(
                 place_term,
                 admin_terms.len(),
                 admin_fts_index,
-                admin_data_lf.clone(),
+                admin_data_lf,
                 last_successful_context.clone(),
                 config,
-            )?;
+            );
 
             // Update results and context if found
-            if !proactive_results.is_empty() {
-                all_results.extend(proactive_results.into_iter().map(SearchResult::Admin));
+            if proactive_results.is_empty() {
+                debug!("No results from proactive admin search");
+            } else {
+                all_results.extend(proactive_results.into_iter().map(Admin));
                 last_successful_context = context;
 
                 debug!(
                     elapsed_ms = proactive_start.elapsed().as_millis(),
                     "Proactive admin search found results"
                 );
-            } else {
-                debug!("No results from proactive admin search");
             }
         } else if is_place_candidate_also_last_admin_term {
             debug!(
@@ -736,8 +877,8 @@ pub fn location_search_inner(
                 places_data_lf,
                 last_successful_context,
                 config,
-            )? {
-                all_results.push(SearchResult::Place(place_result));
+            ) {
+                all_results.push(Place(place_result));
 
                 debug!(
                     elapsed_ms = place_search_start.elapsed().as_millis(),
@@ -758,9 +899,9 @@ pub fn location_search_inner(
     Ok(all_results)
 }
 
-/// Generates a hash signature for a context DataFrame (for batching similar contexts)
+/// Generates a hash signature for a context `DataFrame` (for batching similar contexts)
 ///
-/// This function creates a hash signature based on the geonameId values in the DataFrame,
+/// This function creates a hash signature based on the geonameId values in the `DataFrame`,
 /// allowing for efficient grouping of queries with similar contexts.
 fn generate_context_signature(context_df: Option<&AdminFrame>) -> Option<u64> {
     context_df.and_then(|df| {
@@ -780,7 +921,7 @@ fn generate_context_signature(context_df: Option<&AdminFrame>) -> Option<u64> {
 /// Parses search terms into admin terms and place candidate
 ///
 /// This function:
-/// 1. Extracts the administrative terms based on max_sequential_admin_terms
+/// 1. Extracts the administrative terms based on `max_sequential_admin_terms`
 /// 2. Identifies a potential place candidate term (either beyond admin terms or last admin term)
 /// 3. Tracks if the place candidate is also the last admin term
 fn parse_search_terms(
@@ -821,12 +962,12 @@ fn parse_search_terms(
 /// This function:
 /// 1. Deduplicates identical input batches to avoid redundant processing
 /// 2. Parses each input batch into administrative terms and place candidates
-/// 3. Creates a QueryState object for each unique input batch
+/// 3. Creates a `QueryState` object for each unique input batch
 /// 4. Maps original input indices to unique query IDs for result reconstruction
 fn prepare_query_states(
     all_raw_input_batches: &[&[&str]],
     max_sequential_admin_terms: usize,
-) -> Result<(Vec<QueryState>, Vec<usize>)> {
+) -> (Vec<QueryState>, Vec<usize>) {
     let mut unique_queries_map: HashMap<Vec<String>, usize> = HashMap::new();
     let mut query_states: Vec<QueryState> = Vec::new();
     let mut original_input_to_unique_id: Vec<usize> =
@@ -863,7 +1004,7 @@ fn prepare_query_states(
         original_input_to_unique_id.push(unique_id);
     }
 
-    Ok((query_states, original_input_to_unique_id))
+    (query_states, original_input_to_unique_id)
 }
 
 /// Calculates the target admin levels for a query state
@@ -871,31 +1012,32 @@ fn prepare_query_states(
 /// This function determines the appropriate administrative levels to search for
 /// the current term in a query state, considering:
 /// 1. The current term index in the admin sequence
-/// 2. Previous admin level matches (min_level_from_last_success)
+/// 2. Previous admin level matches (`min_level_from_last_success`)
 /// 3. Available admin level slots
 fn calculate_target_levels(qs: &QueryState, max_admin_levels: usize) -> Vec<u8> {
-    if qs.current_admin_term_idx >= qs.admin_terms_for_main_sequence.len() {
-        return vec![]; // No more terms to search
-    }
-
-    let natural_start_level = qs.current_admin_term_idx as u8;
-    let effective_start_level = match qs.min_level_from_last_success {
-        Some(min_prev) => max(natural_start_level, min_prev + 1),
-        None => natural_start_level,
+    let Some(current_term_index) = qs.current_admin_term_index() else {
+        return vec![]; // Not processing admin sequence
     };
+
+    let natural_start_level = current_term_index as u8;
+    let effective_start_level = qs
+        .min_level_from_last_success
+        .map_or(natural_start_level, |min_prev| {
+            max(natural_start_level, min_prev + 1)
+        });
 
     let num_terms_in_main_seq = qs.admin_terms_for_main_sequence.len();
     let empty_admin_slots = max_admin_levels.saturating_sub(num_terms_in_main_seq);
 
     let current_search_window_end_level = min(
-        (max_admin_levels - 1) as u8, // Max level is 4 for 5 levels (0-4)
+        (max_admin_levels - 1) as u8,
         natural_start_level + (empty_admin_slots as u8),
     );
 
     if effective_start_level <= current_search_window_end_level {
         (effective_start_level..=current_search_window_end_level).collect()
     } else {
-        vec![] // No valid levels
+        vec![]
     }
 }
 
@@ -910,30 +1052,30 @@ fn prepare_admin_search_batches(
     max_admin_levels: usize,
 ) -> Vec<AdminSearchBatch> {
     let mut search_batches = HashMap::new();
-    // First loop: Collect batches based on current query states
+
     for (idx, qs) in query_states.iter().enumerate() {
-        if qs.admin_sequence_complete
-            || qs.current_admin_term_idx >= qs.admin_terms_for_main_sequence.len()
-        {
+        // Only process queries that are currently processing admin sequence
+        if !qs.is_processing_admin_sequence() {
             continue;
         }
 
-        let term = &qs.admin_terms_for_main_sequence[qs.current_admin_term_idx];
-        let target_levels = calculate_target_levels(qs, max_admin_levels);
+        let Some(term) = qs.current_admin_term() else {
+            continue;
+        };
 
+        let target_levels = calculate_target_levels(qs, max_admin_levels);
         if target_levels.is_empty() {
             continue;
         }
 
         let context_signature =
             generate_context_signature(qs.last_successful_admin_context_df.as_ref());
-        let batch_key = (term.clone(), target_levels.clone(), context_signature);
+        let batch_key = (term.to_string(), target_levels.clone(), context_signature);
 
-        // Group by term, levels, and context signature
         search_batches
             .entry(batch_key)
             .or_insert_with(|| AdminSearchBatch {
-                term: term.clone(),
+                term: term.to_string(),
                 levels: target_levels,
                 context_df: qs.last_successful_admin_context_df.clone(),
                 query_indices: Vec::new(),
@@ -949,46 +1091,41 @@ fn prepare_admin_search_batches(
 ///
 /// This function:
 /// 1. Identifies queries that couldn't form batches (e.g., due to empty target levels)
-/// 2. Advances their current_admin_term_idx
-/// 3. Updates admin_sequence_complete flag if needed
+/// 2. Advances their `current_admin_term_idx`
+/// 3. Updates `admin_sequence_complete` flag if needed
 /// 4. Returns true if any queries were advanced
 fn advance_stuck_queries(query_states: &mut [QueryState], max_admin_levels: usize) -> bool {
     let mut made_progress = false;
 
     for qs in query_states.iter_mut() {
-        if !qs.admin_sequence_complete
-            && qs.current_admin_term_idx < qs.admin_terms_for_main_sequence.len()
-        {
-            // Check if this query was part of any batch (not strictly necessary here if batching is exhaustive, but good for logic)
-            // The primary condition for advancing here is if target_levels was empty.
+        if qs.is_processing_admin_sequence() {
             let target_levels = calculate_target_levels(qs, max_admin_levels);
             if target_levels.is_empty() {
-                qs.current_admin_term_idx += 1;
+                qs.advance_admin_sequence();
                 made_progress = true;
-                if qs.current_admin_term_idx >= qs.admin_terms_for_main_sequence.len() {
-                    qs.admin_sequence_complete = true;
-                }
             }
         }
     }
     made_progress
 }
 
-/// Extracts the minimum admin level from a DataFrame
+/// Extracts the minimum admin level from a `DataFrame`
 fn extract_min_admin_level(df: &DataFrame) -> Option<u8> {
-    match df.column("admin_level") {
-        Ok(admin_level_series) => match admin_level_series.cast(&DataType::UInt8) {
-            Ok(casted_series) => casted_series.u8().ok().and_then(|ca| ca.min()),
-            Err(_) => {
-                warn!("Could not cast 'admin_level' to UInt8 for min_level extraction.");
-                None
-            }
-        },
-        Err(_) => {
+    df.column("admin_level").map_or_else(
+        |_| {
             warn!("'admin_level' column not found for min_level extraction.");
             None
-        }
-    }
+        },
+        |admin_level_series| {
+            admin_level_series.cast(&DataType::UInt8).map_or_else(
+                |_| {
+                    warn!("Could not cast 'admin_level' to UInt8 for min_level extraction.");
+                    None
+                },
+                |casted_series| casted_series.u8().ok().and_then(ChunkAgg::min),
+            )
+        },
+    )
 }
 
 type AdminSearchResult = Vec<(Vec<usize>, Option<AdminFrame>, Option<u8>)>;
@@ -997,9 +1134,9 @@ type AdminSearchResult = Vec<(Vec<usize>, Option<AdminFrame>, Option<u8>)>;
 ///
 /// This function:
 /// 1. Converts batches to parallel tasks
-/// 2. Executes admin_search_inner for each batch
+/// 2. Executes `admin_search_inner` for each batch
 /// 3. Processes and collects the results
-/// 4. Returns a vector of (query_indices, result_df, min_level) tuples
+/// 4. Returns a vector of (`query_indices`, `result_df`, `min_level`) tuples
 fn execute_admin_search_batches(
     batches: Vec<AdminSearchBatch>,
     admin_data_lf: &LazyFrame,
@@ -1053,12 +1190,12 @@ fn execute_admin_search_batches(
 /// This function:
 /// 1. Extracts parent links from search results
 /// 2. Creates a filter expression to narrow the search space
-/// 3. Applies the filter to the admin data LazyFrame
+/// 3. Applies the filter to the admin data `LazyFrame`
 fn update_admin_filter_for_next_pass(
     all_results_this_pass: &[AdminFrame],
     admin_data_lf: &LazyFrame,
     original_admin_data_height: u32,
-) -> Result<LazyFrame> {
+) -> LazyFrame {
     // Concat all results from this pass
     let concatenated_results = {
         let lazy_results: Vec<_> = all_results_this_pass
@@ -1067,7 +1204,7 @@ fn update_admin_filter_for_next_pass(
             .collect();
 
         if lazy_results.is_empty() {
-            return Ok(admin_data_lf.clone());
+            return admin_data_lf.clone();
         }
 
         match concat(
@@ -1077,19 +1214,19 @@ fn update_admin_filter_for_next_pass(
                 ..Default::default()
             },
         )
-        .and_then(|lf| lf.collect())
+        .and_then(LazyFrame::collect)
         {
             Ok(df) => df,
             Err(e) => {
                 warn!("Error concatenating results: {:?}", e);
-                return Ok(admin_data_lf.clone());
+                return admin_data_lf.clone();
             }
         }
     };
 
     if concatenated_results.is_empty() {
         debug!("No results to use for filtering next pass.");
-        return Ok(admin_data_lf.clone());
+        return admin_data_lf.clone();
     }
 
     // Get unique parent links based on geonameId
@@ -1101,7 +1238,7 @@ fn update_admin_filter_for_next_pass(
         Ok(df) => df,
         Err(e) => {
             warn!("Error getting unique parents: {:?}", e);
-            return Ok(admin_data_lf.clone());
+            return admin_data_lf.clone();
         }
     };
 
@@ -1142,9 +1279,8 @@ fn update_admin_filter_for_next_pass(
                     }
 
                     // Combine all filter parts with AND
-                    if let Some(combined_child_filter) = child_filter_parts
-                        .into_iter()
-                        .reduce(|acc, expr| acc.and(expr))
+                    if let Some(combined_child_filter) =
+                        child_filter_parts.into_iter().reduce(Expr::and)
                     {
                         debug!(
                             "Adding filter for child level {} with {} parent codes",
@@ -1161,7 +1297,7 @@ fn update_admin_filter_for_next_pass(
     // If no filter expressions, use original data
     if filter_exprs.is_empty() {
         debug!("No parent-child relationships found for filtering next pass.");
-        return Ok(admin_data_lf.clone());
+        return admin_data_lf.clone();
     }
 
     debug!("Created {} filter expressions", filter_exprs.len());
@@ -1169,7 +1305,7 @@ fn update_admin_filter_for_next_pass(
     // Combine filters with OR to include all possible children
     let combined_filter = filter_exprs
         .into_iter()
-        .reduce(|acc, expr| acc.or(expr))
+        .reduce(Expr::or)
         .unwrap_or(lit(true));
 
     // Apply the filter to create the new globally filtered LazyFrame
@@ -1179,13 +1315,13 @@ fn update_admin_filter_for_next_pass(
     let potential_next_active_lf = potential_next_active_lf.collect();
     info!("Lf collect took {:.5}s", t0.elapsed().as_secs_f32());
 
-    let active_admin_lf_for_pass = match potential_next_active_lf {
+    match potential_next_active_lf {
         Ok(active_admin_df) if !active_admin_df.is_empty() => {
             debug!(
                 "Filtered admin data from {} to {} rows ({}%)",
                 original_admin_data_height,
                 active_admin_df.height(),
-                active_admin_df.height() as f64 / original_admin_data_height as f64 * 100.0
+                active_admin_df.height() as f64 / f64::from(original_admin_data_height) * 100.0
             );
             active_admin_df.lazy()
         }
@@ -1197,9 +1333,7 @@ fn update_admin_filter_for_next_pass(
             warn!("Error collecting potential_next_active_lf: {:?}", e);
             admin_data_lf.clone()
         }
-    };
-
-    Ok(active_admin_lf_for_pass)
+    }
 }
 /// Processes the main administrative sequence of searches in parallel
 ///
@@ -1240,8 +1374,11 @@ fn process_main_admin_sequence(
 
         // If no batches to process and all queries complete, we're done
         if search_batches.is_empty() {
-            let all_complete = query_states.iter().all(|qs| qs.admin_sequence_complete);
-            if all_complete {
+            // Check if all queries have completed their admin sequences
+            let all_admin_complete = query_states
+                .iter()
+                .all(|qs| !qs.is_processing_admin_sequence());
+            if all_admin_complete {
                 debug!(
                     "All admin sequences are complete after {} iterations.",
                     iteration_count
@@ -1249,7 +1386,6 @@ fn process_main_admin_sequence(
                 break;
             }
 
-            // Handle stuck queries by advancing them if needed
             let advanced_any = advance_stuck_queries(query_states, MAX_ADMIN_LEVELS);
             if !advanced_any {
                 debug!(
@@ -1289,11 +1425,8 @@ fn process_main_admin_sequence(
                     qs.min_level_from_last_success = min_level;
                 }
 
-                // Advance to next term
-                qs.current_admin_term_idx += 1;
-                if qs.current_admin_term_idx >= qs.admin_terms_for_main_sequence.len() {
-                    qs.admin_sequence_complete = true;
-                }
+                // Advance to next term or complete admin sequence
+                qs.advance_admin_sequence();
             }
         }
         // Update active_admin_lf_for_pass for the next iteration using parent links
@@ -1302,11 +1435,14 @@ fn process_main_admin_sequence(
                 &all_results_this_pass,
                 admin_data_lf,
                 original_admin_data_height,
-            )?;
+            );
         }
 
         // Check if all admin sequences are complete
-        if query_states.iter().all(|qs| qs.admin_sequence_complete) {
+        if query_states
+            .iter()
+            .all(|qs| !qs.is_processing_admin_sequence())
+        {
             debug!(
                 "All admin sequences complete after {} iterations.",
                 iteration_count
@@ -1336,7 +1472,7 @@ fn process_proactive_admin_searches(
     let mut proactive_batches = HashMap::new();
 
     for (idx, qs) in query_states.iter().enumerate() {
-        if qs.proactive_admin_search_complete {
+        if !qs.is_ready_for_proactive_admin() {
             continue;
         }
 
@@ -1408,13 +1544,13 @@ fn process_proactive_admin_searches(
                 }
             }
         }
-    } else {
-        debug!("No proactive admin searches to process.");
     }
 
-    // Mark all queries as having completed proactive admin search
+    // Mark all ready queries as having completed proactive admin search
     for qs in query_states.iter_mut() {
-        qs.proactive_admin_search_complete = true;
+        if qs.is_ready_for_proactive_admin() {
+            qs.complete_proactive_admin();
+        }
     }
 
     Ok(())
@@ -1433,20 +1569,11 @@ fn process_place_searches(
     places_fts_index: &FTSIndex<PlacesIndexDef>,
     place_search_params: &PlaceSearchParams,
 ) -> Result<()> {
-    for (idx, qs) in query_states.iter().enumerate() {
-        if let Some(ref context) = qs.last_successful_admin_context_df {
-            debug!("Query {}: Admin context has {} rows", idx, context.height());
-            // Log the actual admin results being used
-            if let Ok(names) = context.column("name") {
-                debug!("Query {}: Admin names: {:?}", idx, names);
-            }
-        }
-    }
     // Group similar place searches for parallel execution
     let mut place_batches = HashMap::new();
 
     for (idx, qs) in query_states.iter().enumerate() {
-        if qs.place_search_complete || qs.place_candidate_term.is_none() {
+        if !qs.is_ready_for_place_search() || qs.place_candidate_term.is_none() {
             continue;
         }
 
@@ -1454,14 +1581,14 @@ fn process_place_searches(
         if qs.admin_terms_for_main_sequence.len() <= 1
             && qs.is_place_candidate_also_last_admin_term_in_sequence
         {
-            debug!(
-                "Skipping place search for single-term query '{}' - treating as admin-only search",
-                qs.place_candidate_term.as_ref().unwrap()
-            );
+            debug!("Skipping place search for single-term query - treating as admin-only search");
             continue;
         }
 
-        let term = qs.place_candidate_term.as_ref().unwrap();
+        let term = qs
+            .place_candidate_term
+            .as_ref()
+            .expect("Place candidate term should be set");
         let context_sig = generate_context_signature(qs.last_successful_admin_context_df.as_ref());
 
         place_batches
@@ -1483,7 +1610,6 @@ fn process_place_searches(
             place_batches.len()
         );
 
-        // Execute place searches in parallel
         let place_results: Vec<_> = place_batches
             .into_par_iter()
             .map(|batch| {
@@ -1492,12 +1618,6 @@ fn process_place_searches(
                     context_df,
                     query_indices,
                 } = batch;
-
-                debug!(
-                    "Searching place term '{}' for {} queries.",
-                    term,
-                    query_indices.len()
-                );
 
                 let search_result = place_search_inner(
                     &term,
@@ -1530,13 +1650,13 @@ fn process_place_searches(
                 }
             }
         }
-    } else {
-        debug!("No place searches to process.");
     }
 
-    // Mark all queries as having completed place search
+    // Mark all ready queries as having completed place search
     for qs in query_states.iter_mut() {
-        qs.place_search_complete = true;
+        if qs.is_ready_for_place_search() {
+            qs.complete_place_search();
+        }
     }
 
     Ok(())
@@ -1547,7 +1667,7 @@ fn process_place_searches(
 /// This function:
 /// 1. Maps query results back to their original input indices
 /// 2. Handles invalid query placeholders
-/// 3. Returns a vector of vectors of DataFrames in the original input order
+/// 3. Returns a vector of vectors of `DataFrames` in the original input order
 fn reconstruct_results(
     query_states: &[QueryState],
     original_input_to_unique_id: &[usize],
@@ -1587,7 +1707,7 @@ pub fn bulk_location_search_inner(
     // --- 1. Deduplication and Initialization ---
     let dedup_start = std::time::Instant::now();
     let (mut query_states, original_input_to_unique_id) =
-        prepare_query_states(all_raw_input_batches, config.max_sequential_admin_terms)?;
+        prepare_query_states(all_raw_input_batches, config.max_sequential_admin_terms);
 
     info!(
         elapsed = ?dedup_start.elapsed(),
@@ -1671,11 +1791,11 @@ pub fn bulk_location_search_inner(
         all_raw_input_batches.len(),
     );
 
-    let avg_results_per_batch = if !final_bulk_results.is_empty() {
-        final_bulk_results.iter().map(|v| v.len()).sum::<usize>() as f64
-            / final_bulk_results.len() as f64
-    } else {
+    let avg_results_per_batch = if final_bulk_results.is_empty() {
         0.0
+    } else {
+        final_bulk_results.iter().map(Vec::len).sum::<usize>() as f64
+            / final_bulk_results.len() as f64
     };
 
     info!(

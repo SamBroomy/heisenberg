@@ -1,7 +1,7 @@
 //! Heisenberg - Location Search and Enrichment Library
 //!
 //! Heisenberg is a powerful location enrichment library that transforms unstructured location data
-//! into structured, complete administrative hierarchies. It uses the comprehensive GeoNames dataset
+//! into structured, complete administrative hierarchies. It uses the comprehensive `GeoNames` dataset
 //! and advanced full-text search to provide fast, accurate location resolution.
 //!
 //! # Quick Start
@@ -37,7 +37,7 @@
 //! - **Intelligent Search**: Advanced text search with fuzzy matching and scoring
 //! - **Structure Resolution**: Convert partial location data into complete administrative hierarchies
 //! - **High Performance**: Built in Rust with Tantivy full-text search for speed
-//! - **Global Coverage**: Based on GeoNames dataset with 11+ million locations
+//! - **Global Coverage**: Based on `GeoNames` dataset with 11+ million locations
 //! - **Flexible Configuration**: Customize search behavior for your specific needs
 //! - **Batch Processing**: Efficiently process thousands of locations at once
 //!
@@ -60,10 +60,6 @@ mod index;
 mod search;
 
 // Re-export data processing from subcrate
-pub use heisenberg_data_processing as data_processing;
-pub use heisenberg_data_processing::DataSource;
-
-pub extern crate polars;
 pub use core::{LocationSearcher, LocationSearcherBuilder, ResolveSearchConfig};
 
 pub use backfill::{
@@ -72,7 +68,10 @@ pub use backfill::{
 };
 pub use config::SearchConfigBuilder;
 pub use data::LocationSearchData;
+pub use heisenberg_data_processing as data_processing;
+pub use heisenberg_data_processing::DataSource;
 pub use index::{FTSIndexSearchParams, LocationSearchIndex};
+pub use polars;
 pub use search::{
     AdminFrame, AdminSearchParams, PlaceFrame, PlaceSearchParams, SearchConfig, SearchResult,
     SearchScoreAdminParams, SearchScorePlaceParams,

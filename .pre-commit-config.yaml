@@ -36,10 +36,14 @@ repos:
     hooks:
       - id: ruff
         args: [--fix, --exit-non-zero-on-fix, --unsafe-fixes]
-        types_or: [python, pyi]
+        types_or: [python]
         stages: [pre-commit]
+        files: '^python/.*\.py$'
+        types: [python]
       - id: ruff-format
-        types_or: [python, pyi]
+        name: ruff format
+        files: '^python/.*\.py$'
+        types: [python]
 
   - repo: local
     hooks:
@@ -51,44 +55,60 @@ repos:
         files: ^justfile$
         stages: [pre-commit]
         pass_filenames: false
-      # Rust hooks
+      # Cargo machete (only when Cargo.toml changes)
       - id: cargo-machete
         name: cargo machete
-        description: This hook runs cargo machete on the project and checks for any issues.
+        description: Find unused dependencies
         entry: cargo machete --fix
         language: system
-        types: [rust]
-        stages: [pre-commit]
+        files: '^Cargo\.toml$'
+        types: [toml]
         pass_filenames: false
+      # Cargo audit (only when Cargo.lock changes or on manual trigger)
       - id: cargo-audit
         name: cargo audit
-        description: This hook runs cargo audit on the project and fails if any vulnerabilities are found.
+        description: Audit for security vulnerabilities
         entry: cargo audit --deny unsound --deny yanked
         language: system
-        types: [rust]
-        stages: [pre-commit]
+        files: '^Cargo\.lock$'
+        types: [toml]
         pass_filenames: false
-      - id: clippy
+        stages: [manual, pre-push]
+      # Clippy (only on Rust files or Cargo.toml changes)
+      - id: cargo-clippy
         name: cargo clippy
-        description: This hook runs cargo clippy on the project and fixes any issues.
-        entry: cargo clippy --fix --allow-staged --all-targets --quiet -- -D warnings
+        description: Run cargo clippy with fixes
+        entry: cargo clippy --workspace --all-targets --all-features --fix --allow-staged --quiet -- -D warnings
         language: system
-        types: [rust]
-        stages: [pre-commit]
+        files: '(\.rs$|Cargo\.toml$|Cargo\.lock$)'
+        types_or: [rust, toml]
         pass_filenames: false
-      - id: fmt
+      # Cargo fmt (only on Rust files)
+      - id: cargo-fmt
         name: cargo fmt
-        description: This hook runs cargo fmt on the project
+        description: Format Rust code with cargo fmt
         entry: cargo +nightly fmt --all
         language: system
+        files: '\.rs$'
         types: [rust]
-        stages: [pre-commit]
         pass_filenames: false
-      - id: rust-docs
+      # Cargo doc (documentation check)
+      - id: cargo-doc
         name: cargo doc
-        description: This hook runs cargo doc on the project and checks for any issues.
-        entry: cargo doc --open --all-features
+        description: Check documentation builds
+        entry: cargo doc --all-features
         language: system
-        types: [rust]
+        files: '(src/.*\.rs$|Cargo\.toml)$'
+        types: [rust, toml]
         stages: [pre-commit]
         pass_filenames: false
+      # Cargo test (only on significant Rust changes)
+      - id: cargo-test
+        name: cargo test
+        description: Run cargo test suite
+        entry: cargo test --workspace -- --test-threads=1
+        language: system
+        files: '(src/.*\.rs$|tests/.*\.rs$|Cargo\.toml$)'
+        types_or: [rust, toml]
+        pass_filenames: false
+        stages: [pre-push] # Only run on push, not every commit

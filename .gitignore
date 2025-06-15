@@ -1,6 +1,6 @@
 *
 !*/
-.gitignore
+!.gitignore
 !Cargo.toml
 !src/
 !**/*.rs

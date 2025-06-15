@@ -3,8 +3,8 @@ use tracing::instrument;
 
 use super::Result;
 
-/// Transform the GeoNames data into the admin search format
-/// returns a LazyFrame with the admin search data
+/// Transform the `GeoNames` data into the admin search format
+/// returns a `LazyFrame` with the admin search data
 #[instrument(
     name = "Transform GeoNames data for admin search",
     skip_all,
@@ -44,7 +44,7 @@ pub fn get_admin_search_lf(all_countries: LazyFrame, country_info: LazyFrame) ->
                 .alias("admin1_code"),
         )
         .join(
-            country_info.clone(),
+            country_info,
             [col("geonameId")],
             [col("geonameId")],
             JoinArgs {

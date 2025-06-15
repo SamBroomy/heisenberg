@@ -110,7 +110,9 @@ pub(super) fn parent_factor(lf: LazyFrame) -> Result<LazyFrame> {
         })
         .collect::<Vec<_>>();
 
-    let lf = if !parent_score_exprs_for_mean.is_empty() {
+    let lf = if parent_score_exprs_for_mean.is_empty() {
+        lf.with_column(lit(0.5_f32).alias("parent_factor"))
+    } else {
         lf.with_column(
             polars::lazy::dsl::mean_horizontal(parent_score_exprs_for_mean, true)?
                 .fill_null(0.5_f32)
@@ -123,8 +125,6 @@ pub(super) fn parent_factor(lf: LazyFrame) -> Result<LazyFrame> {
                 .clip(lit(0.0), lit(1.0))
                 .alias("parent_factor"),
         )
-    } else {
-        lf.with_column(lit(0.5_f32).alias("parent_factor"))
     };
     Ok(lf)
 }
@@ -134,7 +134,7 @@ fn get_join_keys(previous_result: &LazyFrame) -> Result<Vec<Expr>> {
     let join_keys = previous_result
         .clone()
         .select([col("^admin[0-4]_code$")])
-        .unique(None, Default::default())
+        .unique(None, UniqueKeepStrategy::default())
         .collect()?;
 
     let column_names = join_keys
@@ -167,10 +167,7 @@ fn get_join_keys(previous_result: &LazyFrame) -> Result<Vec<Expr>> {
 pub(super) fn get_join_expr_from_previous_result(
     previous_result: Option<&LazyFrame>,
 ) -> Result<Vec<Expr>> {
-    match previous_result {
-        Some(prev_lf) => get_join_keys(prev_lf),
-        None => Ok(vec![]),
-    }
+    previous_result.map_or_else(|| Ok(vec![]), get_join_keys)
 }
 
 pub(super) fn get_col_name_from_expr(expr: &Expr) -> Result<Rc<str>> {
@@ -225,46 +222,44 @@ pub(super) fn filter_data_from_previous_results(
                     key_name_str, row_idx
                 );
                 break;
-            } else {
-                // Create a literal from AnyValue. This needs to handle various types if admin codes aren't always strings.
-                // Assuming admin codes are strings for this example.
-                let lit_val = match val_anyvalue {
-                    AnyValue::String(s) => lit(s),
-                    AnyValue::StringOwned(s_owned) => lit(s_owned),
-                    ref av => {
-                        // Attempt to create a series from AnyValue, then literal
-                        // This is a robust way if types are mixed but known to Polars.
-                        // However, direct lit construction is usually for concrete types.
-                        // For simplicity, error out if not string, or handle more types.
-                        warn!(
-                            "Unsupported AnyValue type for admin code literal: {:?} for column {}",
-                            av, key_name_str
-                        );
-                        // Create a series to then create a literal
-                        // This is a bit of a workaround for direct AnyValue to lit.
-                        let temp_series =
-                            Series::new_null(key_name_str.into(), 0).cast(&av.dtype())?; // Get dtype
-                        let temp_series = temp_series.extend_constant(av.clone(), 1)?;
+            }
+            // Create a literal from AnyValue. This needs to handle various types if admin codes aren't always strings.
+            // Assuming admin codes are strings for this example.
+            let lit_val = match val_anyvalue {
+                AnyValue::String(s) => lit(s),
+                AnyValue::StringOwned(s_owned) => lit(s_owned),
+                ref av => {
+                    // Attempt to create a series from AnyValue, then literal
+                    // This is a robust way if types are mixed but known to Polars.
+                    // However, direct lit construction is usually for concrete types.
+                    // For simplicity, error out if not string, or handle more types.
+                    warn!(
+                        "Unsupported AnyValue type for admin code literal: {:?} for column {}",
+                        av, key_name_str
+                    );
+                    // Create a series to then create a literal
+                    // This is a bit of a workaround for direct AnyValue to lit.
+                    let temp_series = Series::new_null(key_name_str.into(), 0).cast(&av.dtype())?; // Get dtype
+                    let temp_series = temp_series.extend_constant(av.clone(), 1)?;
 
-                        lit(temp_series)
-                        // return Err(anyhow::anyhow!(
-                        //     "Unsupported AnyValue type {:?} for admin code in column {}",
-                        //     av, key_name_str
-                        // ));
-                    }
-                };
-
-                let segment_filter = col(key_name_str).eq(lit_val);
-                // debug!(
-                //     "Adding segment filter for path row {}: {} == {:?}",
-                //     row_idx, key_name_str, val_anyvalue
-                // );
-
-                if let Some(existing_filter) = current_path_filter.take() {
-                    current_path_filter = Some(existing_filter.and(segment_filter));
-                } else {
-                    current_path_filter = Some(segment_filter);
+                    lit(temp_series)
+                    // return Err(anyhow::anyhow!(
+                    //     "Unsupported AnyValue type {:?} for admin code in column {}",
+                    //     av, key_name_str
+                    // ));
                 }
+            };
+
+            let segment_filter = col(key_name_str).eq(lit_val);
+            // debug!(
+            //     "Adding segment filter for path row {}: {} == {:?}",
+            //     row_idx, key_name_str, val_anyvalue
+            // );
+
+            if let Some(existing_filter) = current_path_filter.take() {
+                current_path_filter = Some(existing_filter.and(segment_filter));
+            } else {
+                current_path_filter = Some(segment_filter);
             }
         }
 

@@ -29,9 +29,7 @@ pub mod test_data;
 pub const DATA_DIR_DEFAULT: &str = "heisenberg_data";
 
 pub static DATA_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
-    std::env::var("DATA_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| get_default_data_dir())
+    std::env::var("DATA_DIR").map_or_else(|_| get_default_data_dir(), PathBuf::from)
 });
 
 #[derive(Debug, Copy, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -74,7 +72,7 @@ impl DataSource {
         DATA_DIR.join(self.to_string())
     }
 
-    fn processed_dir(&self) -> PathBuf {
+    fn processed_dir(self) -> PathBuf {
         self.data_source_dir().join(Self::PROCESSED_DIR)
     }
 
@@ -88,10 +86,12 @@ impl DataSource {
         }
     }
 
+    #[must_use]
     pub fn admin_parquet(&self) -> PathBuf {
         self.processed_dir().join("admin_search.parquet")
     }
 
+    #[must_use]
     pub fn place_parquet(&self) -> PathBuf {
         self.processed_dir().join("place_search.parquet")
     }
@@ -224,25 +224,21 @@ fn clean_data_files(data_source: DataSource) -> Result<()> {
 /// Ensure both admin and place data files exist and are valid, regenerating if necessary
 fn ensure_data_files(data_source: DataSource) -> Result<(PathBuf, PathBuf)> {
     // First try to validate existing files
-    match validate_data_files(data_source) {
-        Ok(paths) => {
-            info!("Using existing processed data for {}", data_source);
-            return Ok(paths);
-        }
-        Err(_) => {
-            info!(
-                "Data files missing or corrupted for {}, regenerating...",
-                data_source
-            );
-            // Clean up any partial files
-            clean_data_files(data_source)?;
-        }
+    if let Ok(paths) = validate_data_files(data_source) {
+        info!("Using existing processed data for {}", data_source);
+        return Ok(paths);
     }
+    info!(
+        "Data files missing or corrupted for {}, regenerating...",
+        data_source
+    );
+    // Clean up any partial files
+    clean_data_files(data_source)?;
 
     // Generate new data files
     #[cfg(feature = "download_data")]
     {
-        let temp_files = crate::raw::fetch::download_data(data_source)?;
+        let temp_files = raw::fetch::download_data(data_source)?;
 
         info!("Generating processed data for {}", data_source);
         std::fs::create_dir_all(data_source.processed_dir())?;
@@ -270,13 +266,13 @@ fn ensure_data_files(data_source: DataSource) -> Result<(PathBuf, PathBuf)> {
     }
 }
 
-/// Get both admin and place data as LazyFrames
+/// Get both admin and place data as `LazyFrames`
 pub fn get_data(data_source: DataSource) -> Result<(LazyFrame, LazyFrame)> {
     let (admin_path, place_path) = ensure_data_files(data_source)?;
     load_parquet_files(&admin_path, &place_path)
 }
 
-/// Get only admin search data as LazyFrame
+/// Get only admin search data as `LazyFrame`
 ///
 /// This function ensures data consistency by validating that both admin and place files exist.
 /// If either file is missing or corrupted, both will be regenerated.
@@ -295,6 +291,7 @@ pub fn get_place_data(data_source: DataSource) -> Result<LazyFrame> {
 }
 
 /// Check if processed data exists for the given data source without loading it
+#[must_use]
 pub fn data_exists(data_source: DataSource) -> bool {
     validate_data_files(data_source).is_ok()
 }

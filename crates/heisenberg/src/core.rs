@@ -95,7 +95,7 @@ pub struct LocationSearcher {
 }
 
 impl LocationSearcher {
-    /// Create a new LocationSearcher with smart initialization.
+    /// Create a new `LocationSearcher` with smart initialization.
     ///
     /// This will try to load existing indexes if they're up-to-date, otherwise
     /// it will create new ones from the specified data source.
@@ -132,7 +132,7 @@ impl LocationSearcher {
         Ok(Self { index, data })
     }
 
-    /// Create a new LocationSearcher, forcing recreation of indexes.
+    /// Create a new `LocationSearcher`, forcing recreation of indexes.
     ///
     /// This will always rebuild search indexes from scratch, ensuring they're
     /// completely up-to-date but taking longer to initialize.
@@ -169,7 +169,7 @@ impl LocationSearcher {
         Ok(Self { index, data })
     }
 
-    /// Create a LocationSearcher using embedded data.
+    /// Create a `LocationSearcher` using embedded data.
     ///
     /// This uses the data that was embedded at compile time, providing the
     /// fastest initialization since no disk I/O or index building is required.
@@ -202,7 +202,7 @@ impl LocationSearcher {
         Ok(Self { index, data })
     }
 
-    /// Try to load existing LocationSearcher from cached indexes.
+    /// Try to load existing `LocationSearcher` from cached indexes.
     ///
     /// Returns None if indexes don't exist or are invalid. This is useful
     /// for checking if a searcher can be loaded quickly before falling back
@@ -240,9 +240,8 @@ impl LocationSearcher {
             if index.is_up_to_date(&data)? {
                 info!("Successfully loaded existing up-to-date LocationSearcher");
                 return Ok(Some(Self { index, data }));
-            } else {
-                info!("Existing indexes are out of date");
             }
+            info!("Existing indexes are out of date");
         } else {
             info!("No existing indexes found");
         }
@@ -250,15 +249,15 @@ impl LocationSearcher {
         Ok(None)
     }
 
-    /// Create a LocationSearcher from pre-built components.
+    /// Create a `LocationSearcher` from pre-built components.
     ///
     /// This is useful for advanced use cases where you want to customize
     /// the data loading or index creation process.
     ///
     /// # Arguments
     ///
-    /// * `data` - Pre-configured LocationSearchData
-    /// * `index` - Pre-built LocationSearchIndex
+    /// * `data` - Pre-configured `LocationSearchData`
+    /// * `index` - Pre-built `LocationSearchIndex`
     ///
     /// # Examples
     ///
@@ -291,6 +290,7 @@ impl LocationSearcher {
     ///     println!("Indexes will need to be built");
     /// }
     /// ```
+    #[must_use]
     pub fn indexes_exist(data_source: DataSource) -> bool {
         LocationSearchIndex::exists_for_source(&data_source)
     }
@@ -331,7 +331,7 @@ impl LocationSearcher {
             data_source: *self.data.data_source(),
             has_admin_index: true, // We always have both with LocationSearchIndex
             has_places_index: true,
-            embedded_metadata: crate::data::embedded::METADATA.clone(),
+            embedded_metadata: METADATA.clone(),
         }
     }
 
@@ -363,7 +363,7 @@ impl LocationSearcher {
     ///
     /// # Returns
     ///
-    /// An optional DataFrame containing matching administrative entities,
+    /// An optional `DataFrame` containing matching administrative entities,
     /// or None if no matches were found.
     ///
     /// # Examples
@@ -413,7 +413,7 @@ impl LocationSearcher {
     ///
     /// # Returns
     ///
-    /// An optional DataFrame containing matching places,
+    /// An optional `DataFrame` containing matching places,
     /// or None if no matches were found.
     ///
     /// # Examples
@@ -464,7 +464,7 @@ impl LocationSearcher {
     where
         Term: AsRef<str>,
     {
-        let input_terms = input_terms.iter().map(|s| s.as_ref()).collect::<Vec<_>>();
+        let input_terms = input_terms.iter().map(AsRef::as_ref).collect::<Vec<_>>();
 
         location_search_inner(
             &input_terms,
@@ -499,17 +499,11 @@ impl LocationSearcher {
     {
         let all_raw_input_batches = all_raw_input_batches
             .iter()
-            .map(|batch| {
-                batch
-                    .as_ref()
-                    .iter()
-                    .map(|term| term.as_ref())
-                    .collect::<Vec<_>>()
-            })
+            .map(|batch| batch.as_ref().iter().map(AsRef::as_ref).collect::<Vec<_>>())
             .collect::<Vec<_>>();
         let all_raw_input_batches = all_raw_input_batches
             .iter()
-            .map(|inner_vec| inner_vec.as_slice())
+            .map(Vec::as_slice)
             .collect::<Vec<_>>();
 
         bulk_location_search_inner(
@@ -525,14 +519,14 @@ impl LocationSearcher {
 
     pub fn resolve<Entry: LocationEntry>(
         &self,
-        search_results: SearchResults,
+        search_results: &SearchResults,
     ) -> Result<LocationResults<Entry>, HeisenbergError> {
         self.resolve_with_config(search_results, &ResolveConfig::default())
     }
 
     pub fn resolve_with_config<Entry: LocationEntry>(
         &self,
-        search_results: SearchResults,
+        search_results: &SearchResults,
         config: &ResolveConfig,
     ) -> Result<LocationResults<Entry>, HeisenbergError> {
         resolve_search_candidate(search_results, &self.data.admin_search_df(), config)
@@ -584,7 +578,7 @@ impl LocationSearcher {
         let search_results = self.search_with_config(input_terms, &config.search_config)?;
 
         resolve_search_candidate(
-            search_results,
+            &search_results,
             &self.data.admin_search_df(),
             &config.resolve_config,
         )
@@ -629,12 +623,12 @@ impl LocationSearcher {
 
     // === Utility Methods ===
 
-    /// Access the underlying LocationSearchIndex for advanced operations.
+    /// Access the underlying `LocationSearchIndex` for advanced operations.
     pub fn index(&self) -> &LocationSearchIndex {
         &self.index
     }
 
-    /// Access the underlying LocationSearchData for advanced operations.
+    /// Access the underlying `LocationSearchData` for advanced operations.
     pub fn data(&self) -> &LocationSearchData {
         &self.data
     }
@@ -647,15 +641,15 @@ impl Default for LocationSearcher {
     }
 }
 
-/// Create a LocationSearcher from pre-built components.
+/// Create a `LocationSearcher` from pre-built components.
 ///
 /// This is useful for advanced use cases where you want to customize
 /// the data loading or index creation process.
 ///
 /// # Arguments
 ///
-/// * `data` - Pre-configured LocationSearchData
-/// * `index` - Pre-built LocationSearchIndex
+/// * `data` - Pre-configured `LocationSearchData`
+/// * `index` - Pre-built `LocationSearchIndex`
 ///
 /// # Examples
 ///
@@ -664,16 +658,16 @@ impl Default for LocationSearcher {
 ///
 /// let data = LocationSearchData::new(DataSource::Cities15000);
 /// let index = LocationSearchIndex::new(&data, false)?;
-/// let searcher = LocationSearcher::from_components(data, index);
+/// let searcher = LocationSearcher::from_components(index, data);
 /// # Ok::<(), heisenberg::error::HeisenbergError>(())
 /// ```
-impl From<(LocationSearchData, LocationSearchIndex)> for LocationSearcher {
-    fn from((data, index): (LocationSearchData, LocationSearchIndex)) -> Self {
-        Self { data, index }
+impl From<(LocationSearchIndex, LocationSearchData)> for LocationSearcher {
+    fn from((index, data): (LocationSearchIndex, LocationSearchData)) -> Self {
+        Self { index, data }
     }
 }
 
-/// Information about a LocationSearcher's configuration and state.
+/// Information about a `LocationSearcher`'s configuration and state.
 #[derive(Debug, Clone)]
 pub struct SearcherInfo {
     pub data_source: DataSource,
@@ -706,7 +700,7 @@ impl SearcherInfo {
 
 // === Builder Pattern (Optional) ===
 
-/// Builder for creating LocationSearcher with custom configuration.
+/// Builder for creating `LocationSearcher` with custom configuration.
 #[derive(Debug, Clone)]
 pub struct LocationSearcherBuilder {
     data_source: Option<DataSource>,
@@ -716,6 +710,7 @@ pub struct LocationSearcherBuilder {
 
 impl LocationSearcherBuilder {
     /// Create a new builder.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             data_source: None,
@@ -725,24 +720,27 @@ impl LocationSearcherBuilder {
     }
 
     /// Set the data source.
+    #[must_use]
     pub fn data_source(mut self, source: DataSource) -> Self {
         self.data_source = Some(source);
         self
     }
 
     /// Force rebuilding of indexes.
+    #[must_use]
     pub fn force_rebuild(mut self, rebuild: bool) -> Self {
         self.force_rebuild = rebuild;
         self
     }
 
     /// Enable or disable fallback to embedded data.
+    #[must_use]
     pub fn embedded_fallback(mut self, fallback: bool) -> Self {
         self.embedded_fallback = fallback;
         self
     }
 
-    /// Build the LocationSearcher.
+    /// Build the `LocationSearcher`.
     pub fn build(self) -> Result<LocationSearcher, HeisenbergError> {
         let data_source = self.data_source.unwrap_or_default();
 

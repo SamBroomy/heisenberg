@@ -60,11 +60,11 @@ impl LocationEntryCore for GenericEntry {
             )| Self {
                 geoname_id: geoname_id.expect("geonameId should never be None"),
                 name: name.expect("name should never be None").to_string(),
-                admin0_code: admin0_code.map(|s| s.to_string()),
-                admin1_code: admin1_code.map(|s| s.to_string()),
-                admin2_code: admin2_code.map(|s| s.to_string()),
-                admin3_code: admin3_code.map(|s| s.to_string()),
-                admin4_code: admin4_code.map(|s| s.to_string()),
+                admin0_code: admin0_code.map(ToString::to_string),
+                admin1_code: admin1_code.map(ToString::to_string),
+                admin2_code: admin2_code.map(ToString::to_string),
+                admin3_code: admin3_code.map(ToString::to_string),
+                admin4_code: admin4_code.map(ToString::to_string),
                 feature_code: feature_code
                     .expect("feature_code should never be None")
                     .to_string(),

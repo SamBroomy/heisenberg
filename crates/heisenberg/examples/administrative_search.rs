@@ -89,11 +89,11 @@ fn print_admin_result(df: &DataFrame) -> Result<(), Box<dyn std::error::Error>> 
     let column_names: Vec<String> = df
         .get_column_names()
         .iter()
-        .map(|s| s.to_string())
+        .map(ToString::to_string)
         .collect();
 
     for col_name in &columns_to_show {
-        if column_names.contains(&col_name.to_string()) {
+        if column_names.contains(&(*col_name).to_string()) {
             available_columns.push(*col_name);
         }
     }

@@ -28,10 +28,10 @@ fn main() -> Result<()> {
 }
 
 fn get_configured_data_source() -> DataSource {
-    match env::var("EMBEDDED_DATA_SOURCE") {
-        Ok(source) => DataSource::from_str(&source).unwrap_or_default(),
-        Err(_) => DataSource::default(),
-    }
+    env::var("EMBEDDED_DATA_SOURCE").map_or_else(
+        |_| DataSource::default(),
+        |source| DataSource::from_str(&source).unwrap_or_default(),
+    )
 }
 
 fn should_generate_embedded_data() -> Option<DataSource> {
