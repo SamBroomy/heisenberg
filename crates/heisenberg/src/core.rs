@@ -658,7 +658,7 @@ impl Default for LocationSearcher {
 ///
 /// let data = LocationSearchData::new(DataSource::Cities15000);
 /// let index = LocationSearchIndex::new(&data, false)?;
-/// let searcher = LocationSearcher::from_components(index, data);
+/// let searcher = LocationSearcher::from((index, data));
 /// # Ok::<(), heisenberg::error::HeisenbergError>(())
 /// ```
 impl From<(LocationSearchIndex, LocationSearchData)> for LocationSearcher {
