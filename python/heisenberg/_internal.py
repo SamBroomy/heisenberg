@@ -952,9 +952,13 @@ class LocationSearcher:
         This is the main search method that handles both simple string queries
         and multi-term searches with optional custom configuration.
 
+        Important: When providing multiple terms, the input should be in descending
+        'size' order (largest to smallest location) for optimal results:
+        ['Country', 'State', 'County', 'Place']
+
         Args:
             query: Search query as a string ("New York") or list of terms
-                  (["New", "York", "USA"]).
+                  in descending size order (["California", "San Francisco"]).
             config: Optional search configuration. If None, uses default settings.
 
         Returns:
@@ -965,9 +969,10 @@ class LocationSearcher:
 
             >>> results = searcher.find("Tokyo")
 
-            Multi-term search:
+            Multi-term search (largest to smallest):
 
-            >>> results = searcher.find(["San", "Francisco", "California"])
+            >>> results = searcher.find(["United States", "California", "San Francisco"])
+            >>> results = searcher.find(["France", "Paris"])
 
             With custom configuration:
 
@@ -1045,20 +1050,25 @@ class LocationSearcher:
         More efficient than calling find() multiple times, especially for
         large numbers of queries.
 
+        Important: Each query list should contain terms in descending 'size' order
+        (largest to smallest location) for optimal results:
+        ['Country', 'State', 'County', 'Place']
+
         Args:
-            queries: List of query lists. Each inner list represents one search.
+            queries: List of query lists. Each inner list represents one search
+                    with terms in descending size order.
             config: Optional search configuration applied to all queries.
 
         Returns:
             List[List[SearchResult]]: List of result lists, one per input query.
 
         Examples:
-            Process multiple queries efficiently:
+            Process multiple queries efficiently (largest to smallest terms):
 
             >>> queries = [
-            ...     ["London", "UK"],
-            ...     ["Paris", "France"],
-            ...     ["Tokyo", "Japan"]
+            ...     ["United Kingdom", "London"],
+            ...     ["France", "Paris"],
+            ...     ["Japan", "Tokyo"]
             ... ]
             >>> batch_results = searcher.find_batch(queries)
             >>> for i, results in enumerate(batch_results):
@@ -1119,8 +1129,11 @@ class LocationSearcher:
     def search_raw(self, input_terms: List[str]) -> List["pl.DataFrame"]:
         """Low-level search returning raw DataFrames.
 
+        Important: Input terms should be in descending 'size' order (largest to
+        smallest location) for optimal results: ['Country', 'State', 'County', 'Place']
+
         Args:
-            input_terms: List of search terms.
+            input_terms: List of search terms in descending size order.
 
         Returns:
             List of Polars DataFrames.
@@ -1132,8 +1145,11 @@ class LocationSearcher:
     ) -> List["pl.DataFrame"]:
         """Low-level search with configuration returning raw DataFrames.
 
+        Important: Input terms should be in descending 'size' order (largest to
+        smallest location) for optimal results: ['Country', 'State', 'County', 'Place']
+
         Args:
-            input_terms: List of search terms.
+            input_terms: List of search terms in descending size order.
             config: Search configuration.
 
         Returns:
@@ -1148,8 +1164,11 @@ class LocationSearcher:
     ) -> List[ResolvedGenericSearchResult]:
         """Resolve location search results.
 
+        Important: Input terms should be in descending 'size' order (largest to
+        smallest location) for optimal results: ['Country', 'State', 'County', 'Place']
+
         Args:
-            input_terms: List of search terms.
+            input_terms: List of search terms in descending size order.
 
         Returns:
             List of resolved search results.
@@ -1161,8 +1180,12 @@ class LocationSearcher:
     ) -> List[List[ResolvedGenericSearchResult]]:
         """Resolve location search results in batch.
 
+        Important: Each list of input terms should be in descending 'size' order
+        (largest to smallest location) for optimal results:
+        ['Country', 'State', 'County', 'Place']
+
         Args:
-            input_terms_batch: List of lists of search terms.
+            input_terms_batch: List of lists of search terms, each in descending size order.
 
         Returns:
             List of lists of resolved search results.
@@ -1178,8 +1201,12 @@ def find_location(query: Union[str, List[str]]) -> List[SearchResult]:
     Good for one-off searches, but if you're doing multiple searches,
     create a LocationSearcher instance to reuse the loaded data.
 
+    Important: When providing multiple terms, list them in descending 'size' order
+    (largest to smallest location) for optimal results:
+    ['Country', 'State', 'County', 'Place']
+
     Args:
-        query: Search query string or list of query terms.
+        query: Search query string or list of query terms in descending size order.
 
     Returns:
         List[SearchResult]: List of matching locations.
@@ -1190,6 +1217,11 @@ def find_location(query: Union[str, List[str]]) -> List[SearchResult]:
         >>> results = find_location("Berlin")
         >>> if results:
         ...     print(f"Found: {results[0].name}")
+
+        Multi-term search (largest to smallest):
+
+        >>> results = find_location(["Germany", "Berlin"])
+        >>> results = find_location(["United States", "Florida", "Miami"])
     """
     searcher = LocationSearcher()
     return searcher.find(query)
@@ -1201,16 +1233,24 @@ def find_locations_batch(queries: List[List[str]]) -> List[List[SearchResult]]:
     Creates a temporary LocationSearcher instance and performs batch search.
     Good for one-off batch operations.
 
+    Important: Each query list should contain terms in descending 'size' order
+    (largest to smallest location) for optimal results:
+    ['Country', 'State', 'County', 'Place']
+
     Args:
-        queries: List of query lists.
+        queries: List of query lists, each with terms in descending size order.
 
     Returns:
         List[List[SearchResult]]: List of result lists, one per input query.
 
     Examples:
-        Quick batch search:
+        Quick batch search (largest to smallest terms):
 
-        >>> queries = [["Rome"], ["Vienna"], ["Prague"]]
+        >>> queries = [
+        ...     ["Italy", "Rome"],
+        ...     ["Austria", "Vienna"],
+        ...     ["Czech Republic", "Prague"]
+        ... ]
         >>> batch_results = find_locations_batch(queries)
         >>> for results in batch_results:
         ...     if results:

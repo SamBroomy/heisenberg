@@ -1,11 +1,33 @@
 [project]
 name = "heisenberg"
 version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
+description = "Location enrichment library for converting unstructured location data into structured administrative hierarchies using GeoNames"
+readme = "python/README.md"
 requires-python = ">=3.10"
-classifiers = ["Programming Language :: Rust"]
-dependencies = ["maturin>=1.8.6", "polars>=1"]
+authors = [{ name = "SamBroomy", email = "sam@example.com" }]
+license = { text = "MIT" }
+keywords = [
+    "geonames",
+    "location",
+    "geocoding",
+    "data-processing",
+    "location-enrichment",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: GIS",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+dependencies = ["polars>=1.0"]
 
 [dependency-groups]
 dev = [

@@ -38,12 +38,13 @@ def main():
     print("2. Multi-term Batch Queries")
     print("-" * 30)
 
+    # Note: Use largest to smallest location order for optimal results
     multi_term_queries = [
-        ["Paris", "France"],
-        ["London", "England"],
-        ["Tokyo", "Japan"],
-        ["New York", "USA"],
-        ["Berlin", "Germany"],
+        ["France", "Paris"],
+        ["England", "London"],
+        ["Japan", "Tokyo"],
+        ["USA", "New York"],
+        ["Germany", "Berlin"],
     ]
 
     print("Processing city + country queries in batch:")
@@ -116,12 +117,12 @@ def main():
     print("-" * 30)
 
     mixed_queries = [
-        ["New York", "NY"],  # Good query
+        ["NY", "New York"],  # Good query (largest to smallest)
         [""],  # Empty query
         ["XYZ123"],  # Invalid/nonsense query
-        ["Paris", "France"],  # Good query
+        ["France", "Paris"],  # Good query (largest to smallest)
         ["   "],  # Whitespace only
-        ["London", "UK"],  # Good query
+        ["UK", "London"],  # Good query (largest to smallest)
     ]
 
     print("Processing queries with mixed quality:")

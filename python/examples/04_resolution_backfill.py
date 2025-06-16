@@ -5,6 +5,9 @@ Resolution and Backfill Example for Heisenberg
 This example demonstrates the resolution and backfill functionality, which
 enriches location data by finding the complete administrative hierarchy
 for a given location (e.g., finding the country, state, county for a city).
+
+IMPORTANT: For optimal results, provide location terms in descending 'size' order:
+['Country', 'State', 'County', 'Place'] (largest to smallest location)
 """
 
 from heisenberg._internal import RustLocationSearcher, RustSearchConfigBuilder
@@ -47,8 +50,8 @@ def main():
     print("2. Multi-term Resolution")
     print("-" * 30)
 
-    print("Resolving ['London', 'England']:")
-    resolved_results = rust_searcher.resolve_location(["London", "England"])
+    print("Resolving ['England', 'London'] (largest to smallest):")
+    resolved_results = rust_searcher.resolve_location(["England", "London"])
 
     if resolved_results:
         result = resolved_results[0]
@@ -74,7 +77,8 @@ def main():
     print("3. Batch Resolution")
     print("-" * 30)
 
-    location_queries = [["New York"], ["Berlin", "Germany"], ["Tokyo", "Japan"]]
+    # Note: Use largest to smallest location order for optimal results
+    location_queries = [["New York"], ["Germany", "Berlin"], ["Japan", "Tokyo"]]
 
     print("Resolving multiple locations in batch:")
     batch_resolved = rust_searcher.resolve_location_batch(location_queries)
@@ -153,7 +157,7 @@ def main():
     print("6. Working with Resolved Results")
     print("-" * 30)
 
-    resolved_results = rust_searcher.resolve_location(["San Francisco", "California"])
+    resolved_results = rust_searcher.resolve_location(["California", "San Francisco"])
 
     if resolved_results:
         result = resolved_results[0]

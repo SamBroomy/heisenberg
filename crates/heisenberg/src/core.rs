@@ -449,6 +449,26 @@ impl LocationSearcher {
 
     // === Simplified mid-level search methods ===
 
+    /// Search for locations using the provided terms.
+    ///
+    /// **Important**: Input terms should be provided in descending 'size' order
+    /// (largest to smallest location) for optimal results:
+    /// `['Country', 'State', 'County', 'Place']`
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use heisenberg::LocationSearcher;
+    /// # let searcher = LocationSearcher::new_embedded().unwrap();
+    /// // Single term
+    /// let results = searcher.search(&["Tokyo"]).unwrap();
+    ///
+    /// // Multi-term (largest to smallest)
+    /// let results = searcher.search(&["Japan", "Tokyo"]).unwrap();
+    /// let results = searcher
+    ///     .search(&["United States", "California", "San Francisco"])
+    ///     .unwrap();
+    /// ```
     pub fn search<Term>(&self, input_terms: &[Term]) -> Result<SearchResults, HeisenbergError>
     where
         Term: AsRef<str>,
@@ -456,6 +476,22 @@ impl LocationSearcher {
         self.search_with_config(input_terms, &SearchConfig::default())
     }
 
+    /// Search for locations using the provided terms and custom configuration.
+    ///
+    /// **Important**: Input terms should be provided in descending 'size' order
+    /// (largest to smallest location) for optimal results:
+    /// `['Country', 'State', 'County', 'Place']`
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use heisenberg::{LocationSearcher, SearchConfig};
+    /// # let searcher = LocationSearcher::new_embedded().unwrap();
+    /// let config = SearchConfig::default();
+    /// let results = searcher
+    ///     .search_with_config(&["Germany", "Berlin"], &config)
+    ///     .unwrap();
+    /// ```
     pub fn search_with_config<Term>(
         &self,
         input_terms: &[Term],
@@ -477,6 +513,24 @@ impl LocationSearcher {
         .map_err(From::from)
     }
 
+    /// Search for multiple location queries in batch for improved performance.
+    ///
+    /// **Important**: Each batch of input terms should be provided in descending 'size' order
+    /// (largest to smallest location) for optimal results:
+    /// `['Country', 'State', 'County', 'Place']`
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use heisenberg::LocationSearcher;
+    /// # let searcher = LocationSearcher::new_embedded().unwrap();
+    /// let queries = vec![
+    ///     vec!["Japan", "Tokyo"],
+    ///     vec!["France", "Paris"],
+    ///     vec!["United States", "New York"],
+    /// ];
+    /// let batch_results = searcher.search_bulk(&queries).unwrap();
+    /// ```
     pub fn search_bulk<Term, Batch>(
         &self,
         all_raw_input_batches: &[Batch],
@@ -555,6 +609,23 @@ impl LocationSearcher {
 
     // === High-level search and resolve methods ===
 
+    /// Resolve location terms into complete administrative hierarchies.
+    ///
+    /// **Important**: Input terms should be provided in descending 'size' order
+    /// (largest to smallest location) for optimal results:
+    /// `['Country', 'State', 'County', 'Place']`
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use heisenberg::{LocationSearcher, GenericEntry};
+    /// # let searcher = LocationSearcher::new_embedded().unwrap();
+    /// // Resolve with proper ordering (largest to smallest)
+    /// let resolved = searcher
+    ///     .resolve_location::<_, GenericEntry>(&["United States", "California", "San Francisco"])
+    ///     .unwrap();
+    /// let context = &resolved[0].context;
+    /// ```
     pub fn resolve_location<Term, Entry>(
         &self,
         input_terms: &[Term],
@@ -566,6 +637,22 @@ impl LocationSearcher {
         self.resolve_location_with_config(input_terms, &ResolveSearchConfig::default())
     }
 
+    /// Resolve location terms into complete administrative hierarchies with custom configuration.
+    ///
+    /// **Important**: Input terms should be provided in descending 'size' order
+    /// (largest to smallest location) for optimal results:
+    /// `['Country', 'State', 'County', 'Place']`
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use heisenberg::{LocationSearcher, GenericEntry, ResolveSearchConfig};
+    /// # let searcher = LocationSearcher::new_embedded().unwrap();
+    /// let config = ResolveSearchConfig::default();
+    /// let resolved = searcher
+    ///     .resolve_location_with_config::<_, GenericEntry>(&["France", "Paris"], &config)
+    ///     .unwrap();
+    /// ```
     pub fn resolve_location_with_config<Term, Entry>(
         &self,
         input_terms: &[Term],

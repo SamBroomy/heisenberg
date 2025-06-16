@@ -38,12 +38,12 @@ searcher = heisenberg.LocationSearcher()
 results = searcher.find("Tokyo")
 print(f"Found: {results[0].name}")
 
-# Multi-term search
-results = searcher.find(["Paris", "France"])
+# Multi-term search (largest to smallest: Country, City)
+results = searcher.find(["France", "Paris"])
 print(f"Found: {results[0].name}")
 
-# Resolve complete administrative hierarchy
-resolved = searcher.resolve_location(["San Francisco", "California"])
+# Resolve complete administrative hierarchy (largest to smallest: State, City)
+resolved = searcher.resolve_location(["California", "San Francisco"])
 context = resolved[0].context
 
 print(f"Country: {context.admin0.name}")  # United States
@@ -72,8 +72,8 @@ let searcher = LocationSearcher::initialize(DataSource::Cities15000)?;
 let results = searcher.search(&["Tokyo"])?;
 println!("Found: {}", results[0].name().unwrap_or("Unknown"));
 
-// Resolve complete hierarchy
-let resolved = searcher.resolve_location::<_, GenericEntry>(&["Berlin", "Germany"])?;
+// Resolve complete hierarchy (largest to smallest: Country, City)
+let resolved = searcher.resolve_location::<_, GenericEntry>(&["Germany", "Berlin"])?;
 let context = &resolved[0].context;
 
 if let Some(country) = &context.admin0 {
@@ -88,11 +88,11 @@ if let Some(place) = &context.place {
 
 The problem: inconsistent and incomplete location data.
 
-| Input | Output |
+| Input (largest → smallest) | Output |
 |-------|--------|
 | `"Florida"` | United States → Florida |
-| `["Paris", "France"]` | France → Île-de-France → Paris |
-| `["San Francisco", "CA"]` | United States → California → San Francisco County → San Francisco |
+| `["France", "Paris"]` | France → Île-de-France → Paris |
+| `["CA", "San Francisco"]` | United States → California → San Francisco County → San Francisco |
 | `"Deutschland"` | Germany (resolves alternative names) |
 
 ### Administrative Levels
@@ -109,7 +109,8 @@ The problem: inconsistent and incomplete location data.
 ### Batch Processing
 
 ```python
-queries = [["Tokyo", "Japan"], ["London", "UK"], ["New York", "USA"]]
+# Note: Input order is largest to smallest (Country, City)
+queries = [["Japan", "Tokyo"], ["UK", "London"], ["USA", "New York"]]
 batch_results = searcher.find_batch(queries)
 ```
 

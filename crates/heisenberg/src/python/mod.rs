@@ -192,8 +192,11 @@ impl PyLocationSearcher {
 
     /// Perform a flexible search with multiple terms using default configuration.
     ///
+    /// Important: Input terms should be in descending 'size' order (largest to
+    /// smallest location) for optimal results: ['Country', 'State', 'County', 'Place']
+    ///
     /// Args:
-    ///     input_terms: List of search terms to process.
+    ///     input_terms: List of search terms to process in descending size order.
     ///
     /// Returns:
     ///     List of search results.
@@ -214,8 +217,11 @@ impl PyLocationSearcher {
 
     /// Perform a flexible search with multiple terms using custom configuration.
     ///
+    /// Important: Input terms should be in descending 'size' order (largest to
+    /// smallest location) for optimal results: ['Country', 'State', 'County', 'Place']
+    ///
     /// Args:
-    ///     input_terms: List of search terms to process.
+    ///     input_terms: List of search terms to process in descending size order.
     ///     config: Custom search configuration.
     ///
     /// Returns:
@@ -244,8 +250,13 @@ impl PyLocationSearcher {
 
     /// Perform batch search for multiple sets of terms using default configuration.
     ///
+    /// Important: Each list of input terms should be in descending 'size' order
+    /// (largest to smallest location) for optimal results:
+    /// ['Country', 'State', 'County', 'Place']
+    ///
     /// Args:
-    ///     input_terms: List of lists, where each inner list contains terms for one search.
+    ///     input_terms: List of lists, where each inner list contains terms for one search
+    ///                  in descending size order.
     ///
     /// Returns:
     ///     List of lists of search results, one per input term set.
@@ -278,8 +289,13 @@ impl PyLocationSearcher {
 
     /// Perform batch search for multiple sets of terms using custom configuration.
     ///
+    /// Important: Each list of input terms should be in descending 'size' order
+    /// (largest to smallest location) for optimal results:
+    /// ['Country', 'State', 'County', 'Place']
+    ///
     /// Args:
-    ///     input_terms: List of lists, where each inner list contains terms for one search.
+    ///     input_terms: List of lists, where each inner list contains terms for one search
+    ///                  in descending size order.
     ///     config: Custom search configuration.
     ///
     /// Returns:
@@ -320,8 +336,11 @@ impl PyLocationSearcher {
     /// This is the main high-level method that combines search and resolution
     /// to provide clean, structured location results.
     ///
+    /// Important: Input terms should be in descending 'size' order (largest to
+    /// smallest location) for optimal results: ['Country', 'State', 'County', 'Place']
+    ///
     /// Args:
-    ///     input_terms: List of search terms to resolve.
+    ///     input_terms: List of search terms to resolve in descending size order.
     ///
     /// Returns:
     ///     List of resolved search results with full location context.
@@ -353,8 +372,11 @@ impl PyLocationSearcher {
 
     /// Resolve location with custom configuration.
     ///
+    /// Important: Input terms should be in descending 'size' order (largest to
+    /// smallest location) for optimal results: ['Country', 'State', 'County', 'Place']
+    ///
     /// Args:
-    ///     input_terms: List of search terms to resolve.
+    ///     input_terms: List of search terms to resolve in descending size order.
     ///     config: Custom search configuration.
     ///
     /// Returns:
@@ -395,8 +417,13 @@ impl PyLocationSearcher {
 
     /// Resolve locations in batch.
     ///
+    /// Important: Each list of input terms should be in descending 'size' order
+    /// (largest to smallest location) for optimal results:
+    /// ['Country', 'State', 'County', 'Place']
+    ///
     /// Args:
-    ///     input_terms_batch: List of lists, where each inner list contains terms for one search.
+    ///     input_terms_batch: List of lists, where each inner list contains terms for one search
+    ///                        in descending size order.
     ///
     /// Returns:
     ///     List of lists of resolved search results with full location context.
@@ -435,8 +462,13 @@ impl PyLocationSearcher {
 
     /// Resolve locations in batch with custom configuration.
     ///
+    /// Important: Each list of input terms should be in descending 'size' order
+    /// (largest to smallest location) for optimal results:
+    /// ['Country', 'State', 'County', 'Place']
+    ///
     /// Args:
-    ///     input_terms_batch: List of lists, where each inner list contains terms for one search.
+    ///     input_terms_batch: List of lists, where each inner list contains terms for one search
+    ///                        in descending size order.
     ///     config: Custom search configuration.
     ///
     /// Returns:

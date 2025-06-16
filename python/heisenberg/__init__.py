@@ -9,6 +9,10 @@ The library is designed for location enrichment, taking input vectors with locat
 in descending 'size' order (largest to smallest) and enriching missing or inconsistent
 location information using the Geonames dataset.
 
+IMPORTANT INPUT ORDER: For optimal results, provide location terms in descending 'size' order:
+- Largest locations first (Country, State/Province)
+- Smallest/most specific locations last (County, City, Place)
+
 Example input order: ['Country', 'State', 'County', 'Place']
 Example enrichment: ['Florida', 'Lakeland'] → ['United States', 'Florida', 'Polk County', 'Lakeland']
 """

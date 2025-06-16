@@ -40,7 +40,7 @@ thiserror = { workspace = true }
 serde = { workspace = true, optional = true }
 
 # Data processing subcrate
-heisenberg-data-processing = { path = "../heisenberg-data-processing" }
+heisenberg-data-processing = { workspace = true }
 
 # Main crate specific dependencies
 ahash = { workspace = true }
@@ -62,7 +62,7 @@ pythonize = { workspace = true, optional = true }
 pyo3-log = { workspace = true, optional = true }
 
 [build-dependencies]
-heisenberg-data-processing = { path = "../heisenberg-data-processing", features = [
+heisenberg-data-processing = { version = "0.1.0", path = "../heisenberg-data-processing", features = [
     "download_data",
 ] }
 polars = { workspace = true }

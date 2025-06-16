@@ -40,9 +40,9 @@ def main():
         )
     print()
 
-    # Multi-term search
-    print("Searching for ['Paris', 'France']:")
-    results = searcher.find(["Paris", "France"])
+    # Multi-term search (largest to smallest location for optimal results)
+    print("Searching for ['France', 'Paris']:")
+    results = searcher.find(["France", "Paris"])
     for i, result in enumerate(results[:3], 1):
         print(
             f"  {i}. {result.name} (ID: {result.geoname_id}, Score: {result.score:.3f})"
@@ -85,7 +85,7 @@ def main():
 
     # Batch searches with convenience function
     print("Using convenience function find_locations_batch:")
-    batch_queries = [["Berlin"], ["Madrid"], ["Rome"]]
+    batch_queries = [["Germany", "Berlin"], ["Spain", "Madrid"], ["Italy", "Rome"]]
     batch_results = heisenberg.find_locations_batch(batch_queries)
     for i, (query, results) in enumerate(zip(batch_queries, batch_results)):
         if results:

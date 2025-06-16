@@ -6,6 +6,9 @@
 //!
 //! # Quick Start
 //!
+//! **Important**: When providing multiple location terms, they should be in descending 'size' order
+//! (largest to smallest location) for optimal results: `['Country', 'State', 'County', 'Place']`
+//!
 //! ```rust
 //! use heisenberg::{GenericEntry, LocationEntryCore, LocationSearcher};
 //!
@@ -18,8 +21,11 @@
 //!     println!("Found: {}", result.name().unwrap_or("Unknown"));
 //! }
 //!
-//! // Resolve complete hierarchy
-//! let resolved = searcher.resolve_location::<_, GenericEntry>(&["Berlin", "Germany"])?;
+//! // Multi-term search (largest to smallest: Country, City)
+//! let results = searcher.search(&["Germany", "Berlin"])?;
+//!
+//! // Resolve complete hierarchy (largest to smallest)
+//! let resolved = searcher.resolve_location::<_, GenericEntry>(&["Germany", "Berlin"])?;
 //! if let Some(result) = resolved.first() {
 //!     let context = &result.context;
 //!     if let Some(country) = &context.admin0 {
