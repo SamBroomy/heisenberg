@@ -1,6 +1,6 @@
 use anyhow::Result;
 use heisenberg::{
-    AdminSearchParams, BasicEntry, LocationSearcher, PlaceSearchParams, ResolveSearchConfig,
+    AdminSearchParams, LocationSearcher, PlaceSearchParams, ResolveSearchConfig,
     ResolvedSearchResult, SearchConfig,
 };
 use polars::prelude::*;
@@ -140,7 +140,7 @@ fn main() -> Result<()> {
 
     let t_bulk = std::time::Instant::now();
     let examples_refs: Vec<&[&str]> = examples.iter().map(Vec::as_slice).collect();
-    let out_bulk: Vec<Vec<ResolvedSearchResult<BasicEntry>>> = search_service
+    let out_bulk: Vec<Vec<ResolvedSearchResult>> = search_service
         .resolve_location_batch_with_config(&examples_refs, &resolve_search_config)?;
 
     warn!(t_bulk = ?t_bulk.elapsed(), "Bulk smart flexible search took");

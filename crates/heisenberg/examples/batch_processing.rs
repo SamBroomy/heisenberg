@@ -6,7 +6,7 @@
 
 use std::time::Instant;
 
-use heisenberg::{GenericEntry, LocationEntryCore, LocationSearcher, SearchConfigBuilder};
+use heisenberg::{LocationContext, LocationSearcher, SearchConfigBuilder};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let searcher = LocationSearcher::new_embedded()?;
@@ -108,7 +108,7 @@ fn batch_resolution(
     println!("\nBatch resolution:");
 
     let start = Instant::now();
-    let resolved_results = searcher.resolve_location_batch::<GenericEntry, _, _>(queries)?;
+    let resolved_results = searcher.resolve_location_batch(queries)?;
     let elapsed = start.elapsed();
 
     println!(
@@ -127,7 +127,7 @@ fn batch_resolution(
     Ok(())
 }
 
-fn build_hierarchy_string(context: &heisenberg::LocationContext<GenericEntry>) -> String {
+fn build_hierarchy_string(context: &LocationContext) -> String {
     let mut parts = Vec::new();
 
     if let Some(admin0) = &context.admin0 {
@@ -149,8 +149,6 @@ fn build_hierarchy_string(context: &heisenberg::LocationContext<GenericEntry>) -
 
 #[cfg(test)]
 mod tests {
-    use std::env;
-
     use super::*;
 
     fn setup_test_env() {

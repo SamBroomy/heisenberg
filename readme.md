@@ -60,7 +60,7 @@ heisenberg = "0.1"
 ```
 
 ```rust
-use heisenberg::{LocationSearcher, DataSource, GenericEntry};
+use heisenberg::{LocationSearcher, DataSource};
 
 // Create searcher using embedded data (fastest, no downloads)
 let searcher = LocationSearcher::new_embedded()?;
@@ -73,7 +73,7 @@ let results = searcher.search(&["Tokyo"])?;
 println!("Found: {}", results[0].name().unwrap_or("Unknown"));
 
 // Resolve complete hierarchy (largest to smallest: Country, City)
-let resolved = searcher.resolve_location::<_, GenericEntry>(&["Germany", "Berlin"])?;
+let resolved = searcher.resolve_location(&["Germany", "Berlin"])?;
 let context = &resolved[0].context;
 
 if let Some(country) = &context.admin0 {

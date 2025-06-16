@@ -12,7 +12,7 @@ use tracing::{debug, debug_span, instrument, trace, warn};
 use super::{LocationContext, ResolvedSearchResult, Result, entry::LocationEntry};
 use crate::search::SearchResult;
 
-pub type LocationResults<E> = Vec<ResolvedSearchResult<E>>;
+pub type LocationResults = Vec<ResolvedSearchResult>;
 
 /// Configuration for the location resolution process.
 #[derive(Debug, Clone)]
@@ -95,14 +95,16 @@ impl TargetLocationAdminCodes {
 /// administrative entity at each level (country, state, county, etc.) that
 /// corresponds to the target location.
 #[instrument(level = "trace", skip(admin_data_lf, filter_expr), fields(filter = format!("{:?}", filter_expr)))]
-fn query_admin_level_entity_lazy<E: LocationEntry>(
-    admin_data_lf: &LazyFrame,
-    filter_expr: Expr,
-) -> LazyFrame {
+fn query_admin_level_entity_lazy(admin_data_lf: &LazyFrame, filter_expr: Expr) -> LazyFrame {
     admin_data_lf
         .clone()
         .filter(filter_expr)
-        .select(E::field_names().iter().map(|s| col(*s)).collect::<Vec<_>>())
+        .select(
+            LocationEntry::field_names()
+                .iter()
+                .map(|s| col(*s))
+                .collect::<Vec<_>>(),
+        )
         //.sort(["admin_level"], Default::default())
         .limit(1) // Expecting only one match for a full code path at a specific level.
 }
@@ -113,10 +115,10 @@ fn query_admin_level_entity_lazy<E: LocationEntry>(
 /// `LocationContext` objects by looking up the actual administrative entities
 /// (countries, states, etc.) that correspond to those codes.
 #[instrument(level = "trace", skip(admin_data_lf), fields(num_target_codes = ?target_codes.len()))]
-fn backfill_administrative_context<E: LocationEntry>(
+fn backfill_administrative_context(
     target_codes: &[TargetLocationAdminCodes],
     admin_data_lf: &LazyFrame,
-) -> Result<Vec<LocationContext<E>>> {
+) -> Result<Vec<LocationContext>> {
     let codes_hierarchy = target_codes
         .iter()
         .map(|tc| tc.codes_hierarchy())
@@ -147,7 +149,7 @@ fn backfill_administrative_context<E: LocationEntry>(
                 .into_iter()
                 .reduce(Expr::and)
                 .expect("Filter parts should not be empty if code is present");
-            let lf = query_admin_level_entity_lazy::<E>(admin_data_lf, final_filter_for_level);
+            let lf = query_admin_level_entity_lazy(admin_data_lf, final_filter_for_level);
             final_lf_for_level.push((admin_level_idx, lf));
         }
         final_lf_for_all_levels.push(final_lf_for_level);
@@ -174,7 +176,7 @@ fn backfill_administrative_context<E: LocationEntry>(
     };
 
     // Rebuild the original structure with the collected frames
-    let mut result: Vec<LocationContext<E>> = vec![LocationContext::<E>::default(); final_lf_len];
+    let mut result: Vec<LocationContext> = vec![LocationContext::default(); final_lf_len];
     for ((batch_idx, admin_level), df) in izip!(position_map, collected_frames) {
         if df.is_empty() {
             debug!(
@@ -185,7 +187,7 @@ fn backfill_administrative_context<E: LocationEntry>(
         }
         let context = &mut result[batch_idx];
         assert_eq!(df.shape().0, 1);
-        let mut entity_list = E::from_df(&df)?;
+        let mut entity_list = LocationEntry::from_df(&df)?;
         let entity = entity_list.pop();
         match admin_level {
             0 => context.admin0 = entity,
@@ -210,11 +212,11 @@ fn backfill_administrative_context<E: LocationEntry>(
     skip(search_results, admin_data_lf),
     fields(num_batches = 0, limit_per_query = config.limit_per_query)
 )]
-pub fn resolve_search_candidate<E: LocationEntry>(
+pub fn resolve_search_candidate(
     search_results: &[SearchResult],
     admin_data_lf: &LazyFrame,
     config: &ResolveConfig,
-) -> Result<LocationResults<E>> {
+) -> Result<LocationResults> {
     if search_results.is_empty() {
         debug!("No search results found.");
         return Ok(Vec::new());
@@ -232,9 +234,9 @@ pub fn resolve_search_candidate<E: LocationEntry>(
         primary_candidates_df.map(|df| df.head(Some(config.limit_per_query)));
 
     let target_codes = TargetLocationAdminCodes::from_df(&primary_candidates_df)?;
-    let final_contexts = backfill_administrative_context::<E>(&target_codes, admin_data_lf)?;
+    let final_contexts = backfill_administrative_context(&target_codes, admin_data_lf)?;
     // Used to determine if the primary candidate is a place or not?
-    let candidate_entities: Vec<E> = E::from_df(&primary_candidates_df)?;
+    let candidate_entities: Vec<LocationEntry> = LocationEntry::from_df(&primary_candidates_df)?;
     let scores = primary_candidates_df
         .pop()
         .expect("Last column should be the score column");
@@ -266,17 +268,17 @@ pub fn resolve_search_candidate<E: LocationEntry>(
 /// making it ideal for bulk data processing scenarios.
 #[instrument(name="Resolve Search Candidate Batches",
     level = "info", skip(search_results_batches, admin_data_lf), fields(num_batches = search_results_batches.len(), limit_per_query = config.limit_per_query))]
-pub fn resolve_search_candidate_batches<E: LocationEntry>(
+pub fn resolve_search_candidate_batches(
     search_results_batches: Vec<Vec<SearchResult>>,
     admin_data_lf: &LazyFrame,
     config: &ResolveConfig,
-) -> Result<Vec<LocationResults<E>>> {
+) -> Result<Vec<LocationResults>> {
     search_results_batches
         .into_par_iter()
         .enumerate()
         .map(|(i, search_results)| {
             let _search_span = debug_span!("Resolve Search Candidate Batches", batch = i).entered();
-            resolve_search_candidate::<E>(&search_results, admin_data_lf, config)
+            resolve_search_candidate(&search_results, admin_data_lf, config)
         })
         .collect::<Result<Vec<_>>>()
 }

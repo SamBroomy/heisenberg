@@ -14,12 +14,9 @@ from heisenberg._internal import (
     RustLocationSearcher,
     RustSearchConfig,
     RustSearchConfigBuilder,
-    BasicEntry,
-    GenericEntry,
-    LocationContextBasic,
-    LocationContextGeneric,
-    ResolvedBasicSearchResult,
-    ResolvedGenericSearchResult,
+    LocationEntry,
+    LocationContext,
+    ResolvedSearchResult,
 )
 
 
@@ -386,31 +383,18 @@ class TestRustConfigBuilder:
 
 
 class TestEntryTypes:
-    """Test BasicEntry and GenericEntry functionality."""
+    """Test LocationEntry functionality."""
 
-    def test_basic_entry_functionality(self):
-        """Test BasicEntry methods and attributes."""
-        # BasicEntry should NOT be available in main heisenberg module
-        assert not hasattr(heisenberg, "BasicEntry")
-
-        # But should be available via _internal import
-        assert BasicEntry is not None
-
-        # Test that BasicEntry has expected attributes
-        basic_entry_attrs = ["geoname_id", "name"]
-        for attr in basic_entry_attrs:
-            assert hasattr(BasicEntry, attr)
-
-    def test_generic_entry_functionality(self):
-        """Test GenericEntry methods and attributes."""
-        # GenericEntry should NOT be available in main heisenberg module
-        assert not hasattr(heisenberg, "GenericEntry")
+    def test_location_entry_functionality(self):
+        """Test LocationEntry methods and attributes."""
+        # LocationEntry should NOT be available in main heisenberg module
+        assert not hasattr(heisenberg, "LocationEntry")
 
         # But should be available via _internal import
-        assert GenericEntry is not None
+        assert LocationEntry is not None
 
-        # Test that GenericEntry has expected attributes
-        generic_entry_attrs = [
+        # Test that LocationEntry has expected attributes
+        location_entry_attrs = [
             "geoname_id",
             "name",
             "admin0_code",
@@ -423,28 +407,24 @@ class TestEntryTypes:
             "longitude",
             "population",
         ]
-        for attr in generic_entry_attrs:
-            assert hasattr(GenericEntry, attr)
+        for attr in location_entry_attrs:
+            assert hasattr(LocationEntry, attr)
 
     def test_location_context_types(self):
         """Test LocationContext types exist."""
-        # LocationContext types should NOT be available in main heisenberg module
-        assert not hasattr(heisenberg, "LocationContextBasic")
-        assert not hasattr(heisenberg, "LocationContextGeneric")
+        # LocationContext should NOT be available in main heisenberg module
+        assert not hasattr(heisenberg, "LocationContext")
 
         # But should be available via _internal import
-        assert LocationContextBasic is not None
-        assert LocationContextGeneric is not None
+        assert LocationContext is not None
 
     def test_resolved_search_result_types(self):
         """Test ResolvedSearchResult types exist."""
-        # ResolvedSearchResult types should NOT be available in main heisenberg module
-        assert not hasattr(heisenberg, "ResolvedBasicSearchResult")
-        assert not hasattr(heisenberg, "ResolvedGenericSearchResult")
+        # ResolvedSearchResult should NOT be available in main heisenberg module
+        assert not hasattr(heisenberg, "ResolvedSearchResult")
 
         # But should be available via _internal import
-        assert ResolvedBasicSearchResult is not None
-        assert ResolvedGenericSearchResult is not None
+        assert ResolvedSearchResult is not None
 
 
 class TestResolvedSearchResultProperties:

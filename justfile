@@ -89,6 +89,8 @@ clean-rust:
 [group('env')]
 clean-data:
     rm -rf heisenberg_data
+    find crates/heisenberg/src/data/embedded -type f -name '*.parquet' -delete 2>/dev/null || true
+    find crates/heisenberg/src/data/embedded -type f -name '*.json' -delete 2>/dev/null || true
 
 # Clean the project
 [group('env')]

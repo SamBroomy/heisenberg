@@ -10,7 +10,7 @@
 //! (largest to smallest location) for optimal results: `['Country', 'State', 'County', 'Place']`
 //!
 //! ```rust
-//! use heisenberg::{GenericEntry, LocationEntryCore, LocationSearcher};
+//! use heisenberg::{LocationEntry, LocationSearcher};
 //!
 //! // Create a searcher using embedded data
 //! let searcher = LocationSearcher::new_embedded()?;
@@ -25,7 +25,7 @@
 //! let results = searcher.search(&["Germany", "Berlin"])?;
 //!
 //! // Resolve complete hierarchy (largest to smallest)
-//! let resolved = searcher.resolve_location::<_, GenericEntry>(&["Germany", "Berlin"])?;
+//! let resolved = searcher.resolve_location(&["Germany", "Berlin"])?;
 //! if let Some(result) = resolved.first() {
 //!     let context = &result.context;
 //!     if let Some(country) = &context.admin0 {
@@ -68,10 +68,7 @@ mod search;
 // Re-export data processing from subcrate
 pub use core::{LocationSearcher, LocationSearcherBuilder, ResolveSearchConfig};
 
-pub use backfill::{
-    BasicEntry, GenericEntry, LocationContext, LocationEntry, LocationEntryCore, ResolveConfig,
-    ResolvedSearchResult,
-};
+pub use backfill::{LocationContext, LocationEntry, ResolveConfig, ResolvedSearchResult};
 pub use config::SearchConfigBuilder;
 pub use data::LocationSearchData;
 pub use heisenberg_data_processing as data_processing;
@@ -181,7 +178,7 @@ mod tests {
         setup_test_env();
 
         let searcher = LocationSearcher::new_embedded().unwrap();
-        let resolved = searcher.resolve_location::<_, GenericEntry>(&["London"]);
+        let resolved = searcher.resolve_location(&["London"]);
 
         assert!(resolved.is_ok(), "Resolution should work");
         // Resolution may be empty with embedded data, but shouldn't error

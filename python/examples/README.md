@@ -78,8 +78,7 @@ This directory contains comprehensive examples demonstrating the various feature
 - **Custom**: Build your own configuration with specific parameters
 
 ### Entry Types
-- **BasicEntry**: Minimal data (ID, name)
-- **GenericEntry**: Complete location data (coordinates, population, admin codes, etc.)
+- **LocationEntry**: Complete location data (coordinates, population, admin codes, etc.) - use only the fields you need
 
 ### Administrative Levels
 - **Admin0**: Country level

@@ -16,8 +16,7 @@
 //! let results = searcher.search(&["London"])?;
 //!
 //! // Resolve to structured location data
-//! let resolved =
-//!     searcher.resolve_location::<_, heisenberg::GenericEntry>(&["Paris", "France"])?;
+//! let resolved = searcher.resolve_location(&["Paris", "France"])?;
 //! # Ok::<() , heisenberg::error::HeisenbergError>(())
 //! ```
 //!
@@ -35,9 +34,7 @@ use tracing::{info, instrument};
 
 use crate::{
     ResolveConfig,
-    backfill::{
-        LocationEntry, LocationResults, resolve_search_candidate, resolve_search_candidate_batches,
-    },
+    backfill::{LocationResults, resolve_search_candidate, resolve_search_candidate_batches},
     data::{LocationSearchData, embedded::METADATA},
     error::HeisenbergError,
     index::LocationSearchIndex,
@@ -571,34 +568,34 @@ impl LocationSearcher {
         .map_err(From::from)
     }
 
-    pub fn resolve<Entry: LocationEntry>(
+    pub fn resolve(
         &self,
         search_results: &SearchResults,
-    ) -> Result<LocationResults<Entry>, HeisenbergError> {
+    ) -> Result<LocationResults, HeisenbergError> {
         self.resolve_with_config(search_results, &ResolveConfig::default())
     }
 
-    pub fn resolve_with_config<Entry: LocationEntry>(
+    pub fn resolve_with_config(
         &self,
         search_results: &SearchResults,
         config: &ResolveConfig,
-    ) -> Result<LocationResults<Entry>, HeisenbergError> {
+    ) -> Result<LocationResults, HeisenbergError> {
         resolve_search_candidate(search_results, &self.data.admin_search_df(), config)
             .map_err(From::from)
     }
 
-    pub fn resolve_batch<Entry: LocationEntry>(
+    pub fn resolve_batch(
         &self,
         search_results_batches: SearchResultsBatch,
-    ) -> Result<Vec<LocationResults<Entry>>, HeisenbergError> {
+    ) -> Result<Vec<LocationResults>, HeisenbergError> {
         self.resolve_batch_with_config(search_results_batches, &ResolveConfig::default())
     }
 
-    pub fn resolve_batch_with_config<Entry: LocationEntry>(
+    pub fn resolve_batch_with_config(
         &self,
         search_results_batches: SearchResultsBatch,
         config: &ResolveConfig,
-    ) -> Result<Vec<LocationResults<Entry>>, HeisenbergError> {
+    ) -> Result<Vec<LocationResults>, HeisenbergError> {
         resolve_search_candidate_batches(
             search_results_batches,
             &self.data.admin_search_df(),
@@ -618,21 +615,20 @@ impl LocationSearcher {
     /// # Examples
     ///
     /// ```rust
-    /// # use heisenberg::{LocationSearcher, GenericEntry};
+    /// # use heisenberg::LocationSearcher;
     /// # let searcher = LocationSearcher::new_embedded().unwrap();
     /// // Resolve with proper ordering (largest to smallest)
     /// let resolved = searcher
-    ///     .resolve_location::<_, GenericEntry>(&["United States", "California", "San Francisco"])
+    ///     .resolve_location(&["United States", "California", "San Francisco"])
     ///     .unwrap();
     /// let context = &resolved[0].context;
     /// ```
-    pub fn resolve_location<Term, Entry>(
+    pub fn resolve_location<Term>(
         &self,
         input_terms: &[Term],
-    ) -> Result<LocationResults<Entry>, HeisenbergError>
+    ) -> Result<LocationResults, HeisenbergError>
     where
         Term: AsRef<str>,
-        Entry: LocationEntry,
     {
         self.resolve_location_with_config(input_terms, &ResolveSearchConfig::default())
     }
@@ -646,21 +642,20 @@ impl LocationSearcher {
     /// # Examples
     ///
     /// ```rust
-    /// # use heisenberg::{LocationSearcher, GenericEntry, ResolveSearchConfig};
+    /// # use heisenberg::{LocationSearcher, ResolveSearchConfig};
     /// # let searcher = LocationSearcher::new_embedded().unwrap();
     /// let config = ResolveSearchConfig::default();
     /// let resolved = searcher
-    ///     .resolve_location_with_config::<_, GenericEntry>(&["France", "Paris"], &config)
+    ///     .resolve_location_with_config(&["France", "Paris"], &config)
     ///     .unwrap();
     /// ```
-    pub fn resolve_location_with_config<Term, Entry>(
+    pub fn resolve_location_with_config<Term>(
         &self,
         input_terms: &[Term],
         config: &ResolveSearchConfig,
-    ) -> Result<LocationResults<Entry>, HeisenbergError>
+    ) -> Result<LocationResults, HeisenbergError>
     where
         Term: AsRef<str>,
-        Entry: LocationEntry,
     {
         let search_results = self.search_with_config(input_terms, &config.search_config)?;
 
@@ -672,14 +667,13 @@ impl LocationSearcher {
         .map_err(From::from)
     }
 
-    pub fn resolve_location_batch<Entry, Term, Batch>(
+    pub fn resolve_location_batch<Term, Batch>(
         &self,
         all_raw_input_batches: &[Batch],
-    ) -> Result<Vec<LocationResults<Entry>>, HeisenbergError>
+    ) -> Result<Vec<LocationResults>, HeisenbergError>
     where
         Term: AsRef<str>,
         Batch: AsRef<[Term]>,
-        Entry: LocationEntry,
     {
         self.resolve_location_batch_with_config(
             all_raw_input_batches,
@@ -687,15 +681,14 @@ impl LocationSearcher {
         )
     }
 
-    pub fn resolve_location_batch_with_config<Entry, Term, Batch>(
+    pub fn resolve_location_batch_with_config<Term, Batch>(
         &self,
         all_raw_input_batches: &[Batch],
         config: &ResolveSearchConfig,
-    ) -> Result<Vec<LocationResults<Entry>>, HeisenbergError>
+    ) -> Result<Vec<LocationResults>, HeisenbergError>
     where
         Term: AsRef<str>,
         Batch: AsRef<[Term]>,
-        Entry: LocationEntry,
     {
         let search_results_batches =
             self.search_bulk_with_config(all_raw_input_batches, &config.search_config)?;

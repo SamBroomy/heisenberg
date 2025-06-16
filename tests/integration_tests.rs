@@ -4,9 +4,7 @@
 //! works correctly. They use test data (controlled by USE_TEST_DATA environment variable)
 //! for faster execution.
 
-use heisenberg::{
-    BasicEntry, GenericEntry, LocationEntryCore, LocationSearcher, SearchConfigBuilder, DataSource,
-};
+use heisenberg::{DataSource, LocationEntry, LocationSearcher, SearchConfigBuilder};
 
 fn setup_test_env() {
     let _ = heisenberg::init_logging(tracing::Level::WARN);
@@ -38,16 +36,16 @@ fn test_full_workflow() {
 
     // 3. Multi-term search
     let multi_results = searcher
-        .search(&["San Francisco", "California"])
+        .search(&["California", "San Francisco"])
         .expect("Multi-term search should work");
     assert!(
         !multi_results.is_empty(),
         "Should find results for San Francisco, California"
     );
 
-    // 4. Resolution with GenericEntry
+    // 4. Resolution
     let resolved_generic = searcher
-        .resolve_location::<_, GenericEntry>(&["San Francisco"])
+        .resolve_location(&["San Francisco"])
         .expect("Resolution should work");
     assert!(!resolved_generic.is_empty(), "Should resolve San Francisco");
 
@@ -57,9 +55,9 @@ fn test_full_workflow() {
         "Should have some administrative context"
     );
 
-    // 5. Resolution with BasicEntry
+    // 5. Resolution with different input
     let resolved_basic = searcher
-        .resolve_location::<_, BasicEntry>(&["California"])
+        .resolve_location(&["California"])
         .expect("Basic resolution should work");
     assert!(!resolved_basic.is_empty(), "Should resolve California");
 }
@@ -101,7 +99,7 @@ fn test_batch_operations() {
     ];
 
     let batch_resolved = searcher
-        .resolve_location_batch::<GenericEntry, _, _>(&simple_queries)
+        .resolve_location_batch(&simple_queries)
         .expect("Batch resolution should work");
 
     assert_eq!(
@@ -169,7 +167,7 @@ fn test_error_handling() {
         );
 
         // Resolution should also not error
-        let resolved = searcher.resolve_location::<_, BasicEntry>(&case);
+        let resolved = searcher.resolve_location(&case);
         assert!(
             resolved.is_ok(),
             "Resolution should not error for edge case: {:?}",
@@ -229,7 +227,7 @@ fn test_resolution_context() {
 
     // Test resolution with multi-term query for better context
     let resolved = searcher
-        .resolve_location::<_, GenericEntry>(&["San Francisco", "California"])
+        .resolve_location(&["San Francisco", "California"])
         .expect("Resolution should work");
 
     if let Some(result) = resolved.first() {
@@ -310,8 +308,7 @@ fn test_concurrent_access() {
     let searcher = LocationSearcher::new_embedded().expect("Should create searcher");
 
     // Test that the searcher can be used concurrently
-    use std::sync::Arc;
-    use std::thread;
+    use std::{sync::Arc, thread};
 
     let searcher = Arc::new(searcher);
     let handles: Vec<_> = (0..3)
@@ -345,21 +342,33 @@ fn test_constructor_patterns() {
     setup_test_env();
 
     // Test 1: new_embedded (should always work with test data)
-    let embedded_searcher = LocationSearcher::new_embedded().expect("Embedded searcher should work");
-    let results = embedded_searcher.search(&["United States"]).expect("Search should work");
+    let embedded_searcher =
+        LocationSearcher::new_embedded().expect("Embedded searcher should work");
+    let results = embedded_searcher
+        .search(&["United States"])
+        .expect("Search should work");
     assert!(!results.is_empty(), "Embedded searcher should find results");
 
     // Test 2: initialize with test data source
-    let smart_searcher = LocationSearcher::initialize(DataSource::TestData).expect("Smart initialization should work");
-    let results = smart_searcher.search(&["California"]).expect("Search should work");
+    let smart_searcher = LocationSearcher::initialize(DataSource::TestData)
+        .expect("Smart initialization should work");
+    let results = smart_searcher
+        .search(&["California"])
+        .expect("Search should work");
     // Note: results might be empty for test data, but the call should succeed
 
     // Test 3: load_existing (might return None, but should not error)
-    let existing_result = LocationSearcher::load_existing(DataSource::TestData).expect("Load existing should not error");
+    let existing_result = LocationSearcher::load_existing(DataSource::TestData)
+        .expect("Load existing should not error");
     match existing_result {
         Some(existing_searcher) => {
-            let results = existing_searcher.search(&["San Francisco"]).expect("Search should work");
-            println!("Found existing searcher with {} results for San Francisco", results.len());
+            let results = existing_searcher
+                .search(&["San Francisco"])
+                .expect("Search should work");
+            println!(
+                "Found existing searcher with {} results for San Francisco",
+                results.len()
+            );
         }
         None => {
             println!("No existing searcher found for TestData (expected)");
@@ -367,8 +376,11 @@ fn test_constructor_patterns() {
     }
 
     // Test 4: new_with_fresh_indexes (should work but might take longer)
-    let fresh_searcher = LocationSearcher::new_with_fresh_indexes(DataSource::TestData).expect("Fresh searcher should work");
-    let results = fresh_searcher.search(&["United States"]).expect("Search should work");
+    let fresh_searcher = LocationSearcher::new_with_fresh_indexes(DataSource::TestData)
+        .expect("Fresh searcher should work");
+    let results = fresh_searcher
+        .search(&["United States"])
+        .expect("Search should work");
     // Note: results might be empty for test data, but the call should succeed
 }
 
@@ -383,7 +395,13 @@ fn test_data_source_enum() {
 
     // Test parsing from string
     use std::str::FromStr;
-    assert_eq!(DataSource::from_str("cities15000").unwrap(), DataSource::Cities15000);
-    assert_eq!(DataSource::from_str("test_data").unwrap(), DataSource::TestData);
+    assert_eq!(
+        DataSource::from_str("cities15000").unwrap(),
+        DataSource::Cities15000
+    );
+    assert_eq!(
+        DataSource::from_str("test_data").unwrap(),
+        DataSource::TestData
+    );
     assert!(DataSource::from_str("invalid").is_err());
 }

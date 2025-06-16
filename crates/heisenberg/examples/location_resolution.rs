@@ -3,24 +3,23 @@
 //! This example demonstrates how to resolve locations into complete
 //! administrative hierarchies, from country level down to specific places.
 
-use heisenberg::{BasicEntry, GenericEntry, LocationEntryCore, LocationSearcher};
+use heisenberg::LocationSearcher;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let searcher = LocationSearcher::new_embedded()?;
 
-    // Resolve location with minimal data (BasicEntry)
+    // Resolve location with basic information
     println!("Basic resolution for 'Tokyo':");
-    let basic_results = searcher.resolve_location::<_, BasicEntry>(&["Tokyo"])?;
+    let basic_results = searcher.resolve_location(&["Tokyo"])?;
     for (i, result) in basic_results.iter().take(3).enumerate() {
         println!("  {}. Score: {:.3}", i + 1, result.score);
         print_basic_context(&result.context);
     }
 
-    // Resolve location with full data (GenericEntry)
+    // Resolve location with detailed information
     println!("\nFull resolution for ['California','San Francisco']:");
 
-    let full_results =
-        searcher.resolve_location::<_, GenericEntry>(&["California", "San Francisco"])?;
+    let full_results = searcher.resolve_location(&["California", "San Francisco"])?;
     for (i, result) in full_results.iter().take(2).enumerate() {
         println!("  {}. Score: {:.3}", i + 1, result.score);
         print_full_context(&result.context);
@@ -34,7 +33,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         vec!["Australia", "Sydney"],
     ];
 
-    let batch_results = searcher.resolve_location_batch::<BasicEntry, _, _>(&queries)?;
+    let batch_results = searcher.resolve_location_batch(&queries)?;
     for (i, results) in batch_results.iter().enumerate() {
         if let Some(top_result) = results.first() {
             println!("  Query {}: Score {:.3}", i + 1, top_result.score);
@@ -45,7 +44,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn print_basic_context(context: &heisenberg::LocationContext<BasicEntry>) {
+fn print_basic_context(context: &heisenberg::LocationContext) {
     let mut hierarchy = Vec::new();
 
     if let Some(admin0) = &context.admin0 {
@@ -66,7 +65,7 @@ fn print_basic_context(context: &heisenberg::LocationContext<BasicEntry>) {
     }
 }
 
-fn print_full_context(context: &heisenberg::LocationContext<GenericEntry>) {
+fn print_full_context(context: &heisenberg::LocationContext) {
     let mut hierarchy = Vec::new();
 
     if let Some(admin0) = &context.admin0 {
@@ -94,8 +93,6 @@ fn print_full_context(context: &heisenberg::LocationContext<GenericEntry>) {
 
 #[cfg(test)]
 mod tests {
-    use std::env;
-
     use super::*;
 
     fn setup_test_env() {

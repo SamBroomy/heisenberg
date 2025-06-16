@@ -6,7 +6,7 @@ functionality, serving as the bridge between the Rust implementation and the
 Python user-facing API.
 """
 
-from typing import List, Optional, Dict, Any, TYPE_CHECKING, Union
+from typing import List, Optional, Dict, Any, TYPE_CHECKING, Self, Union
 from dataclasses import dataclass
 import logging
 
@@ -20,12 +20,9 @@ from .heisenberg import (
     LocationSearcherBuilder as RustLocationSearcherBuilder,
     SearchConfig as RustSearchConfig,
     SearchConfigBuilder as RustSearchConfigBuilder,
-    BasicEntry,
-    GenericEntry,
-    LocationContext as LocationContextBasic,
-    LocationContextGeneric,
-    ResolvedSearchResult as ResolvedBasicSearchResult,
-    ResolvedSearchResultGeneric as ResolvedGenericSearchResult,
+    LocationEntry,
+    LocationContext,
+    ResolvedSearchResult,
     DataSource as RustDataSource,
     __version__,
 )
@@ -65,7 +62,7 @@ class DataSource:
         self._rust_data_source = rust_data_source
 
     @classmethod
-    def embedded(cls) -> "DataSource":
+    def embedded(cls) -> Self:
         """Get the embedded data source.
 
         This uses the data that was compiled into the library at build time.
@@ -77,7 +74,7 @@ class DataSource:
         return cls(RustDataSource.embedded())
 
     @classmethod
-    def cities15000(cls) -> "DataSource":
+    def cities15000(cls) -> Self:
         """Get cities with population > 15,000.
 
         This provides good coverage of major cities worldwide while keeping
@@ -89,7 +86,7 @@ class DataSource:
         return cls(RustDataSource.cities15000())
 
     @classmethod
-    def cities5000(cls) -> "DataSource":
+    def cities5000(cls) -> Self:
         """Get cities with population > 5,000.
 
         This includes more smaller cities and towns, providing more comprehensive
@@ -101,7 +98,7 @@ class DataSource:
         return cls(RustDataSource.cities5000())
 
     @classmethod
-    def cities1000(cls) -> "DataSource":
+    def cities1000(cls) -> Self:
         """Get cities with population > 1,000.
 
         This includes small towns and villages, providing very comprehensive
@@ -113,7 +110,7 @@ class DataSource:
         return cls(RustDataSource.cities1000())
 
     @classmethod
-    def cities500(cls) -> "DataSource":
+    def cities500(cls) -> Self:
         """Get cities with population > 500.
 
         This includes very small settlements, providing maximum coverage
@@ -125,7 +122,7 @@ class DataSource:
         return cls(RustDataSource.cities500())
 
     @classmethod
-    def all_countries(cls) -> "DataSource":
+    def all_countries(cls) -> Self:
         """Get the complete GeoNames dataset.
 
         This includes all geographic features from the GeoNames database,
@@ -184,7 +181,7 @@ class LocationSearcherBuilderWrapper:
         """Initialize a new LocationSearcherBuilderWrapper."""
         self._rust_builder = RustLocationSearcherBuilder()
 
-    def data_source(self, data_source: DataSource) -> "LocationSearcherBuilderWrapper":
+    def data_source(self, data_source: DataSource) -> Self:
         """Set the data source to use.
 
         Args:
@@ -196,7 +193,7 @@ class LocationSearcherBuilderWrapper:
         self._rust_builder.data_source(data_source._rust_data_source)
         return self
 
-    def force_rebuild(self, rebuild: bool) -> "LocationSearcherBuilderWrapper":
+    def force_rebuild(self, rebuild: bool) -> Self:
         """Set whether to force rebuild indexes.
 
         Args:
@@ -208,7 +205,7 @@ class LocationSearcherBuilderWrapper:
         self._rust_builder.force_rebuild(rebuild)
         return self
 
-    def embedded_fallback(self, fallback: bool) -> "LocationSearcherBuilderWrapper":
+    def embedded_fallback(self, fallback: bool) -> Self:
         """Set whether to use embedded data as fallback.
 
         Args:
@@ -453,7 +450,7 @@ class SearchResult:
     admin_level: int = 0
 
     @classmethod
-    def from_polars_row(cls, row: Dict[str, Any]) -> "SearchResult":
+    def from_polars_row(cls, row: Dict[str, Any]) -> Self:
         """Create SearchResult from a Polars DataFrame row.
 
         Args:
@@ -479,10 +476,8 @@ class SearchResult:
         )
 
     @classmethod
-    def from_resolved_result(
-        cls, resolved: ResolvedGenericSearchResult
-    ) -> "SearchResult":
-        """Create SearchResult from a ResolvedGenericSearchResult.
+    def from_resolved_result(cls, resolved: ResolvedSearchResult) -> Self:
+        """Create SearchResult from a ResolvedSearchResult.
 
         Args:
             resolved: Resolved search result from Rust layer.
@@ -630,7 +625,7 @@ class SearchConfigBuilder:
         """Initialize a new SearchConfigBuilder with default options."""
         self.options = SearchOptions()
 
-    def limit(self, limit: int) -> "SearchConfigBuilder":
+    def limit(self, limit: int) -> Self:
         """Set the maximum number of results to return.
 
         Args:
@@ -642,7 +637,7 @@ class SearchConfigBuilder:
         self.options.limit = limit
         return self
 
-    def place_importance(self, threshold: int) -> "SearchConfigBuilder":
+    def place_importance(self, threshold: int) -> Self:
         """Set the place importance threshold.
 
         Args:
@@ -654,7 +649,7 @@ class SearchConfigBuilder:
         self.options.place_importance_threshold = threshold
         return self
 
-    def admin_search(self, enabled: bool) -> "SearchConfigBuilder":
+    def admin_search(self, enabled: bool) -> Self:
         """Enable or disable proactive administrative search.
 
         When enabled, the searcher will automatically look for administrative
@@ -669,7 +664,7 @@ class SearchConfigBuilder:
         self.options.proactive_admin_search = enabled
         return self
 
-    def fuzzy_search(self, enabled: bool) -> "SearchConfigBuilder":
+    def fuzzy_search(self, enabled: bool) -> Self:
         """Enable or disable fuzzy string matching.
 
         Fuzzy matching helps find results even with typos or slight variations
@@ -684,7 +679,7 @@ class SearchConfigBuilder:
         self.options.fuzzy_search = enabled
         return self
 
-    def location_bias(self, latitude: float, longitude: float) -> "SearchConfigBuilder":
+    def location_bias(self, latitude: float, longitude: float) -> Self:
         """Set location bias for distance-based scoring.
 
         When set, results closer to this location will be scored higher.
@@ -707,7 +702,7 @@ class SearchConfigBuilder:
         population: float = 0.25,
         parent: float = 0.20,
         feature: float = 0.15,
-    ) -> "SearchConfigBuilder":
+    ) -> Self:
         """Set scoring weights for administrative entities.
 
         These weights control how administrative entities (countries, states, etc.)
@@ -735,7 +730,7 @@ class SearchConfigBuilder:
         feature: float = 0.15,
         parent: float = 0.15,
         distance: float = 0.05,
-    ) -> "SearchConfigBuilder":
+    ) -> Self:
         """Set scoring weights for places.
 
         These weights control how places (cities, landmarks, etc.) are scored.
@@ -767,7 +762,7 @@ class SearchConfigBuilder:
         return self.options
 
     @classmethod
-    def fast(cls) -> "SearchConfigBuilder":
+    def fast(cls) -> Self:
         """Create a configuration optimized for speed.
 
         Returns fewer results with stricter filtering to provide fast responses.
@@ -781,7 +776,7 @@ class SearchConfigBuilder:
         )
 
     @classmethod
-    def comprehensive(cls) -> "SearchConfigBuilder":
+    def comprehensive(cls) -> Self:
         """Create a configuration optimized for comprehensive results.
 
         Returns more results with broader matching to find obscure or variant
@@ -793,7 +788,7 @@ class SearchConfigBuilder:
         return cls().limit(50).place_importance(5).admin_search(True).fuzzy_search(True)
 
     @classmethod
-    def quality_places(cls) -> "SearchConfigBuilder":
+    def quality_places(cls) -> Self:
         """Create a configuration for high-quality places only.
 
         Filters to important places like major cities and well-known landmarks.
@@ -871,7 +866,7 @@ class LocationSearcher:
             self._rust_searcher = RustLocationSearcher()
 
     @classmethod
-    def with_data_source(cls, data_source: DataSource) -> "LocationSearcher":
+    def with_data_source(cls, data_source: DataSource) -> Self:
         """Create a LocationSearcher with a specific data source.
 
         This method will use smart initialization with fallback, trying embedded data first,
@@ -894,7 +889,7 @@ class LocationSearcher:
         return instance
 
     @classmethod
-    def with_fresh_indexes(cls, data_source: DataSource) -> "LocationSearcher":
+    def with_fresh_indexes(cls, data_source: DataSource) -> Self:
         """Create a LocationSearcher with fresh indexes for a specific data source.
 
         This forces rebuilding of all indexes from scratch, which may take longer
@@ -917,7 +912,7 @@ class LocationSearcher:
         return instance
 
     @classmethod
-    def load_existing(cls, data_source: DataSource) -> Optional["LocationSearcher"]:
+    def load_existing(cls, data_source: DataSource) -> Optional[Self]:
         """Try to load an existing LocationSearcher instance.
 
         This method attempts to load existing cached indexes without rebuilding.
@@ -1159,9 +1154,7 @@ class LocationSearcher:
             input_terms, config.to_rust_config()
         )
 
-    def resolve_location(
-        self, input_terms: List[str]
-    ) -> List[ResolvedGenericSearchResult]:
+    def resolve_location(self, input_terms: List[str]) -> List[ResolvedSearchResult]:
         """Resolve location search results.
 
         Important: Input terms should be in descending 'size' order (largest to
@@ -1177,7 +1170,7 @@ class LocationSearcher:
 
     def resolve_location_batch(
         self, input_terms_batch: List[List[str]]
-    ) -> List[List[ResolvedGenericSearchResult]]:
+    ) -> List[List[ResolvedSearchResult]]:
         """Resolve location search results in batch.
 
         Important: Each list of input terms should be in descending 'size' order
@@ -1281,10 +1274,7 @@ __all__ = [
     "RustSearchConfig",
     "RustSearchConfigBuilder",
     "RustDataSource",
-    "BasicEntry",
-    "GenericEntry",
-    "LocationContextBasic",
-    "LocationContextGeneric",
-    "ResolvedBasicSearchResult",
-    "ResolvedGenericSearchResult",
+    "LocationEntry",
+    "LocationContext",
+    "ResolvedSearchResult",
 ]

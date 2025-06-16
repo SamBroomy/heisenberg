@@ -109,8 +109,8 @@ def main():
     print("4. Different Entry Types")
     print("-" * 30)
 
-    # BasicEntry provides minimal information
-    print("Using BasicEntry (minimal data):")
+    # Basic resolution provides essential location information
+    print("Using fast resolution (minimal data):")
     config = RustSearchConfigBuilder.fast().build()
     basic_results = rust_searcher.resolve_location_with_config(["Paris"], config)
 

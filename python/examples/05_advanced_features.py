@@ -202,22 +202,21 @@ def main():
     print(f"Regular search for 'Berlin': {len(regular_results)} results")
     print()
 
-    # 8. Working with multiple entry types
-    print("8. Working with Multiple Entry Types")
+    # 8. Working with location entry types
+    print("8. Working with Location Entry Types")
     print("-" * 30)
 
     print("Available entry types:")
     entry_types = [
-        "BasicEntry",
-        "GenericEntry",
-        "LocationContextBasic",
-        "LocationContextGeneric",
-        "ResolvedBasicSearchResult",
-        "ResolvedGenericSearchResult",
+        "LocationEntry",
+        "LocationContext",
+        "ResolvedSearchResult",
+        "SearchResult",
+        "LocationSearcher",
     ]
 
     for entry_type in entry_types:
-        if hasattr(heisenberg, entry_type):
+        if hasattr(heisenberg._internal, entry_type):
             print(f"  ✓ {entry_type} available")
         else:
             print(f"  ✗ {entry_type} not available")

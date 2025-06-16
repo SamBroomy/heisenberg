@@ -4,7 +4,7 @@ use error::Result;
 use itertools::Itertools;
 mod entry;
 mod resolve;
-pub use entry::{BasicEntry, GenericEntry, LocationEntry, LocationEntryCore};
+pub use entry::LocationEntry;
 pub use error::BackfillError;
 pub use resolve::{
     LocationResults, ResolveConfig, resolve_search_candidate, resolve_search_candidate_batches,
@@ -29,10 +29,10 @@ pub use resolve::{
 /// # Examples
 ///
 /// ```rust
-/// use heisenberg::{GenericEntry, LocationEntryCore, LocationSearcher};
+/// use heisenberg::{LocationEntry, LocationSearcher};
 ///
 /// let searcher = LocationSearcher::new_embedded()?;
-/// let results = searcher.resolve_location::<_, GenericEntry>(&["Paris", "France"])?;
+/// let results = searcher.resolve_location(&["Paris", "France"])?;
 ///
 /// if let Some(result) = results.first() {
 ///     println!(
@@ -48,22 +48,22 @@ pub use resolve::{
 /// ```
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Debug, Clone, Default)]
-pub struct LocationContext<E: LocationEntry> {
+pub struct LocationContext {
     /// Country level (admin level 0)
-    pub admin0: Option<E>,
+    pub admin0: Option<LocationEntry>,
     /// State/Province level (admin level 1)
-    pub admin1: Option<E>,
+    pub admin1: Option<LocationEntry>,
     /// County/Department level (admin level 2)
-    pub admin2: Option<E>,
+    pub admin2: Option<LocationEntry>,
     /// Local administrative division (admin level 3)
-    pub admin3: Option<E>,
+    pub admin3: Option<LocationEntry>,
     /// Sub-local administrative division (admin level 4)
-    pub admin4: Option<E>,
+    pub admin4: Option<LocationEntry>,
     /// The specific place (city, landmark, etc.)
-    pub place: Option<E>,
+    pub place: Option<LocationEntry>,
 }
 
-impl<E: LocationEntry + fmt::Display> fmt::Display for LocationContext<E> {
+impl fmt::Display for LocationContext {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut parts = Vec::new();
         if let Some(admin0) = &self.admin0 {
@@ -93,8 +93,8 @@ impl<E: LocationEntry + fmt::Display> fmt::Display for LocationContext<E> {
     }
 }
 
-impl<E: LocationEntry> LocationContext<E> {
-    fn candidate_already_in_context(&self, candidate: &E) -> bool {
+impl LocationContext {
+    fn candidate_already_in_context(&self, candidate: &LocationEntry) -> bool {
         self.admin0
             .as_ref()
             .is_some_and(|e| e.geoname_id() == candidate.geoname_id())
@@ -126,10 +126,10 @@ impl<E: LocationEntry> LocationContext<E> {
 /// # Examples
 ///
 /// ```rust
-/// use heisenberg::{GenericEntry, LocationEntryCore, LocationSearcher};
+/// use heisenberg::{LocationEntry, LocationSearcher};
 ///
 /// let searcher = LocationSearcher::new_embedded()?;
-/// let results = searcher.resolve_location::<_, GenericEntry>(&["Berlin", "Germany"])?;
+/// let results = searcher.resolve_location(&["Berlin", "Germany"])?;
 ///
 /// for result in results {
 ///     println!("Score: {:.2}", result.score);
@@ -144,14 +144,14 @@ impl<E: LocationEntry> LocationContext<E> {
 /// ```
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[derive(Debug, Clone)]
-pub struct ResolvedSearchResult<E: LocationEntry> {
+pub struct ResolvedSearchResult {
     /// The complete administrative hierarchy and place context
-    pub context: LocationContext<E>,
+    pub context: LocationContext,
     /// Confidence score for this result (higher is better)
     pub score: f64,
 }
 
-impl<E: LocationEntry + fmt::Display> fmt::Display for ResolvedSearchResult<E> {
+impl fmt::Display for ResolvedSearchResult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -161,14 +161,13 @@ impl<E: LocationEntry + fmt::Display> fmt::Display for ResolvedSearchResult<E> {
     }
 }
 
-impl<E> ResolvedSearchResult<E>
-where
-    E: LocationEntry,
-{
+impl ResolvedSearchResult {
+    #[must_use]
     pub fn simple(&self) -> Vec<String> {
         self.full().into_iter().flatten().unique().collect()
     }
 
+    #[must_use]
     pub fn full(&self) -> [Option<String>; 6] {
         [
             self.context.admin0.as_ref().map(|e| e.name().to_string()),
@@ -190,198 +189,4 @@ mod error {
         DataFrame(#[from] polars::prelude::PolarsError),
     }
     pub type Result<T> = std::result::Result<T, BackfillError>;
-}
-#[cfg(feature = "python")]
-pub mod python_wrappers {
-    use pyo3::prelude::*;
-
-    pub use super::{
-        LocationContext, ResolvedSearchResult,
-        entry::{BasicEntry, GenericEntry},
-    };
-    // Macro for LocationContext<E>
-
-    // Macro for LocationContext<E>
-    macro_rules! define_py_location_context {
-        ($py_context_name:ident, $rust_entry_type:ty, $py_entry_type_name_str:expr) => {
-            #[pyclass(name = $py_entry_type_name_str)]
-            #[cfg_attr(feature = "serde", derive(serde::Serialize))]
-            #[derive(Debug, Clone)]
-            pub struct $py_context_name {
-                inner: LocationContext<$rust_entry_type>,
-            }
-
-            #[pymethods]
-            impl $py_context_name {
-                #[getter]
-                fn get_admin0(&self, py: Python) -> PyResult<Option<Py<$rust_entry_type>>> {
-                    // Return Py<ConcreteType>
-                    self.inner
-                        .admin0
-                        .as_ref()
-                        .map(|e| Py::new(py, e.clone())) // Pass the concrete #[pyclass] type
-                        .transpose()
-                }
-
-                #[getter]
-                fn get_admin1(&self, py: Python) -> PyResult<Option<Py<$rust_entry_type>>> {
-                    self.inner
-                        .admin1
-                        .as_ref()
-                        .map(|e| Py::new(py, e.clone()))
-                        .transpose()
-                }
-
-                #[getter]
-                fn get_admin2(&self, py: Python) -> PyResult<Option<Py<$rust_entry_type>>> {
-                    self.inner
-                        .admin2
-                        .as_ref()
-                        .map(|e| Py::new(py, e.clone()))
-                        .transpose()
-                }
-
-                #[getter]
-                fn get_admin3(&self, py: Python) -> PyResult<Option<Py<$rust_entry_type>>> {
-                    self.inner
-                        .admin3
-                        .as_ref()
-                        .map(|e| Py::new(py, e.clone()))
-                        .transpose()
-                }
-
-                #[getter]
-                fn get_admin4(&self, py: Python) -> PyResult<Option<Py<$rust_entry_type>>> {
-                    self.inner
-                        .admin4
-                        .as_ref()
-                        .map(|e| Py::new(py, e.clone()))
-                        .transpose()
-                }
-
-                #[getter]
-                fn get_place(&self, py: Python) -> PyResult<Option<Py<$rust_entry_type>>> {
-                    self.inner
-                        .place
-                        .as_ref()
-                        .map(|e| Py::new(py, e.clone()))
-                        .transpose()
-                }
-
-                fn __repr__(&self) -> String {
-                    format!("{:#?}", self.inner)
-                }
-
-                fn __str__(&self) -> String {
-                    self.inner.to_string()
-                }
-
-                fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-                    Ok(pythonize::pythonize(py, &self.inner)?)
-                }
-            }
-
-            impl From<LocationContext<$rust_entry_type>> for $py_context_name {
-                fn from(context: LocationContext<$rust_entry_type>) -> Self {
-                    Self { inner: context }
-                }
-            }
-        };
-    }
-
-    // Macro for ResolvedSearchResult<E>
-    macro_rules! define_py_resolved_search_result {
-        ($py_wrapper_name:ident, $rust_entry_type:ty, $py_context_type:ty, $py_class_name_str:expr) => {
-            #[pyclass(name = $py_class_name_str)]
-            #[cfg_attr(feature = "serde", derive(serde::Serialize))]
-            #[derive(Debug, Clone)]
-            pub struct $py_wrapper_name {
-                inner: ResolvedSearchResult<$rust_entry_type>,
-            }
-
-            #[pymethods]
-            impl $py_wrapper_name {
-                #[getter]
-                fn get_context(&self) -> $py_context_type {
-                    self.inner.context.clone().into()
-                }
-
-                #[getter]
-                fn get_score(&self) -> f64 {
-                    self.inner.score
-                }
-
-                pub fn simple(&self) -> Vec<String> {
-                    self.inner.simple()
-                }
-
-                pub fn full(&self) -> [Option<String>; 6] {
-                    self.inner.full()
-                }
-
-                fn __repr__(&self) -> String {
-                    // To get context repr, you'd need to call __repr__ on the PyLocationContext* object
-                    // This requires getting it as a PyObject and then calling its repr.
-                    // For simplicity here, we'll just indicate its presence or use its score.
-                    format!("{:#?}", self.inner)
-                }
-
-                fn __str__(&self) -> String {
-                    self.inner.to_string() // Uses the Display trait of ResolvedSearchResult<E>
-                }
-
-                fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-                    Ok(pythonize::pythonize(py, &self.inner)?)
-                }
-            }
-
-            impl From<ResolvedSearchResult<$rust_entry_type>> for $py_wrapper_name {
-                fn from(result: ResolvedSearchResult<$rust_entry_type>) -> Self {
-                    Self { inner: result }
-                }
-            }
-        };
-    }
-
-    // Instantiate the macros
-    define_py_location_context!(PyLocationContextBasic, BasicEntry, "LocationContextBasic");
-    define_py_location_context!(
-        PyLocationContextGeneric,
-        GenericEntry,
-        "LocationContextGeneric"
-    );
-
-    define_py_resolved_search_result!(
-        PyResolvedBasicSearchResult,
-        BasicEntry,
-        PyLocationContextBasic,
-        "ResolvedBasicSearchResult"
-    );
-    define_py_resolved_search_result!(
-        PyResolvedGenericSearchResult,
-        GenericEntry,
-        PyLocationContextGeneric,
-        "ResolvedGenericSearchResult"
-    );
-    macro_rules! impl_python_methods {
-        ($struct_name:ident) => {
-            #[pyo3::pymethods]
-            impl $struct_name {
-                fn __repr__(&self) -> String {
-                    format!("{:#?}", self)
-                }
-
-                fn __str__(&self) -> String {
-                    self.to_string()
-                }
-
-                fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-                    Ok(pythonize::pythonize(py, self)?)
-                }
-            }
-        };
-    }
-
-    impl_python_methods!(BasicEntry);
-    impl_python_methods!(GenericEntry);
 }
