@@ -1,0 +1,318 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (without v prefix, e.g., 0.1.0)"
+        required: true
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  verify-release:
+    name: Verify Release Readiness
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+      - name: Verify version consistency
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Check Cargo.toml workspace version
+          WORKSPACE_VERSION=$(grep '^version = ' Cargo.toml | head -n1 | sed 's/.*"\(.*\)".*/\1/')
+          echo "Workspace version: $WORKSPACE_VERSION"
+
+          # Check pyproject.toml version
+          PYTHON_VERSION=$(grep '^version = ' pyproject.toml | sed 's/.*"\(.*\)".*/\1/')
+          echo "Python version: $PYTHON_VERSION"
+
+          # Verify versions match
+          if [[ "$VERSION" != "$WORKSPACE_VERSION" ]]; then
+            echo "ERROR: Tag version ($VERSION) doesn't match workspace version ($WORKSPACE_VERSION)"
+            exit 1
+          fi
+
+          if [[ "$VERSION" != "$PYTHON_VERSION" ]]; then
+            echo "ERROR: Tag version ($VERSION) doesn't match Python version ($PYTHON_VERSION)"
+            exit 1
+          fi
+
+      - name: Check changelog
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if [ -f "CHANGELOG.md" ]; then
+            if ! grep -q "## \[$VERSION\]" CHANGELOG.md; then
+              echo "WARNING: Version $VERSION not found in CHANGELOG.md"
+            fi
+          fi
+
+  publish-crate:
+    name: Publish Rust Crates
+    needs: verify-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: release-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Verify package builds
+        run: |
+          cd crates/heisenberg-data-processing
+          cargo build --release
+          cargo test --release
+          cd ../heisenberg
+          # Test with default features (what most users will get)
+          cargo build --release
+          cargo test --release
+          # Also test each feature individually to ensure they work
+          cargo build --release --no-default-features --features download_data
+          cargo build --release --no-default-features --features system-dirs
+          cargo build --release --no-default-features --features serde
+
+      - name: Publish heisenberg-data-processing
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+        run: |
+          cd crates/heisenberg-data-processing
+          cargo publish --token ${CARGO_REGISTRY_TOKEN} --no-verify
+
+      # Wait for data-processing crate to be available
+      - name: Wait for dependency publication
+        run: |
+          echo "Waiting for heisenberg-data-processing to be available..."
+          sleep 60
+
+      - name: Publish heisenberg
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+        run: |
+          cd crates/heisenberg
+          cargo publish --token ${CARGO_REGISTRY_TOKEN} --no-verify
+
+  build-wheels:
+    name: Build Python Wheels
+    needs: verify-release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest, macos-14] # macos-14 for ARM64
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: macos-latest
+            target: x86_64-apple-darwin
+          - os: macos-14
+            target: aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install maturin
+        run: uv tool install maturin
+
+      - name: Build wheels
+        run: |
+          uv run maturin build --release --target ${{ matrix.target }} --out dist --features python
+
+      - name: List built wheels
+        run: ls -la dist/
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}-${{ matrix.target }}
+          path: dist/*.whl
+
+  publish-python:
+    name: Publish Python Package
+    needs: [verify-release, build-wheels]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/heisenberg
+    permissions:
+      id-token: write # IMPORTANT: this permission is mandatory for trusted publishing
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install tools
+        run: |
+          uv tool install maturin
+          uv tool install twine
+
+      - name: Download all wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
+          path: dist-all
+          merge-multiple: true
+
+      - name: Organize wheels
+        run: |
+          mkdir -p dist
+          find dist-all -name "*.whl" -exec cp {} dist/ \;
+          ls -la dist/
+
+      - name: Build source distribution
+        run: uv run maturin sdist --out dist --features python
+
+      - name: Check distributions
+        run: uv run twine check dist/*
+
+      - name: Publish to Test PyPI first (optional)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          password: ${{ secrets.TEST_PYPI_API_TOKEN }}
+        continue-on-error: true
+        if: secrets.TEST_PYPI_API_TOKEN
+
+      - name: Publish to PyPI (Trusted Publishing)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        # Uses OIDC trusted publishing - no API token needed if configured
+        # Falls back to API token if trusted publishing not set up
+
+  create-release:
+    name: Create GitHub Release
+    needs: [verify-release, publish-crate, publish-python]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        run: |
+          VERSION="${{ needs.verify-release.outputs.version }}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Try to extract changelog for this version
+          if [ -f "CHANGELOG.md" ]; then
+            # Look for the version section in changelog
+            sed -n "/^## \[$VERSION\]/,/^## \[/p" CHANGELOG.md | sed '$d' > RELEASE_NOTES.md
+
+            # If the release notes are empty or very short, create a basic one
+            if [ ! -s RELEASE_NOTES.md ] || [ $(wc -l < RELEASE_NOTES.md) -lt 3 ]; then
+              cat > RELEASE_NOTES.md << EOF
+          ## Release $VERSION
+
+          This release includes improvements and updates to the Heisenberg location enrichment library.
+
+          ### Changes
+          - See the [full changelog](https://github.com/SamBroomy/heisenberg/blob/main/CHANGELOG.md) for detailed changes
+
+          ### Installation
+
+          **Rust:**
+          \`\`\`toml
+          [dependencies]
+          heisenberg = "$VERSION"
+          \`\`\`
+
+          **Python:**
+          \`\`\`bash
+          pip install heisenberg==$VERSION
+          \`\`\`
+          EOF
+            fi
+          else
+            # No changelog file, create a basic release note
+            cat > RELEASE_NOTES.md << EOF
+          ## Release $VERSION
+
+          Heisenberg location enrichment library release.
+
+          ### Installation
+
+          **Rust:**
+          \`\`\`toml
+          [dependencies]
+          heisenberg = "$VERSION"
+          \`\`\`
+
+          **Python:**
+          \`\`\`bash
+          pip install heisenberg==$VERSION
+          \`\`\`
+          EOF
+          fi
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: Release ${{ steps.version.outputs.version }}
+          body_path: RELEASE_NOTES.md
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+
+  notify-success:
+    name: Notify Release Success
+    needs: [create-release]
+    runs-on: ubuntu-latest
+    if: success()
+    steps:
+      - name: Print success message
+        run: |
+          echo "🎉 Release ${{ needs.verify-release.outputs.version }} completed successfully!"
+          echo "📦 Rust crates published to crates.io"
+          echo "🐍 Python package published to PyPI"
+          echo "📝 GitHub release created"

@@ -1,0 +1,173 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Install just
+        uses: extractions/setup-just@v2
+
+      - name: Install uv with Caching
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          cache-dependency-glob: "python/pyproject.toml"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Dependencies
+        run: uv sync --dev
+        working-directory: python
+
+      - name: Install additional tools (matching precommit)
+        run: |
+          cargo install cargo-machete cargo-audit
+          uv tool install maturin
+
+      - name: Run linting (matching precommit hooks)
+        run: |
+          # Run the same linting as precommit
+          just lint
+
+          # Additional checks from precommit hooks
+          cargo machete --with-metadata
+          cargo doc --all-features --no-deps
+
+  test:
+    name: Run Tests
+    runs-on: ${{ matrix.os }}
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Install just
+        uses: extractions/setup-just@v2
+
+      - name: Install uv with Caching
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          cache-dependency-glob: "python/pyproject.toml"
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install Dependencies
+        run: uv sync --dev
+        working-directory: python
+
+      - name: Run Tests with Coverage
+        run: just test
+
+      - name: Minimize uv Cache
+        run: uv cache prune --ci
+
+  audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@cargo-audit
+
+      - name: Run security audit
+        run: cargo audit
+
+      - name: Check for known vulnerabilities in Python dependencies
+        uses: pypa/gh-action-pip-audit@v1.1.0
+        with:
+          inputs: python/pyproject.toml
+
+  publish-dry-run:
+    name: Publish Dry Run
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Install just
+        uses: extractions/setup-just@v2
+
+      - name: Install uv with Caching
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          cache-dependency-glob: "python/pyproject.toml"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Dependencies
+        run: uv sync --dev
+        working-directory: python
+
+      - name: Dry run Rust publish
+        run: |
+          # Test publishing with default features (what will actually be published)
+          cd crates/heisenberg-data-processing && cargo publish --dry-run
+          cd ../heisenberg && cargo publish --dry-run
+
+      - name: Build and check Python package
+        run: |
+          just build-python
+          uv tool install twine
+          uvx twine check target/wheels/*

@@ -68,8 +68,13 @@ pytest: dev
 # Run Rust tests
 [group('test')]
 rust-test:
+    # Test with default features (what most users will get)
     cargo test -- --test-threads=1
     cargo test --examples --release
+    # Test with no default features (minimal build)
+    cargo test --no-default-features -- --test-threads=1
+    # Test serde feature
+    cargo test --no-default-features --features serde -- --test-threads=1
 
 # Run all tests
 [group('test')]
@@ -82,7 +87,12 @@ test: rust-test pytest
 # Run Rust linting
 [group('lint')]
 rust-lint:
-    cargo clippy --all-targets --all-features -- -D warnings
+    # Check with default features (what most users will get)
+    cargo clippy --all-targets -- -D warnings
+    # Check with no default features (minimal build)
+    cargo clippy --all-targets --no-default-features -- -D warnings
+    # Check serde feature specifically (commonly used optional feature)
+    cargo clippy --all-targets --no-default-features --features serde -- -D warnings
     cargo fmt --check
 
 # Run Python linting
@@ -160,3 +170,184 @@ clean-data:
 # Clean the project
 [group('env')]
 clean: clean-data clean-rust clean-py-project clean-venv
+
+# =============================================================================
+# Publishing
+# =============================================================================
+
+# Check if ready for release
+[group('publish')]
+check-release:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "🔍 Checking release readiness..."
+
+    # Check if working directory is clean
+    if [ -n "$(git status --porcelain)" ]; then
+        echo "❌ Working directory is not clean. Please commit all changes."
+        exit 1
+    fi
+
+    # Check if on main/master branch
+    BRANCH=$(git branch --show-current)
+    if [[ "$BRANCH" != "main" && "$BRANCH" != "master" ]]; then
+        echo "❌ Not on main/master branch. Currently on: $BRANCH"
+        exit 1
+    fi
+
+    # Run linting
+    echo "🔍 Running linting..."
+    just lint
+
+    # Run tests
+    echo "🧪 Running tests..."
+    just test
+
+
+    echo "✅ Ready for release!"
+
+# Publish Rust crates to crates.io
+[group('publish')]
+publish-rust: check-release
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "📦 Publishing Rust crates to crates.io..."
+
+    # Publish heisenberg-data-processing first (dependency)
+    echo "Publishing heisenberg-data-processing..."
+    cd crates/heisenberg-data-processing
+    cargo publish --dry-run
+    cargo publish
+    cd ../..
+
+    # Wait a bit for crates.io to register the new crate
+    echo "⏳ Waiting for crates.io to update..."
+    sleep 30
+
+    # Publish heisenberg
+    echo "Publishing heisenberg..."
+    cd crates/heisenberg
+    cargo publish --dry-run
+    cargo publish
+    cd ../..
+
+    echo "✅ Rust crates published successfully!"
+
+# Build Python package for PyPI
+[group('publish')]
+build-python: init
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "🐍 Building Python package..."
+
+    # Clean previous builds
+    rm -rf dist/ target/wheels/
+
+    # Build wheels
+    uv run maturin build --features python --release
+
+    echo "✅ Python package built successfully!"
+
+# Publish Python package to PyPI
+[group('publish')]
+publish-python: build-python
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "🐍 Publishing Python package to PyPI..."
+
+    # Install twine if not available
+    if ! command -v twine &> /dev/null; then
+        uv tool install twine
+    fi
+
+    # Upload to PyPI
+    uvx twine upload target/wheels/*
+
+    echo "✅ Python package published successfully!"
+
+# Test publish to Test PyPI
+[group('publish')]
+publish-python-test: build-python
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "🧪 Publishing Python package to Test PyPI..."
+
+    # Install twine if not available
+    if ! command -v twine &> /dev/null; then
+        uv tool install twine
+    fi
+
+    # Upload to Test PyPI
+    uvx twine upload --repository testpypi target/wheels/*
+
+    echo "✅ Python package published to Test PyPI!"
+
+# Publish everything (for CI)
+[group('publish')]
+publish-package: build-python
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "📦 Publishing Python package via trusted publishing..."
+
+    # This assumes we're in GitHub Actions with OIDC token
+    # The actual upload will be handled by pypa/gh-action-pypi-publish
+    echo "Python wheels built and ready for trusted publishing"
+
+    # Just verify the wheels exist
+    ls -la target/wheels/
+
+    echo "✅ Package ready for publication!"
+
+# Create a new release
+[group('publish')]
+release VERSION: check-release
+    #!/usr/bin/env bash
+    set -euo pipefail
+    VERSION="{{ VERSION }}"
+
+    echo "🚀 Creating release $VERSION..."
+
+    # Check if version is already set
+    CURRENT_VERSION=$(grep '^version = ' Cargo.toml | head -n1 | sed 's/.*"\(.*\)".*/\1/')
+    
+    if [[ "$CURRENT_VERSION" == "$VERSION" ]]; then
+        echo "ℹ️  Version is already set to $VERSION"
+        
+        # Check if tag already exists
+        if git tag -l | grep -q "^v$VERSION$"; then
+            echo "❌ Tag v$VERSION already exists"
+            exit 1
+        fi
+        
+        echo "📝 Creating tag for existing version..."
+    else
+        echo "📝 Updating version from $CURRENT_VERSION to $VERSION..."
+        
+        # Update version in Cargo.toml files
+        sed -i.bak "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
+        sed -i.bak "s/^version = \".*\"/version = \"$VERSION\"/" crates/heisenberg/Cargo.toml
+        sed -i.bak "s/^version = \".*\"/version = \"$VERSION\"/" crates/heisenberg-data-processing/Cargo.toml
+        sed -i.bak "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
+
+        # Update workspace dependency versions
+        sed -i.bak "s/heisenberg = { version = \".*\", path = \"crates\/heisenberg\" }/heisenberg = { version = \"$VERSION\", path = \"crates\/heisenberg\" }/" Cargo.toml
+        sed -i.bak "s/heisenberg-data-processing = { version = \".*\", path = \"crates\/heisenberg-data-processing\" }/heisenberg-data-processing = { version = \"$VERSION\", path = \"crates\/heisenberg-data-processing\" }/" Cargo.toml
+
+        # Remove backup files
+        find . -name "*.bak" -delete
+
+        # Update Cargo.lock
+        cargo update
+
+        # Commit changes
+        git add .
+        git commit -m "chore: bump version to $VERSION"
+    fi
+
+    # Create and push tag
+    git tag "v$VERSION"
+    CURRENT_BRANCH=$(git branch --show-current)
+    git push origin "$CURRENT_BRANCH"
+    git push origin "v$VERSION"
+
+    echo "✅ Release $VERSION created and pushed!"

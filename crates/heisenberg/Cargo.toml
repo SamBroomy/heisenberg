@@ -55,7 +55,7 @@ pyo3-polars = { workspace = true, optional = true }
 pyo3-log = { workspace = true, optional = true }
 
 [build-dependencies]
-heisenberg-data-processing = { version = "0.1.0", path = "../heisenberg-data-processing", features = [
+heisenberg-data-processing = { workspace = true, features = [
     "download_data",
 ] }
 polars = { workspace = true }
