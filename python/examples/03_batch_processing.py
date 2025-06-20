@@ -7,11 +7,12 @@ in batches, which is much faster than processing them individually when you
 have many locations to resolve.
 """
 
-import heisenberg
 import time
 
+import heisenberg
 
-def main():
+
+def main() -> None:
     print("=== Heisenberg Batch Processing Examples ===\n")
 
     searcher = heisenberg.LocationSearcher(rebuild_indexes=False)
@@ -26,7 +27,7 @@ def main():
     print("Processing multiple cities in batch:")
     batch_results = searcher.find_batch(city_queries)
 
-    for query, results in zip(city_queries, batch_results):
+    for query, results in zip(city_queries, batch_results, strict=False):
         query_str = " + ".join(query)
         if results:
             print(f"  {query_str}: {results[0].name} (Score: {results[0].score:.3f})")
@@ -50,7 +51,7 @@ def main():
     print("Processing city + country queries in batch:")
     batch_results = searcher.find_batch(multi_term_queries)
 
-    for query, results in zip(multi_term_queries, batch_results):
+    for query, results in zip(multi_term_queries, batch_results, strict=False):
         query_str = " + ".join(query)
         if results:
             print(f"  {query_str}: {results[0].name} (Score: {results[0].score:.3f})")
@@ -100,14 +101,12 @@ def main():
     print("Batch processing with fast configuration:")
     batch_results = searcher.find_batch(diverse_queries, fast_config)
 
-    for query, results in zip(diverse_queries, batch_results):
+    for query, results in zip(diverse_queries, batch_results, strict=False):
         query_str = " + ".join(query)
         if results:
             top_result = results[0]
             print(f"  {query_str}: {top_result.name}")
-            print(
-                f"    Score: {top_result.score:.3f}, Feature: {top_result.feature_code}"
-            )
+            print(f"    Score: {top_result.score:.3f}, Feature: {top_result.feature_code}")
         else:
             print(f"  {query_str}: No results found")
     print()
@@ -128,15 +127,13 @@ def main():
     print("Processing queries with mixed quality:")
     batch_results = searcher.find_batch(mixed_queries)
 
-    for i, (query, results) in enumerate(zip(mixed_queries, batch_results)):
+    for i, (query, results) in enumerate(zip(mixed_queries, batch_results, strict=False)):
         query_str = " + ".join([q.strip() for q in query if q.strip()])
         if not query_str:
             query_str = "[empty/invalid]"
 
         if results:
-            print(
-                f"  Query {i + 1} ({query_str}): {results[0].name} (Score: {results[0].score:.3f})"
-            )
+            print(f"  Query {i + 1} ({query_str}): {results[0].name} (Score: {results[0].score:.3f})")
         else:
             print(f"  Query {i + 1} ({query_str}): No results found")
     print()
@@ -150,7 +147,7 @@ def main():
     print("Using convenience function find_locations_batch:")
     convenience_results = heisenberg.find_locations_batch(simple_queries)
 
-    for query, results in zip(simple_queries, convenience_results):
+    for query, results in zip(simple_queries, convenience_results, strict=False):
         query_str = " + ".join(query)
         if results:
             print(f"  {query_str}: {results[0].name} (Score: {results[0].score:.3f})")

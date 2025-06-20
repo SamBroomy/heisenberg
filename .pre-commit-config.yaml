@@ -25,16 +25,16 @@ repos:
         stages: [pre-commit]
 
   - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: 0.7.12
+    rev: 0.7.13
     hooks:
       - id: uv-sync
         args: ["--locked", "--all-packages"]
       - id: uv-lock
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.11.13
+    rev: v0.12.0
     hooks:
-      - id: ruff
+      - id: ruff-check
         args: [--fix, --exit-non-zero-on-fix, --unsafe-fixes]
         types_or: [python]
         stages: [pre-commit]
@@ -78,7 +78,7 @@ repos:
       - id: cargo-clippy
         name: cargo clippy
         description: Run cargo clippy with fixes
-        entry: cargo clippy --workspace --all-targets --all-features --fix --allow-staged --quiet -- -D warnings
+        entry: cargo clippy --workspace --all-targets --all-features --fix --allow-staged --allow-dirty --quiet -- -D warnings
         language: system
         files: '(\.rs$|Cargo\.toml$|Cargo\.lock$)'
         types_or: [rust, toml]
@@ -106,9 +106,17 @@ repos:
       - id: cargo-test
         name: cargo test
         description: Run cargo test suite
-        entry: cargo test --workspace -- --test-threads=1
+        entry: rust-test
         language: system
         files: '(src/.*\.rs$|tests/.*\.rs$|Cargo\.toml$)'
         types_or: [rust, toml]
         pass_filenames: false
         stages: [pre-push] # Only run on push, not every commit
+      - id: python-tests
+        name: python tests
+        description: Run Python tests with pytest
+        entry: just pytest
+        language: system
+        files: '^python/.*\.py$'
+        types: [python]
+        pass_filenames: false

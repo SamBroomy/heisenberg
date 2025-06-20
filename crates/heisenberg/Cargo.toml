@@ -21,13 +21,7 @@ crate-type = ["cdylib", "rlib"]
 default = ["download_data", "system-dirs"]
 download_data = ["heisenberg-data-processing/download_data"]
 system-dirs = ["heisenberg-data-processing/system-dirs"]
-python = [
-    "dep:pyo3",
-    "dep:pyo3-polars",
-    "dep:pythonize",
-    "dep:pyo3-log",
-    "serde",
-]
+python = ["dep:pyo3", "dep:pyo3-polars", "dep:pyo3-log", "serde"]
 serde = ["dep:serde"]
 
 [dependencies]
@@ -58,7 +52,6 @@ pyo3 = { workspace = true, default-features = false, features = [
     "macros",
 ], optional = true }
 pyo3-polars = { workspace = true, optional = true }
-pythonize = { workspace = true, optional = true }
 pyo3-log = { workspace = true, optional = true }
 
 [build-dependencies]

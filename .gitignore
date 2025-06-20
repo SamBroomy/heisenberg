@@ -13,3 +13,7 @@
 !rustfmt.toml
 !README.md
 !.pre-commit-config.yaml
+!.github/workflows/ci.yaml
+!.github/workflows/release.yaml
+!Cargo.lock
+!uv.lock

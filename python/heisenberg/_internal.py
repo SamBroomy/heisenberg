@@ -6,26 +6,21 @@ functionality, serving as the bridge between the Rust implementation and the
 Python user-facing API.
 """
 
-from typing import List, Optional, Dict, Any, TYPE_CHECKING, Self, Union
-from dataclasses import dataclass
 import logging
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Optional, Self
 
 if TYPE_CHECKING:
     import polars as pl
 
 
 # Import the Rust bindings
-from .heisenberg import (
-    LocationSearcher as RustLocationSearcher,
-    LocationSearcherBuilder as RustLocationSearcherBuilder,
-    SearchConfig as RustSearchConfig,
-    SearchConfigBuilder as RustSearchConfigBuilder,
-    LocationEntry,
-    LocationContext,
-    ResolvedSearchResult,
-    DataSource as RustDataSource,
-    __version__,
-)
+from .heisenberg import DataSource as RustDataSource
+from .heisenberg import LocationContext, LocationEntry, ResolvedSearchResult, __version__
+from .heisenberg import LocationSearcher as RustLocationSearcher
+from .heisenberg import LocationSearcherBuilder as RustLocationSearcherBuilder
+from .heisenberg import SearchConfig as RustSearchConfig
+from .heisenberg import SearchConfigBuilder as RustSearchConfigBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +48,7 @@ class DataSource:
         >>> searcher = LocationSearcher.with_data_source(ds)
     """
 
-    def __init__(self, rust_data_source: RustDataSource):
+    def __init__(self, rust_data_source: RustDataSource) -> None:
         """Initialize with a Rust DataSource object.
 
         Args:
@@ -170,14 +165,10 @@ class LocationSearcherBuilderWrapper:
 
         >>> ds = DataSource.cities15000()
         >>> builder = LocationSearcherBuilderWrapper()
-        >>> searcher = (builder
-        ...     .data_source(ds)
-        ...     .force_rebuild(True)
-        ...     .embedded_fallback(False)
-        ...     .build())
+        >>> searcher = builder.data_source(ds).force_rebuild(True).embedded_fallback(False).build()
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize a new LocationSearcherBuilderWrapper."""
         self._rust_builder = RustLocationSearcherBuilder()
 
@@ -193,7 +184,7 @@ class LocationSearcherBuilderWrapper:
         self._rust_builder.data_source(data_source._rust_data_source)
         return self
 
-    def force_rebuild(self, rebuild: bool) -> Self:
+    def force_rebuild(self, *, rebuild: bool) -> Self:
         """Set whether to force rebuild indexes.
 
         Args:
@@ -205,7 +196,7 @@ class LocationSearcherBuilderWrapper:
         self._rust_builder.force_rebuild(rebuild)
         return self
 
-    def embedded_fallback(self, fallback: bool) -> Self:
+    def embedded_fallback(self, *, fallback: bool) -> Self:
         """Set whether to use embedded data as fallback.
 
         Args:
@@ -253,19 +244,12 @@ class SearchOptions:
 
         Customized search for important places only:
 
-        >>> options = SearchOptions(
-        ...     limit=10,
-        ...     place_importance_threshold=2,
-        ...     fuzzy_search=False
-        ... )
+        >>> options = SearchOptions(limit=10, place_importance_threshold=2, fuzzy_search=False)
 
         Location-biased search:
 
         >>> # Search biased toward New York coordinates
-        >>> options = SearchOptions(
-        ...     center_latitude=40.7128,
-        ...     center_longitude=-74.0060
-        ... )
+        >>> options = SearchOptions(center_latitude=40.7128, center_longitude=-74.0060)
 
     Attributes:
         limit: Maximum number of results to return. Default is 20.
@@ -326,27 +310,24 @@ class SearchOptions:
     place_distance_weight: float = 0.05
 
     # Location bias (for distance scoring)
-    center_latitude: Optional[float] = None
-    center_longitude: Optional[float] = None
+    center_latitude: float | None = None
+    center_longitude: float | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate parameters after initialization."""
         if self.limit <= 0:
-            raise ValueError("limit must be positive")
+            msg = "limit must be positive"
+            raise ValueError(msg)
         if not 1 <= self.place_importance_threshold <= 5:
-            raise ValueError("place_importance_threshold must be between 1 and 5")
+            msg = "place_importance_threshold must be between 1 and 5"
+            raise ValueError(msg)
 
         # Validate weights sum approximately to 1.0 for each category
         admin_weight_sum = (
-            self.admin_text_weight
-            + self.admin_population_weight
-            + self.admin_parent_weight
-            + self.admin_feature_weight
+            self.admin_text_weight + self.admin_population_weight + self.admin_parent_weight + self.admin_feature_weight
         )
         if not 0.95 <= admin_weight_sum <= 1.05:
-            logger.warning(
-                f"Admin weights sum to {admin_weight_sum:.3f}, should be close to 1.0"
-            )
+            logger.warning(f"Admin weights sum to {admin_weight_sum:.3f}, should be close to 1.0")
 
         place_weight_sum = (
             self.place_text_weight
@@ -356,9 +337,7 @@ class SearchOptions:
             + self.place_distance_weight
         )
         if not 0.95 <= place_weight_sum <= 1.05:
-            logger.warning(
-                f"Place weights sum to {place_weight_sum:.3f}, should be close to 1.0"
-            )
+            logger.warning(f"Place weights sum to {place_weight_sum:.3f}, should be close to 1.0")
 
     def to_rust_config(self) -> RustSearchConfig:
         """Convert to a Rust SearchConfig object.
@@ -434,23 +413,23 @@ class SearchResult:
     feature_code: str
 
     # Administrative hierarchy
-    admin0_name: Optional[str] = None
-    admin1_name: Optional[str] = None
-    admin2_name: Optional[str] = None
-    admin3_name: Optional[str] = None
-    admin4_name: Optional[str] = None
+    admin0_name: str | None = None
+    admin1_name: str | None = None
+    admin2_name: str | None = None
+    admin3_name: str | None = None
+    admin4_name: str | None = None
 
     # Geographic information
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
-    population: Optional[int] = None
+    latitude: float | None = None
+    longitude: float | None = None
+    population: int | None = None
 
     # Search metadata
     score: float = 0.0
     admin_level: int = 0
 
     @classmethod
-    def from_polars_row(cls, row: Dict[str, Any]) -> Self:
+    def from_polars_row(cls, row: dict[str, Any]) -> Self:
         """Create SearchResult from a Polars DataFrame row.
 
         Args:
@@ -506,13 +485,7 @@ class SearchResult:
 
         if not entry:
             # Fallback to empty values
-            return cls(
-                geoname_id=0,
-                name="Unknown",
-                feature_code="",
-                score=resolved.score,
-                admin_level=admin_level,
-            )
+            return cls(geoname_id=0, name="Unknown", feature_code="", score=resolved.score, admin_level=admin_level)
 
         # Build admin hierarchy
         admin_names = {}
@@ -537,7 +510,7 @@ class SearchResult:
             admin_level=admin_level,
         )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation.
 
         Returns:
@@ -559,24 +532,18 @@ class SearchResult:
             "admin_level": self.admin_level,
         }
 
-    def admin_hierarchy(self) -> List[str]:
+    def admin_hierarchy(self) -> list[str]:
         """Get the administrative hierarchy as a list of names.
 
         Returns:
             List[str]: Administrative names from most local to most general.
                       For example: ['England', 'United Kingdom']
         """
-        hierarchy = []
-        for admin_name in [
-            self.admin0_name,
-            self.admin1_name,
-            self.admin2_name,
-            self.admin3_name,
-            self.admin4_name,
-        ]:
-            if admin_name:
-                hierarchy.append(admin_name)
-        return hierarchy
+        return [
+            admin_name
+            for admin_name in [self.admin0_name, self.admin1_name, self.admin2_name, self.admin3_name, self.admin4_name]
+            if admin_name
+        ]
 
     def full_name(self) -> str:
         """Get the full name including administrative hierarchy.
@@ -585,7 +552,7 @@ class SearchResult:
             str: Complete location name with administrative context.
                  For example: "London, England, United Kingdom"
         """
-        parts = [self.name] + self.admin_hierarchy()
+        parts = [self.name, *self.admin_hierarchy()]
         return ", ".join(parts)
 
 
@@ -599,20 +566,18 @@ class SearchConfigBuilder:
     Examples:
         Quick search configuration:
 
-        >>> config = (SearchConfigBuilder()
-        ...     .limit(5)
-        ...     .place_importance(2)
-        ...     .fuzzy_search(False)
-        ...     .build())
+        >>> config = SearchConfigBuilder().limit(5).place_importance(2).fuzzy_search(False).build()
 
         Location-biased search:
 
         >>> # Search near London with custom weights
-        >>> config = (SearchConfigBuilder()
+        >>> config = (
+        ...     SearchConfigBuilder()
         ...     .limit(10)
         ...     .location_bias(51.5074, -0.1278)
         ...     .place_weights(text=0.5, importance=0.3, distance=0.2)
-        ...     .build())
+        ...     .build()
+        ... )
 
         Using preset configurations:
 
@@ -621,7 +586,7 @@ class SearchConfigBuilder:
         >>> quality_config = SearchConfigBuilder.quality_places().build()
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize a new SearchConfigBuilder with default options."""
         self.options = SearchOptions()
 
@@ -649,7 +614,7 @@ class SearchConfigBuilder:
         self.options.place_importance_threshold = threshold
         return self
 
-    def admin_search(self, enabled: bool) -> Self:
+    def admin_search(self, *, enabled: bool) -> Self:
         """Enable or disable proactive administrative search.
 
         When enabled, the searcher will automatically look for administrative
@@ -664,7 +629,7 @@ class SearchConfigBuilder:
         self.options.proactive_admin_search = enabled
         return self
 
-    def fuzzy_search(self, enabled: bool) -> Self:
+    def fuzzy_search(self, *, enabled: bool) -> Self:
         """Enable or disable fuzzy string matching.
 
         Fuzzy matching helps find results even with typos or slight variations
@@ -697,11 +662,7 @@ class SearchConfigBuilder:
         return self
 
     def admin_weights(
-        self,
-        text: float = 0.4,
-        population: float = 0.25,
-        parent: float = 0.20,
-        feature: float = 0.15,
+        self, text: float = 0.4, population: float = 0.25, parent: float = 0.20, feature: float = 0.15
     ) -> Self:
         """Set scoring weights for administrative entities.
 
@@ -771,9 +732,7 @@ class SearchConfigBuilder:
         Returns:
             SearchConfigBuilder: Builder configured for fast searches.
         """
-        return (
-            cls().limit(10).place_importance(3).admin_search(False).fuzzy_search(False)
-        )
+        return cls().limit(10).place_importance(3).admin_search(enabled=False).fuzzy_search(enabled=False)
 
     @classmethod
     def comprehensive(cls) -> Self:
@@ -785,7 +744,7 @@ class SearchConfigBuilder:
         Returns:
             SearchConfigBuilder: Builder configured for comprehensive searches.
         """
-        return cls().limit(50).place_importance(5).admin_search(True).fuzzy_search(True)
+        return cls().limit(50).place_importance(5).admin_search(enabled=True).fuzzy_search(enabled=True)
 
     @classmethod
     def quality_places(cls) -> Self:
@@ -797,7 +756,7 @@ class SearchConfigBuilder:
         Returns:
             SearchConfigBuilder: Builder configured for quality places.
         """
-        return cls().limit(20).place_importance(2).admin_search(True).fuzzy_search(True)
+        return cls().limit(20).place_importance(2).admin_search(enabled=True).fuzzy_search(enabled=True)
 
 
 class LocationSearcher:
@@ -817,10 +776,7 @@ class LocationSearcher:
 
         Search with custom configuration:
 
-        >>> config = (SearchConfigBuilder()
-        ...     .limit(5)
-        ...     .place_importance(2)
-        ...     .build())
+        >>> config = SearchConfigBuilder().limit(5).place_importance(2).build()
         >>> results = searcher.find("Paris", config)
 
         Batch processing:
@@ -842,11 +798,7 @@ class LocationSearcher:
         >>> important_results = searcher.find_important_places("Berlin")
     """
 
-    def __init__(
-        self,
-        rebuild_indexes: bool = False,
-        data_source: Optional[DataSource] = None,
-    ):
+    def __init__(self, data_source: DataSource | None = None, *, rebuild_indexes: bool = False) -> None:
         """Initialize the location searcher.
 
         Args:
@@ -858,9 +810,7 @@ class LocationSearcher:
         if rebuild_indexes:
             if data_source is None:
                 data_source = DataSource.embedded()
-            self._rust_searcher = RustLocationSearcher.with_fresh_indexes(
-                data_source._rust_data_source
-            )
+            self._rust_searcher = RustLocationSearcher.with_fresh_indexes(data_source._rust_data_source)
         else:
             # Use default embedded data loading
             self._rust_searcher = RustLocationSearcher()
@@ -883,9 +833,7 @@ class LocationSearcher:
             >>> searcher = LocationSearcher.with_data_source(ds)
         """
         instance = cls.__new__(cls)
-        instance._rust_searcher = RustLocationSearcher.with_data_source(
-            data_source._rust_data_source
-        )
+        instance._rust_searcher = RustLocationSearcher.with_data_source(data_source._rust_data_source)
         return instance
 
     @classmethod
@@ -906,13 +854,11 @@ class LocationSearcher:
             >>> searcher = LocationSearcher.with_fresh_indexes(ds)
         """
         instance = cls.__new__(cls)
-        instance._rust_searcher = RustLocationSearcher.with_fresh_indexes(
-            data_source._rust_data_source
-        )
+        instance._rust_searcher = RustLocationSearcher.with_fresh_indexes(data_source._rust_data_source)
         return instance
 
     @classmethod
-    def load_existing(cls, data_source: DataSource) -> Optional[Self]:
+    def load_existing(cls, data_source: DataSource) -> Self | None:
         """Try to load an existing LocationSearcher instance.
 
         This method attempts to load existing cached indexes without rebuilding.
@@ -930,18 +876,14 @@ class LocationSearcher:
             >>> if searcher is None:
             ...     searcher = LocationSearcher.with_data_source(ds)
         """
-        rust_searcher = RustLocationSearcher.load_existing(
-            data_source._rust_data_source
-        )
+        rust_searcher = RustLocationSearcher.load_existing(data_source._rust_data_source)
         if rust_searcher is None:
             return None
         instance = cls.__new__(cls)
         instance._rust_searcher = rust_searcher
         return instance
 
-    def find(
-        self, query: Union[str, List[str]], config: Optional[SearchOptions] = None
-    ) -> List[SearchResult]:
+    def find(self, query: str | list[str], config: SearchOptions | None = None) -> list[SearchResult]:
         """Find locations matching the query.
 
         This is the main search method that handles both simple string queries
@@ -979,20 +921,16 @@ class LocationSearcher:
 
         try:
             if config:
-                resolved_results = self._rust_searcher.resolve_location_with_config(
-                    query, config.to_rust_config()
-                )
+                resolved_results = self._rust_searcher.resolve_location_with_config(query, config.to_rust_config())
             else:
                 resolved_results = self._rust_searcher.resolve_location(query)
 
-            return [
-                SearchResult.from_resolved_result(result) for result in resolved_results
-            ]
+            return [SearchResult.from_resolved_result(result) for result in resolved_results]
         except Exception as e:
-            logger.error(f"Error in find: {e}")
+            logger.exception("Error in find", extra={"exception": str(e)})
             return []
 
-    def find_quick(self, query: Union[str, List[str]]) -> List[SearchResult]:
+    def find_quick(self, query: str | list[str]) -> list[SearchResult]:
         """Quick search with fast configuration.
 
         Optimized for speed over completeness. Returns fewer results with
@@ -1007,7 +945,7 @@ class LocationSearcher:
         config = SearchConfigBuilder.fast().build()
         return self.find(query, config)
 
-    def find_comprehensive(self, query: Union[str, List[str]]) -> List[SearchResult]:
+    def find_comprehensive(self, query: str | list[str]) -> list[SearchResult]:
         """Comprehensive search with detailed configuration.
 
         Optimized for completeness over speed. Returns more results with
@@ -1022,7 +960,7 @@ class LocationSearcher:
         config = SearchConfigBuilder.comprehensive().build()
         return self.find(query, config)
 
-    def find_important_places(self, query: Union[str, List[str]]) -> List[SearchResult]:
+    def find_important_places(self, query: str | list[str]) -> list[SearchResult]:
         """Search for important places only.
 
         Filters results to include only major cities and well-known locations.
@@ -1037,9 +975,7 @@ class LocationSearcher:
         config = SearchConfigBuilder.quality_places().build()
         return self.find(query, config)
 
-    def find_batch(
-        self, queries: List[List[str]], config: Optional[SearchOptions] = None
-    ) -> List[List[SearchResult]]:
+    def find_batch(self, queries: list[list[str]], config: SearchOptions | None = None) -> list[list[SearchResult]]:
         """Find locations for multiple queries in batch.
 
         More efficient than calling find() multiple times, especially for
@@ -1060,11 +996,7 @@ class LocationSearcher:
         Examples:
             Process multiple queries efficiently (largest to smallest terms):
 
-            >>> queries = [
-            ...     ["United Kingdom", "London"],
-            ...     ["France", "Paris"],
-            ...     ["Japan", "Tokyo"]
-            ... ]
+            >>> queries = [["United Kingdom", "London"], ["France", "Paris"], ["Japan", "Tokyo"]]
             >>> batch_results = searcher.find_batch(queries)
             >>> for i, results in enumerate(batch_results):
             ...     if results:
@@ -1072,28 +1004,20 @@ class LocationSearcher:
         """
         try:
             if config:
-                resolved_batches = (
-                    self._rust_searcher.resolve_location_batch_with_config(
-                        queries, config.to_rust_config()
-                    )
+                resolved_batches = self._rust_searcher.resolve_location_batch_with_config(
+                    queries, config.to_rust_config()
                 )
             else:
                 resolved_batches = self._rust_searcher.resolve_location_batch(queries)
 
-            return [
-                [SearchResult.from_resolved_result(result) for result in batch]
-                for batch in resolved_batches
-            ]
+            return [[SearchResult.from_resolved_result(result) for result in batch] for batch in resolved_batches]
         except Exception as e:
-            logger.error(f"Error in find_batch: {e}")
+            logger.exception("Error in find_batch", extra={"exception": str(e)})
             return [[] for _ in queries]
 
     # Low-level access to Rust methods for advanced users
     def admin_search(
-        self,
-        term: str,
-        levels: List[int],
-        previous_result: Optional["pl.DataFrame"] = None,
+        self, term: str, levels: list[int], previous_result: Optional["pl.DataFrame"] = None
     ) -> Optional["pl.DataFrame"]:
         """Search for administrative entities at specific levels.
 
@@ -1107,9 +1031,7 @@ class LocationSearcher:
         """
         return self._rust_searcher.admin_search(term, levels, previous_result)
 
-    def place_search(
-        self, term: str, previous_result: Optional["pl.DataFrame"] = None
-    ) -> Optional["pl.DataFrame"]:
+    def place_search(self, term: str, previous_result: Optional["pl.DataFrame"] = None) -> Optional["pl.DataFrame"]:
         """Search for places.
 
         Args:
@@ -1121,7 +1043,7 @@ class LocationSearcher:
         """
         return self._rust_searcher.place_search(term, previous_result)
 
-    def search_raw(self, input_terms: List[str]) -> List["pl.DataFrame"]:
+    def search_raw(self, input_terms: list[str]) -> list["pl.DataFrame"]:
         """Low-level search returning raw DataFrames.
 
         Important: Input terms should be in descending 'size' order (largest to
@@ -1135,9 +1057,7 @@ class LocationSearcher:
         """
         return self._rust_searcher.search(input_terms)
 
-    def search_raw_with_config(
-        self, input_terms: List[str], config: SearchOptions
-    ) -> List["pl.DataFrame"]:
+    def search_raw_with_config(self, input_terms: list[str], config: SearchOptions) -> list["pl.DataFrame"]:
         """Low-level search with configuration returning raw DataFrames.
 
         Important: Input terms should be in descending 'size' order (largest to
@@ -1150,11 +1070,9 @@ class LocationSearcher:
         Returns:
             List of Polars DataFrames.
         """
-        return self._rust_searcher.search_with_config(
-            input_terms, config.to_rust_config()
-        )
+        return self._rust_searcher.search_with_config(input_terms, config.to_rust_config())
 
-    def resolve_location(self, input_terms: List[str]) -> List[ResolvedSearchResult]:
+    def resolve_location(self, input_terms: list[str]) -> list[ResolvedSearchResult]:
         """Resolve location search results.
 
         Important: Input terms should be in descending 'size' order (largest to
@@ -1168,9 +1086,7 @@ class LocationSearcher:
         """
         return self._rust_searcher.resolve_location(input_terms)
 
-    def resolve_location_batch(
-        self, input_terms_batch: List[List[str]]
-    ) -> List[List[ResolvedSearchResult]]:
+    def resolve_location_batch(self, input_terms_batch: list[list[str]]) -> list[list[ResolvedSearchResult]]:
         """Resolve location search results in batch.
 
         Important: Each list of input terms should be in descending 'size' order
@@ -1187,7 +1103,7 @@ class LocationSearcher:
 
 
 # Convenience functions for quick access
-def find_location(query: Union[str, List[str]]) -> List[SearchResult]:
+def find_location(query: str | list[str]) -> list[SearchResult]:
     """Convenience function to find a location quickly.
 
     Creates a temporary LocationSearcher instance and performs a search.
@@ -1220,7 +1136,7 @@ def find_location(query: Union[str, List[str]]) -> List[SearchResult]:
     return searcher.find(query)
 
 
-def find_locations_batch(queries: List[List[str]]) -> List[List[SearchResult]]:
+def find_locations_batch(queries: list[list[str]]) -> list[list[SearchResult]]:
     """Convenience function to find locations in batch.
 
     Creates a temporary LocationSearcher instance and performs batch search.
@@ -1239,11 +1155,7 @@ def find_locations_batch(queries: List[List[str]]) -> List[List[SearchResult]]:
     Examples:
         Quick batch search (largest to smallest terms):
 
-        >>> queries = [
-        ...     ["Italy", "Rome"],
-        ...     ["Austria", "Vienna"],
-        ...     ["Czech Republic", "Prague"]
-        ... ]
+        >>> queries = [["Italy", "Rome"], ["Austria", "Vienna"], ["Czech Republic", "Prague"]]
         >>> batch_results = find_locations_batch(queries)
         >>> for results in batch_results:
         ...     if results:
@@ -1258,23 +1170,23 @@ def find_locations_batch(queries: List[List[str]]) -> List[List[SearchResult]]:
 # Raw Rust types are only accessible via direct _internal import
 
 __all__ = [
+    "DataSource",
+    "LocationContext",
+    "LocationEntry",
     # User-facing Python wrapper classes (imported by __init__.py)
     "LocationSearcher",
     "LocationSearcherBuilderWrapper",
-    "SearchOptions",
-    "SearchConfigBuilder",
-    "SearchResult",
-    "find_location",
-    "find_locations_batch",
-    "DataSource",
-    "__version__",
+    "ResolvedSearchResult",
+    "RustDataSource",
     # Raw Rust bindings (only accessible via _internal import for debugging/testing)
     "RustLocationSearcher",
     "RustLocationSearcherBuilder",
     "RustSearchConfig",
     "RustSearchConfigBuilder",
-    "RustDataSource",
-    "LocationEntry",
-    "LocationContext",
-    "ResolvedSearchResult",
+    "SearchConfigBuilder",
+    "SearchOptions",
+    "SearchResult",
+    "__version__",
+    "find_location",
+    "find_locations_batch",
 ]

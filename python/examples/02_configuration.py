@@ -10,7 +10,7 @@ different use cases like speed vs. accuracy.
 import heisenberg
 
 
-def main():
+def main() -> None:
     print("=== Heisenberg Configuration Examples ===\n")
 
     # Basic searcher with embedded data
@@ -69,17 +69,15 @@ def main():
         heisenberg.SearchConfigBuilder()
         .limit(15)  # Return up to 15 results
         .place_importance(3)  # Focus on moderately important places
-        .admin_search(True)  # Enable administrative search
-        .fuzzy_search(False)  # Disable fuzzy matching for exact matches
+        .admin_search(enabled=True)  # Enable administrative search
+        .fuzzy_search(enabled=False)  # Disable fuzzy matching for exact matches
         .build()
     )
 
     print("Custom configuration with specific settings:")
     results = searcher.find("Los Angeles", custom_config)
     print(f"  Found {len(results)} results with custom config")
-    print(
-        f"  Configuration - Limit: {custom_config.limit}, Importance: {custom_config.place_importance_threshold}"
-    )
+    print(f"  Configuration - Limit: {custom_config.limit}, Importance: {custom_config.place_importance_threshold}")
     if results:
         print(f"  Top result: {results[0].name} (Score: {results[0].score:.3f})")
     print()
@@ -127,9 +125,7 @@ def main():
         heisenberg.SearchConfigBuilder()
         .limit(10)
         .admin_weights(text=0.7, population=0.1, parent=0.1, feature=0.1)
-        .place_weights(
-            text=0.6, importance=0.2, feature=0.1, parent=0.05, distance=0.05
-        )
+        .place_weights(text=0.6, importance=0.2, feature=0.1, parent=0.05, distance=0.05)
         .build()
     )
 
@@ -147,9 +143,7 @@ def main():
 
     try:
         # Valid options
-        valid_options = heisenberg.SearchOptions(
-            limit=20, place_importance_threshold=3, max_admin_terms=5
-        )
+        valid_options = heisenberg.SearchOptions(limit=20, place_importance_threshold=3, max_admin_terms=5)
         print(f"✓ Valid options created: limit={valid_options.limit}")
     except ValueError as e:
         print(f"✗ Error creating valid options: {e}")

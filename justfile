@@ -4,6 +4,24 @@ set shell := ["bash", "-uc"]
 help:
     @just --list
 
+# =============================================================================
+# Development Environment
+# =============================================================================
+
+# Initialize development environment
+[group('dev')]
+init:
+    uv tool install maturin
+
+# Setup development build
+[group('dev')]
+dev: init
+    uv run maturin develop -r
+
+# =============================================================================
+# Git Hooks
+# =============================================================================
+
 # Install Git hooks using prefligit
 [group('git-hooks')]
 install-pre-commit:
@@ -27,21 +45,16 @@ run-pre-commit:
 run-pre-push:
     prefligit run --hook-stage pre-push
 
-# Run the pre-commit hooks
+# Run all hooks
 [group('git-hooks')]
 run-hooks: install-pre-commit run-pre-commit run-pre-push
 
-init:
-    uv tool install maturin
-
-dev: init
-    uv run maturin develop -r
-
-# Build release wheel
-build: init
-    uv run maturin build --features python --release
+# =============================================================================
+# Testing
+# =============================================================================
 
 # Run Python tests
+[group('test')]
 pytest: dev
     #!/usr/bin/env bash
     set -euo pipefail
@@ -53,11 +66,63 @@ pytest: dev
     done
 
 # Run Rust tests
+[group('test')]
 rust-test:
     cargo test -- --test-threads=1
     cargo test --examples --release
 
+# Run all tests
+[group('test')]
 test: rust-test pytest
+
+# =============================================================================
+# Linting
+# =============================================================================
+
+# Run Rust linting
+[group('lint')]
+rust-lint:
+    cargo clippy --all-targets --all-features -- -D warnings
+    cargo fmt --check
+
+# Run Python linting
+[group('lint')]
+python-lint:
+    uv run ruff check python/
+    uv run ruff format --check python/
+
+# Run all linting
+[group('lint')]
+lint: rust-lint python-lint
+
+# Fix linting issues
+[group('lint')]
+fix:
+    cargo fmt
+    cargo clippy --fix --allow-dirty --allow-staged
+    uv run ruff check --fix .
+    uv run ruff format .
+
+# =============================================================================
+# Building
+# =============================================================================
+
+# Build release wheel
+[group('build')]
+build: init
+    uv run maturin build --features python --release
+
+# Build all wheel platforms
+[group('build')]
+build-all: init
+    uv run maturin build --features python --release --target x86_64-apple-darwin
+    uv run maturin build --features python --release --target aarch64-apple-darwin
+    uv run maturin build --features python --release --target x86_64-unknown-linux-gnu
+
+# Build Rust crates
+[group('build')]
+rust-build:
+    cargo build --release --all-features
 
 # Clean the project
 [group('env')]

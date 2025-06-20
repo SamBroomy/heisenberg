@@ -10,7 +10,7 @@ search results.
 import heisenberg
 
 
-def main():
+def main() -> None:
     print("=== Heisenberg Location Search - Basic Usage ===\n")
 
     # Create a location searcher
@@ -26,27 +26,21 @@ def main():
     print("Searching for 'London':")
     results = searcher.find("London")
     for i, result in enumerate(results[:3], 1):  # Show top 3 results
-        print(
-            f"  {i}. {result.name} (ID: {result.geoname_id}, Score: {result.score:.3f})"
-        )
+        print(f"  {i}. {result.name} (ID: {result.geoname_id}, Score: {result.score:.3f})")
     print()
 
     # Search for a country
     print("Searching for 'France':")
     results = searcher.find("France")
     for i, result in enumerate(results[:3], 1):
-        print(
-            f"  {i}. {result.name} (ID: {result.geoname_id}, Score: {result.score:.3f})"
-        )
+        print(f"  {i}. {result.name} (ID: {result.geoname_id}, Score: {result.score:.3f})")
     print()
 
     # Multi-term search (largest to smallest location for optimal results)
     print("Searching for ['France', 'Paris']:")
     results = searcher.find(["France", "Paris"])
     for i, result in enumerate(results[:3], 1):
-        print(
-            f"  {i}. {result.name} (ID: {result.geoname_id}, Score: {result.score:.3f})"
-        )
+        print(f"  {i}. {result.name} (ID: {result.geoname_id}, Score: {result.score:.3f})")
     print()
 
     # Working with search results
@@ -87,7 +81,7 @@ def main():
     print("Using convenience function find_locations_batch:")
     batch_queries = [["Germany", "Berlin"], ["Spain", "Madrid"], ["Italy", "Rome"]]
     batch_results = heisenberg.find_locations_batch(batch_queries)
-    for i, (query, results) in enumerate(zip(batch_queries, batch_results)):
+    for query, results in zip(batch_queries, batch_results, strict=False):
         if results:
             print(f"  Query {query}: {results[0].name} (Score: {results[0].score:.3f})")
 

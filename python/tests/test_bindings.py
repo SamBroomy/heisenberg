@@ -6,17 +6,18 @@ Simple tests to validate that the Python bindings work correctly
 and catch any breaking changes in the API.
 """
 
-import pytest
-import heisenberg
+import contextlib
+import warnings
 
-# Import raw Rust bindings for testing purposes
+import heisenberg
+import pytest
 from heisenberg._internal import (
+    LocationContext,
+    LocationEntry,
+    ResolvedSearchResult,
     RustLocationSearcher,
     RustSearchConfig,
     RustSearchConfigBuilder,
-    LocationEntry,
-    LocationContext,
-    ResolvedSearchResult,
 )
 
 
@@ -27,12 +28,12 @@ class TestBasicFunctionality:
     def searcher(self):
         return heisenberg.LocationSearcher()
 
-    def test_searcher_creation(self):
+    def test_searcher_creation(self) -> None:
         """Test that LocationSearcher can be created."""
         searcher = heisenberg.LocationSearcher()
         assert searcher is not None
 
-    def test_simple_search(self, searcher):
+    def test_simple_search(self, searcher) -> None:
         """Test basic search functionality."""
         results = searcher.find("London")
         assert isinstance(results, list)
@@ -46,7 +47,7 @@ class TestBasicFunctionality:
             assert isinstance(result.geoname_id, int)
             assert isinstance(result.score, float)
 
-    def test_empty_input_handling(self, searcher):
+    def test_empty_input_handling(self, searcher) -> None:
         """Test handling of empty inputs."""
         results = searcher.find("")
         assert isinstance(results, list)
@@ -54,7 +55,7 @@ class TestBasicFunctionality:
         results = searcher.find([])
         assert isinstance(results, list)
 
-    def test_unicode_input(self, searcher):
+    def test_unicode_input(self, searcher) -> None:
         """Test unicode inputs work."""
         results = searcher.find("北京")  # Beijing in Chinese
         assert isinstance(results, list)
@@ -67,22 +68,22 @@ class TestSearchMethods:
     def searcher(self):
         return heisenberg.LocationSearcher(rebuild_indexes=False)
 
-    def test_quick_search(self, searcher):
+    def test_quick_search(self, searcher) -> None:
         """Test quick search method."""
         results = searcher.find_quick("Paris")
         assert isinstance(results, list)
 
-    def test_comprehensive_search(self, searcher):
+    def test_comprehensive_search(self, searcher) -> None:
         """Test comprehensive search method."""
         results = searcher.find_comprehensive("Tokyo")
         assert isinstance(results, list)
 
-    def test_important_places_search(self, searcher):
+    def test_important_places_search(self, searcher) -> None:
         """Test important places search method."""
         results = searcher.find_important_places("Berlin")
         assert isinstance(results, list)
 
-    def test_batch_search(self, searcher):
+    def test_batch_search(self, searcher) -> None:
         """Test batch search functionality."""
         queries = [["London"], ["Paris"], ["Tokyo"]]
         results = searcher.find_batch(queries)
@@ -95,7 +96,7 @@ class TestSearchMethods:
 class TestConfiguration:
     """Test configuration and options work."""
 
-    def test_search_options_validation(self):
+    def test_search_options_validation(self) -> None:
         """Test SearchOptions validation."""
         # Valid options should work
         options = heisenberg.SearchOptions(limit=10, place_importance_threshold=3)
@@ -109,20 +110,20 @@ class TestConfiguration:
         with pytest.raises(ValueError):
             heisenberg.SearchOptions(limit=0)  # Invalid limit
 
-    def test_config_builder(self):
+    def test_config_builder(self) -> None:
         """Test SearchConfigBuilder fluent interface."""
         config = (
             heisenberg.SearchConfigBuilder()
             .limit(5)
             .place_importance(2)
-            .admin_search(True)
-            .fuzzy_search(False)
+            .admin_search(enabled=True)
+            .fuzzy_search(enabled=False)
             .build()
         )
         assert config.limit == 5
         assert config.place_importance_threshold == 2
 
-    def test_preset_configurations(self):
+    def test_preset_configurations(self) -> None:
         """Test preset configurations."""
         fast_config = heisenberg.SearchConfigBuilder.fast().build()
         comprehensive_config = heisenberg.SearchConfigBuilder.comprehensive().build()
@@ -133,7 +134,7 @@ class TestConfiguration:
         assert isinstance(comprehensive_config, heisenberg.SearchOptions)
         assert isinstance(quality_config, heisenberg.SearchOptions)
 
-    def test_search_with_config(self):
+    def test_search_with_config(self) -> None:
         """Test search with custom configuration."""
         searcher = heisenberg.LocationSearcher(rebuild_indexes=False)
         config = heisenberg.SearchConfigBuilder().limit(5).build()
@@ -149,7 +150,7 @@ class TestSearchResult:
     def searcher(self):
         return heisenberg.LocationSearcher(rebuild_indexes=False)
 
-    def test_search_result_methods(self, searcher):
+    def test_search_result_methods(self, searcher) -> None:
         """Test SearchResult object methods."""
         results = searcher.find("New York")
         if results:
@@ -171,7 +172,7 @@ class TestSearchResult:
             assert "geoname_id" in result_dict
             assert result_dict["name"] == result.name
 
-    def test_search_result_attributes(self, searcher):
+    def test_search_result_attributes(self, searcher) -> None:
         """Test SearchResult has expected attributes."""
         results = searcher.find("London")
         if results:
@@ -192,14 +193,14 @@ class TestSearchResult:
 class TestConvenienceFunctions:
     """Test convenience functions work."""
 
-    def test_find_location_function(self):
+    def test_find_location_function(self) -> None:
         """Test find_location convenience function."""
         results = heisenberg.find_location("Rome")
         assert isinstance(results, list)
         if results:
             assert isinstance(results[0], heisenberg.SearchResult)
 
-    def test_find_locations_batch_function(self):
+    def test_find_locations_batch_function(self) -> None:
         """Test find_locations_batch convenience function."""
         queries = [["Vienna"], ["Prague"]]
         results = heisenberg.find_locations_batch(queries)
@@ -212,12 +213,12 @@ class TestConvenienceFunctions:
 class TestRustAPIAccess:
     """Test direct Rust API access works."""
 
-    def test_rust_searcher_creation(self):
+    def test_rust_searcher_creation(self) -> None:
         """Test creating the direct Rust searcher."""
         rust_searcher = RustLocationSearcher()
         assert rust_searcher is not None
 
-    def test_rust_search_methods(self):
+    def test_rust_search_methods(self) -> None:
         """Test direct Rust search methods."""
         rust_searcher = RustLocationSearcher()
 
@@ -236,13 +237,11 @@ class TestRustAPIAccess:
         assert len(bulk_results) == 2
 
         # Test search_bulk_with_config
-        bulk_config_results = rust_searcher.search_bulk_with_config(
-            [["Madrid"], ["Rome"]], config
-        )
+        bulk_config_results = rust_searcher.search_bulk_with_config([["Madrid"], ["Rome"]], config)
         assert isinstance(bulk_config_results, list)
         assert len(bulk_config_results) == 2
 
-    def test_rust_resolve_methods(self):
+    def test_rust_resolve_methods(self) -> None:
         """Test direct Rust resolve methods."""
         rust_searcher = RustLocationSearcher()
 
@@ -261,13 +260,11 @@ class TestRustAPIAccess:
         assert len(batch_resolved) == 2
 
         # Test resolve_location_batch_with_config
-        batch_config_resolved = rust_searcher.resolve_location_batch_with_config(
-            [["Vienna"], ["Prague"]], config
-        )
+        batch_config_resolved = rust_searcher.resolve_location_batch_with_config([["Vienna"], ["Prague"]], config)
         assert isinstance(batch_config_resolved, list)
         assert len(batch_config_resolved) == 2
 
-    def test_rust_admin_and_place_search(self):
+    def test_rust_admin_and_place_search(self) -> None:
         """Test direct Rust admin and place search methods."""
         rust_searcher = RustLocationSearcher()
 
@@ -285,39 +282,29 @@ class TestRustAPIAccess:
 class TestSearchOptionsValidation:
     """Test comprehensive SearchOptions validation."""
 
-    def test_search_options_boundary_values(self):
+    def test_search_options_boundary_values(self) -> None:
         """Test SearchOptions with boundary values."""
         # Test minimum valid values
         min_options = heisenberg.SearchOptions(
-            limit=1,
-            place_importance_threshold=1,
-            max_admin_terms=1,
-            search_multiplier=1,
+            limit=1, place_importance_threshold=1, max_admin_terms=1, search_multiplier=1
         )
         assert min_options.limit == 1
         assert min_options.place_importance_threshold == 1
 
         # Test maximum reasonable values
         max_options = heisenberg.SearchOptions(
-            limit=1000,
-            place_importance_threshold=5,
-            max_admin_terms=100,
-            search_multiplier=10,
+            limit=1000, place_importance_threshold=5, max_admin_terms=100, search_multiplier=10
         )
         assert max_options.limit == 1000
         assert max_options.place_importance_threshold == 5
 
-    def test_search_options_validation_errors(self):
+    def test_search_options_validation_errors(self) -> None:
         """Test all SearchOptions validation error cases."""
         # Test place_importance_threshold validation
-        with pytest.raises(
-            ValueError, match="place_importance_threshold must be between 1 and 5"
-        ):
+        with pytest.raises(ValueError, match="place_importance_threshold must be between 1 and 5"):
             heisenberg.SearchOptions(place_importance_threshold=0)
 
-        with pytest.raises(
-            ValueError, match="place_importance_threshold must be between 1 and 5"
-        ):
+        with pytest.raises(ValueError, match="place_importance_threshold must be between 1 and 5"):
             heisenberg.SearchOptions(place_importance_threshold=6)
 
         # Test limit validation
@@ -327,28 +314,21 @@ class TestSearchOptionsValidation:
         with pytest.raises(ValueError, match="limit must be positive"):
             heisenberg.SearchOptions(limit=-1)
 
-    def test_search_options_weight_validation(self):
+    def test_search_options_weight_validation(self) -> None:
         """Test weight validation warnings."""
-        import warnings
 
         # Test admin weights that don't sum to 1.0
         with warnings.catch_warnings(record=True):
             warnings.simplefilter("always")
             options = heisenberg.SearchOptions(
-                admin_text_weight=0.1,
-                admin_population_weight=0.1,
-                admin_parent_weight=0.1,
-                admin_feature_weight=0.1,
+                admin_text_weight=0.1, admin_population_weight=0.1, admin_parent_weight=0.1, admin_feature_weight=0.1
             )
             # Should create successfully but may log warning
             assert options is not None
 
-    def test_search_options_location_bias(self):
+    def test_search_options_location_bias(self) -> None:
         """Test location bias functionality."""
-        options = heisenberg.SearchOptions(
-            center_latitude=40.7128,
-            center_longitude=-74.0060,
-        )
+        options = heisenberg.SearchOptions(center_latitude=40.7128, center_longitude=-74.0060)
         assert options.center_latitude == 40.7128
         assert options.center_longitude == -74.0060
 
@@ -356,22 +336,22 @@ class TestSearchOptionsValidation:
 class TestRustConfigBuilder:
     """Test RustSearchConfigBuilder functionality."""
 
-    def test_rust_config_builder_methods(self):
+    def test_rust_config_builder_methods(self) -> None:
         """Test all RustSearchConfigBuilder methods."""
         config = (
             RustSearchConfigBuilder()
             .limit(10)
             .place_importance_threshold(3)
-            .proactive_admin_search(False)
+            .proactive_admin_search(enabled=False)
             .max_admin_terms(5)
             .include_all_columns()
-            .text_search(True, 2)
+            .text_search(fuzzy=True, limit_multiplier=2)
             .build()
         )
 
         assert isinstance(config, RustSearchConfig)
 
-    def test_rust_config_builder_presets(self):
+    def test_rust_config_builder_presets(self) -> None:
         """Test RustSearchConfigBuilder preset methods."""
         fast_config = RustSearchConfigBuilder.fast().build()
         comprehensive_config = RustSearchConfigBuilder.comprehensive().build()
@@ -385,7 +365,7 @@ class TestRustConfigBuilder:
 class TestEntryTypes:
     """Test LocationEntry functionality."""
 
-    def test_location_entry_functionality(self):
+    def test_location_entry_functionality(self) -> None:
         """Test LocationEntry methods and attributes."""
         # LocationEntry should NOT be available in main heisenberg module
         assert not hasattr(heisenberg, "LocationEntry")
@@ -410,7 +390,7 @@ class TestEntryTypes:
         for attr in location_entry_attrs:
             assert hasattr(LocationEntry, attr)
 
-    def test_location_context_types(self):
+    def test_location_context_types(self) -> None:
         """Test LocationContext types exist."""
         # LocationContext should NOT be available in main heisenberg module
         assert not hasattr(heisenberg, "LocationContext")
@@ -418,7 +398,7 @@ class TestEntryTypes:
         # But should be available via _internal import
         assert LocationContext is not None
 
-    def test_resolved_search_result_types(self):
+    def test_resolved_search_result_types(self) -> None:
         """Test ResolvedSearchResult types exist."""
         # ResolvedSearchResult should NOT be available in main heisenberg module
         assert not hasattr(heisenberg, "ResolvedSearchResult")
@@ -434,7 +414,7 @@ class TestResolvedSearchResultProperties:
     def searcher(self):
         return heisenberg.LocationSearcher(rebuild_indexes=False)
 
-    def test_resolved_search_result_properties(self, searcher):
+    def test_resolved_search_result_properties(self, searcher) -> None:
         """Test ResolvedSearchResult context and score properties."""
         # Get raw resolved results to test properties
         rust_searcher = RustLocationSearcher()
@@ -456,7 +436,7 @@ class TestResolvedSearchResultProperties:
             assert isinstance(score, float)
             assert score >= 0.0
 
-    def test_location_context_admin_properties(self, searcher):
+    def test_location_context_admin_properties(self, searcher) -> None:
         """Test LocationContext admin level properties."""
         rust_searcher = RustLocationSearcher()
         resolved_results = rust_searcher.resolve_location(["London"])
@@ -470,7 +450,7 @@ class TestResolvedSearchResultProperties:
             for attr in admin_attrs:
                 assert hasattr(context, attr)
 
-    def test_resolved_result_methods(self, searcher):
+    def test_resolved_result_methods(self, searcher) -> None:
         """Test ResolvedSearchResult methods."""
         rust_searcher = RustLocationSearcher()
         resolved_results = rust_searcher.resolve_location(["Paris"])
@@ -496,19 +476,17 @@ class TestAdvancedSearchFeatures:
     def searcher(self):
         return heisenberg.LocationSearcher(rebuild_indexes=False)
 
-    def test_config_builder_chaining(self):
+    def test_config_builder_chaining(self) -> None:
         """Test that config builder methods can be chained."""
         config = (
             heisenberg.SearchConfigBuilder()
             .limit(15)
             .place_importance(3)
-            .admin_search(True)
-            .fuzzy_search(False)
+            .admin_search(enabled=True)
+            .fuzzy_search(enabled=False)
             .location_bias(51.5074, -0.1278)  # London coordinates
             .admin_weights(text=0.5, population=0.3, parent=0.1, feature=0.1)
-            .place_weights(
-                text=0.6, importance=0.2, feature=0.1, parent=0.05, distance=0.05
-            )
+            .place_weights(text=0.6, importance=0.2, feature=0.1, parent=0.05, distance=0.05)
             .build()
         )
 
@@ -517,39 +495,27 @@ class TestAdvancedSearchFeatures:
         assert config.center_latitude == 51.5074
         assert config.center_longitude == -0.1278
 
-    def test_search_with_location_bias(self, searcher):
+    def test_search_with_location_bias(self, searcher) -> None:
         """Test search with location bias."""
         # Test search near London
-        london_config = (
-            heisenberg.SearchConfigBuilder()
-            .limit(5)
-            .location_bias(51.5074, -0.1278)
-            .build()
-        )
+        london_config = heisenberg.SearchConfigBuilder().limit(5).location_bias(51.5074, -0.1278).build()
 
         results = searcher.find("Cambridge", london_config)
         assert isinstance(results, list)
 
         # Test search near Boston
-        boston_config = (
-            heisenberg.SearchConfigBuilder()
-            .limit(5)
-            .location_bias(42.3601, -71.0589)
-            .build()
-        )
+        boston_config = heisenberg.SearchConfigBuilder().limit(5).location_bias(42.3601, -71.0589).build()
 
         results = searcher.find("Cambridge", boston_config)
         assert isinstance(results, list)
 
-    def test_search_with_custom_weights(self, searcher):
+    def test_search_with_custom_weights(self, searcher) -> None:
         """Test search with custom scoring weights."""
         custom_config = (
             heisenberg.SearchConfigBuilder()
             .limit(10)
             .admin_weights(text=0.6, population=0.2, parent=0.1, feature=0.1)
-            .place_weights(
-                text=0.5, importance=0.3, feature=0.1, parent=0.05, distance=0.05
-            )
+            .place_weights(text=0.5, importance=0.3, feature=0.1, parent=0.05, distance=0.05)
             .build()
         )
 
@@ -564,7 +530,7 @@ class TestLowLevelAPIAccess:
     def searcher(self):
         return heisenberg.LocationSearcher(rebuild_indexes=False)
 
-    def test_raw_search_methods(self, searcher):
+    def test_raw_search_methods(self, searcher) -> None:
         """Test raw search methods that return DataFrames."""
         # Test search_raw
         if hasattr(searcher, "search_raw"):
@@ -577,7 +543,7 @@ class TestLowLevelAPIAccess:
             raw_config_results = searcher.search_raw_with_config(["Paris"], config)
             assert isinstance(raw_config_results, list)
 
-    def test_admin_and_place_search_methods(self, searcher):
+    def test_admin_and_place_search_methods(self, searcher) -> None:
         """Test admin_search and place_search methods."""
         # Test admin_search
         if hasattr(searcher, "admin_search"):
@@ -591,7 +557,7 @@ class TestLowLevelAPIAccess:
             # Can return None or DataFrame
             assert place_results is None or hasattr(place_results, "shape")
 
-    def test_resolve_methods(self, searcher):
+    def test_resolve_methods(self, searcher) -> None:
         """Test resolve_location methods."""
         # Test resolve_location
         if hasattr(searcher, "resolve_location"):
@@ -612,7 +578,7 @@ class TestErrorHandlingAndEdgeCases:
     def searcher(self):
         return heisenberg.LocationSearcher(rebuild_indexes=False)
 
-    def test_malformed_inputs(self, searcher):
+    def test_malformed_inputs(self, searcher) -> None:
         """Test handling of malformed inputs."""
         malformed_inputs = [
             None,  # This might raise TypeError, which is acceptable
@@ -621,15 +587,12 @@ class TestErrorHandlingAndEdgeCases:
         ]
 
         for malformed_input in malformed_inputs:
-            try:
-                # These should either work or raise TypeError/ValueError
+            # These should either work or raise TypeError/ValueError
+            with contextlib.suppress(TypeError, ValueError):
                 results = searcher.find(malformed_input)
                 assert isinstance(results, list)  # If it works, should return list
-            except (TypeError, ValueError):
-                # These are acceptable error types for malformed input
-                pass
 
-    def test_extremely_long_inputs(self, searcher):
+    def test_extremely_long_inputs(self, searcher) -> None:
         """Test handling of extremely long inputs."""
         # Very long string
         very_long_string = "city " * 10000
@@ -641,7 +604,7 @@ class TestErrorHandlingAndEdgeCases:
         results = searcher.find(very_long_list)
         assert isinstance(results, list)
 
-    def test_batch_with_empty_and_invalid_queries(self, searcher):
+    def test_batch_with_empty_and_invalid_queries(self, searcher) -> None:
         """Test batch processing with mixed valid/invalid queries."""
         mixed_batch = [
             ["London"],  # Valid
@@ -655,7 +618,7 @@ class TestErrorHandlingAndEdgeCases:
         assert isinstance(results, list)
         assert len(results) == 5  # Should have results for all queries
 
-    def test_configuration_validation_edge_cases(self):
+    def test_configuration_validation_edge_cases(self) -> None:
         """Test edge cases in configuration validation."""
         # Test floating point precision in weights
         try:

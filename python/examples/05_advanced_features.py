@@ -11,7 +11,7 @@ import heisenberg
 from heisenberg._internal import RustLocationSearcher, RustSearchConfigBuilder
 
 
-def main():
+def main() -> None:
     print("=== Heisenberg Advanced Features Examples ===\n")
 
     # Create both high-level and low-level searchers
@@ -81,12 +81,10 @@ def main():
         .comprehensive()  # Start with comprehensive preset
         .limit(8)  # Override limit
         .place_importance(2)  # Only high-importance places
-        .admin_search(True)  # Enable admin search
+        .admin_search(enabled=True)  # Enable admin search
         .location_bias(40.7128, -74.0060)  # NYC coordinates
         .admin_weights(text=0.5, population=0.3, parent=0.1, feature=0.1)
-        .place_weights(
-            text=0.4, importance=0.3, feature=0.15, parent=0.1, distance=0.05
-        )
+        .place_weights(text=0.4, importance=0.3, feature=0.15, parent=0.1, distance=0.05)
         .build()
     )
 
@@ -167,16 +165,12 @@ def main():
     ]
 
     print("Testing edge cases:")
-    for case in edge_cases:
-        try:
+    try:
+        for case in edge_cases:
             results = searcher.find(case)
-            print(
-                f"  '{case[:20]}{'...' if len(case) > 20 else ''}': {len(results)} results"
-            )
-        except Exception as e:
-            print(
-                f"  '{case[:20]}{'...' if len(case) > 20 else ''}': Error - {type(e).__name__}"
-            )
+            print(f"Searching for '{case[:20]}{'...' if len(case) > 20 else ''}':", end=" ")
+    except Exception as e:
+        print(f"  '{case[:20]}{'...' if len(case) > 20 else ''}': Error - {type(e).__name__}")
     print()
 
     # 7. Different search methods comparison
@@ -189,9 +183,7 @@ def main():
 
     if hasattr(searcher, "find_comprehensive"):
         comprehensive_results = searcher.find_comprehensive("Berlin")
-        print(
-            f"Comprehensive search for 'Berlin': {len(comprehensive_results)} results"
-        )
+        print(f"Comprehensive search for 'Berlin': {len(comprehensive_results)} results")
 
     if hasattr(searcher, "find_important_places"):
         important_results = searcher.find_important_places("Berlin")
@@ -207,13 +199,7 @@ def main():
     print("-" * 30)
 
     print("Available entry types:")
-    entry_types = [
-        "LocationEntry",
-        "LocationContext",
-        "ResolvedSearchResult",
-        "SearchResult",
-        "LocationSearcher",
-    ]
+    entry_types = ["LocationEntry", "LocationContext", "ResolvedSearchResult", "SearchResult", "LocationSearcher"]
 
     for entry_type in entry_types:
         if hasattr(heisenberg._internal, entry_type):

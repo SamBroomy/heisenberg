@@ -13,7 +13,7 @@ IMPORTANT: For optimal results, provide location terms in descending 'size' orde
 from heisenberg._internal import RustLocationSearcher, RustSearchConfigBuilder
 
 
-def main():
+def main() -> None:
     print("=== Heisenberg Resolution and Backfill Examples ===\n")
 
     # Create the Rust searcher for direct access to resolution methods
@@ -83,7 +83,7 @@ def main():
     print("Resolving multiple locations in batch:")
     batch_resolved = rust_searcher.resolve_location_batch(location_queries)
 
-    for query, results in zip(location_queries, batch_resolved):
+    for query, results in zip(location_queries, batch_resolved, strict=False):
         query_str = " + ".join(query)
         print(f"\n  Query: {query_str}")
 
@@ -137,9 +137,7 @@ def main():
     )
 
     print("Resolving with quality-focused configuration:")
-    quality_results = rust_searcher.resolve_location_with_config(
-        ["Cambridge"], quality_config
-    )
+    quality_results = rust_searcher.resolve_location_with_config(["Cambridge"], quality_config)
 
     for i, result in enumerate(quality_results[:3], 1):
         print(f"\n  Result {i} (Score: {result.score:.3f}):")

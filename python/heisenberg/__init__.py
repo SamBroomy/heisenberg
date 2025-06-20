@@ -19,33 +19,32 @@ Example enrichment: ['Florida', 'Lakeland'] → ['United States', 'Florida', 'Po
 
 # Import only user-facing wrapper classes
 from ._internal import (
+    DataSource,
     LocationSearcher,
     LocationSearcherBuilderWrapper,
-    SearchOptions,
     SearchConfigBuilder,
+    SearchOptions,
     SearchResult,
+    __version__,
     find_location,
     find_locations_batch,
-    DataSource,
-    __version__,
 )
 
 # Create clean aliases for the main user-facing API
-DataSource = DataSource
 LocationSearcherBuilder = LocationSearcherBuilderWrapper
 
 __all__ = [
+    "DataSource",
     # Core search functionality
     "LocationSearcher",
     "LocationSearcherBuilder",
-    "DataSource",
     # Configuration and results
-    "SearchOptions",
     "SearchConfigBuilder",
+    "SearchOptions",
     "SearchResult",
+    # Version information
+    "__version__",
     # Convenience functions
     "find_location",
     "find_locations_batch",
-    # Version information
-    "__version__",
 ]
