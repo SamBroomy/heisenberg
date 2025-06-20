@@ -298,6 +298,40 @@ publish-package: build-python
 
     echo "✅ Package ready for publication!"
 
+# Get next available version
+[group('publish')]
+next-version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    CURRENT_VERSION=$(grep '^version = ' Cargo.toml | head -n1 | sed 's/.*"\(.*\)".*/\1/')
+    echo "Current version: $CURRENT_VERSION"
+    
+    IFS='.' read -ra PARTS <<< "$CURRENT_VERSION"
+    MAJOR=${PARTS[0]}
+    MINOR=${PARTS[1]}
+    PATCH=${PARTS[2]}
+    
+    NEXT_PATCH=$((PATCH + 1))
+    NEXT_MINOR=$((MINOR + 1))
+    NEXT_MAJOR=$((MAJOR + 1))
+    
+    echo "Suggested versions:"
+    echo "  Patch: $MAJOR.$MINOR.$NEXT_PATCH (bug fixes)"
+    echo "  Minor: $MAJOR.$NEXT_MINOR.0 (new features)"
+    echo "  Major: $NEXT_MAJOR.0.0 (breaking changes)"
+    echo ""
+    echo "Usage:"
+    echo "  just release $MAJOR.$MINOR.$NEXT_PATCH"
+
+# Retry current version release (cleans up failed attempts)
+[group('publish')]
+retry-release: check-release
+    #!/usr/bin/env bash
+    set -euo pipefail
+    CURRENT_VERSION=$(grep '^version = ' Cargo.toml | head -n1 | sed 's/.*"\(.*\)".*/\1/')
+    echo "🔄 Retrying release for version $CURRENT_VERSION..."
+    just release "$CURRENT_VERSION"
+
 # Create a new release
 [group('publish')]
 release VERSION: check-release
@@ -315,8 +349,36 @@ release VERSION: check-release
         
         # Check if tag already exists
         if git tag -l | grep -q "^v$VERSION$"; then
-            echo "❌ Tag v$VERSION already exists"
-            exit 1
+            echo "🏷️  Tag v$VERSION already exists"
+            
+            # Check if it's also on remote
+            if git ls-remote --tags origin | grep -q "refs/tags/v$VERSION$"; then
+                echo "🌐 Tag also exists on remote"
+                
+                # Check if crates are already published
+                echo "🔍 Checking if version is already published..."
+                if cargo search heisenberg --limit 1 | grep -q "heisenberg = \"$VERSION\""; then
+                    echo "❌ Version $VERSION is already published to crates.io"
+                    echo "💡 Tip: Use a higher version number, e.g.:"
+                    IFS='.' read -ra PARTS <<< "$VERSION"
+                    PATCH=$((PARTS[2] + 1))
+                    echo "   just release ${PARTS[0]}.${PARTS[1]}.$PATCH"
+                    exit 1
+                else
+                    echo "🗑️  Cleaning up failed release attempt..."
+                    # Delete local and remote tags
+                    git tag -d "v$VERSION" 2>/dev/null || true
+                    git push origin --delete "v$VERSION" 2>/dev/null || true
+                    
+                    # Delete GitHub release if it exists
+                    gh release delete "v$VERSION" --yes 2>/dev/null || true
+                    
+                    echo "✅ Cleaned up. Proceeding with release..."
+                fi
+            else
+                echo "🗑️  Deleting local tag..."
+                git tag -d "v$VERSION"
+            fi
         fi
         
         echo "📝 Creating tag for existing version..."

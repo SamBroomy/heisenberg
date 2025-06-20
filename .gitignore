@@ -17,3 +17,4 @@
 !.github/workflows/release.yaml
 !Cargo.lock
 !uv.lock
+!CHANGELOG.md

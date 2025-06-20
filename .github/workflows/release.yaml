@@ -174,7 +174,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/heisenberg
+      url: https://pypi.org/heisenberg
     permissions:
       id-token: write # IMPORTANT: this permission is mandatory for trusted publishing
     steps:
@@ -212,18 +212,8 @@ jobs:
       - name: Check distributions
         run: uv run twine check dist/*
 
-      - name: Publish to Test PyPI first (optional)
+      - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          repository-url: https://test.pypi.org/legacy/
-          password: ${{ secrets.TEST_PYPI_API_TOKEN }}
-        continue-on-error: true
-        if: secrets.TEST_PYPI_API_TOKEN
-
-      - name: Publish to PyPI (Trusted Publishing)
-        uses: pypa/gh-action-pypi-publish@release/v1
-        # Uses OIDC trusted publishing - no API token needed if configured
-        # Falls back to API token if trusted publishing not set up
 
   create-release:
     name: Create GitHub Release
@@ -306,7 +296,7 @@ jobs:
 
   notify-success:
     name: Notify Release Success
-    needs: [create-release]
+    needs: [verify-release, create-release]
     runs-on: ubuntu-latest
     if: success()
     steps:
