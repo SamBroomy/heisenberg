@@ -41,26 +41,38 @@ pytest: dev
 [group('test')]
 rust-test:
     cargo test -- --test-threads=1
-    cargo test --examples --release
+    cargo test --examples
     cargo test --no-default-features -- --test-threads=1
     cargo test --no-default-features --features serde -- --test-threads=1
 
-# Run all tests
-[group('ci')]
+# Run all tests (full)
 [group('test')]
 test: rust-test pytest
+
+# Fast CI tests (reduced scope)
+[group('ci')]
+[group('test')]
+test-ci:
+    cargo test -- --test-threads=1
+    uv run python -m pytest python/tests/ -v --maxfail=3
 
 # =============================================================================
 # Linting & Formatting
 # =============================================================================
 
-# Check Rust code with clippy and fmt
-[group('ci')]
+# Check Rust code with clippy and fmt (full check)
 [group('lint')]
 rust-lint:
     cargo clippy --all-targets -- -D warnings
     cargo clippy --all-targets --no-default-features -- -D warnings
     cargo clippy --all-targets --no-default-features --features serde -- -D warnings
+    cargo fmt --check
+
+# Fast Rust lint for CI (only default features)
+[group('ci')]
+[group('lint')]
+rust-lint-ci:
+    cargo clippy --all-targets -- -D warnings
     cargo fmt --check
 
 # Fix Rust code with clippy and fmt (for precommit)
@@ -74,8 +86,8 @@ rust-lint-fix:
 [group('ci')]
 [group('lint')]
 python-lint:
-    uv run ruff check python/
-    uv run ruff format --check python/
+    uv run --no-project ruff check python/
+    uv run --no-project ruff format --check python/
 
 # Check maturin can build Python bindings
 [group('lint')]
@@ -98,10 +110,14 @@ publish-dry-run:
     cd ../heisenberg && cargo publish --dry-run --quiet --allow-dirty
     echo "✅ Publish dry run completed successfully"
 
-# Run all linting
-[group('ci')]
+# Run all linting (full)
 [group('lint')]
 lint: rust-lint python-lint
+
+# Run CI linting (fast)
+[group('ci')]
+[group('lint')]
+lint-ci: rust-lint-ci python-lint
 
 # Fix linting issues
 [group('lint')]
@@ -130,10 +146,10 @@ cargo-docs:
 cargo-audit:
     cargo audit --deny unsound --deny yanked
 
-# Lint the docs
+# Lint for CI (fast version)
 [group('ci')]
 [group('lint')]
-ci-lint: lint cargo-machete cargo-docs
+ci-lint: lint-ci cargo-machete cargo-docs
 
 # =============================================================================
 # Building

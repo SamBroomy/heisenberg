@@ -16,7 +16,7 @@ concurrency:
 
 env:
   # Use consistent versions across all jobs
-  RUST_CACHE_KEY_PREFIX: "ci"
+  RUST_CACHE_KEY_PREFIX: "shared"
   CARGO_BUILD_JOBS: 1
   CARGO_PROFILE_TEST_OPT_LEVEL: 1 # Optimize test builds
   CARGO_PROFILE_TEST_DEBUG: 0 # Reduce debug info
@@ -45,8 +45,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
+        # Only test essential platforms and Python versions in CI
+        include:
+          - os: ubuntu-latest
+            python-version: "3.12"
+          - os: ubuntu-latest
+            python-version: "3.8" # Minimum supported version
+          - os: windows-latest
+            python-version: "3.12" # One Windows test
+          - os: macos-latest
+            python-version: "3.12" # One macOS test
 
     steps:
       - uses: actions/checkout@v4
@@ -59,7 +67,9 @@ jobs:
           cache-prefix: ${{ env.RUST_CACHE_KEY_PREFIX }}
 
       - name: Run tests
-        run: just test
+        run: just test-ci
+        env:
+          USE_TEST_DATA: true
 
       - name: Cleanup uv cache
         run: uv cache prune --ci

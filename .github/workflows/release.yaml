@@ -14,7 +14,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   # Use consistent versions across all jobs
-  RUST_CACHE_KEY_PREFIX: "release"
+  RUST_CACHE_KEY_PREFIX: "shared"
 
 jobs:
   verify-release:
@@ -89,9 +89,34 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
         run: just publish-rust
 
+  test-release:
+    name: Test Release (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    needs: verify-release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup environment
+        uses: ./.github/actions/setup
+        with:
+          rust-toolchain: stable
+          python-version: ${{ matrix.python-version }}
+          cache-prefix: shared
+
+      - name: Run tests
+        run: just test
+        env:
+          USE_TEST_DATA: true
+
   build-wheels:
     name: Build Python Wheels (${{ matrix.target }})
-    needs: verify-release
+    needs: [verify-release, test-release]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -101,6 +126,8 @@ jobs:
             target: x86_64-unknown-linux-gnu
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+          - os: windows-latest
+            target: i686-pc-windows-msvc
           - os: macos-13 # Intel
             target: x86_64-apple-darwin
           - os: macos-14 # Apple Silicon
@@ -109,26 +136,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup environment
-        uses: ./.github/actions/setup
-        with:
-          rust-toolchain: stable
-          cache-prefix: ${{ env.RUST_CACHE_KEY_PREFIX }}
-
-      - name: Install target
-        run: rustup target add ${{ matrix.target }}
-
-      - name: Install maturin
-        run: uv tool install maturin
-
       - name: Build wheels
-        run: uv run maturin build --release --target ${{ matrix.target }} --out dist --features python
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist --features python
+          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          manylinux: auto
 
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
           name: wheels-${{ matrix.target }}
-          path: dist/*.whl
+          path: dist
 
   publish-python:
     name: Publish Python Package
@@ -138,17 +158,11 @@ jobs:
       name: pypi
     permissions:
       id-token: write # IMPORTANT: this permission is mandatory for trusted publishing
+      contents: write # Used to upload release artifacts
+      attestations: write # Used to generate artifact attestation
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup environment
-        uses: ./.github/actions/setup
-        with:
-          cache-prefix: ${{ env.RUST_CACHE_KEY_PREFIX }}
-
-      - name: Install maturin
-        run: uv tool install maturin
 
       - name: Download all wheels
         uses: actions/download-artifact@v4
@@ -157,17 +171,27 @@ jobs:
           path: dist-all
           merge-multiple: true
 
-      - name: Organize wheels and build source distribution
+      - name: Build source distribution
+        uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+
+      - name: Organize distributions
         run: |
           mkdir -p dist
           find dist-all -name "*.whl" -exec cp {} dist/ \;
-          uv run maturin sdist --out dist --features python
           ls -la dist/
+
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: 'dist/*'
 
       - name: Check distributions
         run: |
-          uv tool install twine
-          uv run twine check dist/*
+          pip install twine
+          twine check dist/*
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1

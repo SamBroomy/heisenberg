@@ -47,12 +47,10 @@ runs:
     - name: Setup Rust cache
       uses: Swatinem/rust-cache@v2
       with:
+        # Simplified cache key for better sharing across jobs
+        shared-key: ${{ inputs.cache-prefix }}
+        save-if: ${{ github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' }}
         cache-on-failure: true
-        prefix-key: ${{ inputs.cache-prefix }}-${{ runner.os }}-${{ inputs.rust-toolchain }}
-        # Use a shared cache across jobs for the same toolchain
-        shared-key: ${{ inputs.rust-toolchain }}
-        # Cache the registry index and git checkouts
-        save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
 
     - name: Warm up Cargo cache
       run: |
