@@ -49,7 +49,15 @@ runs:
       with:
         cache-on-failure: true
         prefix-key: ${{ inputs.cache-prefix }}
-        key: ${{ runner.os }}-${{ inputs.python-version }}
+        key: ${{ runner.os }}-${{ inputs.rust-toolchain }}-${{ inputs.python-version || 'default' }}
+        # Cache the registry index and git checkouts
+        save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
+
+    - name: Warm up Cargo cache
+      run: |
+        # Pre-fetch dependencies to improve cache effectiveness
+        cargo fetch --quiet || true
+      shell: bash
 
     - name: Install Python dependencies
       run: |
