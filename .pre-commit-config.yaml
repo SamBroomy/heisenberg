@@ -137,6 +137,7 @@ repos:
         language: system
         files: '^python/.*\.py$'
         types: [python]
+        stages: [pre-push]
         pass_filenames: false
       # Release readiness check
       - id: release-check
