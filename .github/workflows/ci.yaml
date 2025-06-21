@@ -14,56 +14,53 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Use consistent versions across all jobs
+  UV_VERSION: "0.7.13"
+  JUST_VERSION: "v1.36.0"
+  RUST_CACHE_KEY_PREFIX: "ci"
+
 jobs:
   lint:
-    name: Lint
+    name: Lint & Format
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust
+      - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
 
-      - name: Set up Rust cache
+      - name: Install tools
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just@${{ env.JUST_VERSION }},cargo-machete,cargo-audit
+
+      - name: Setup Python and uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Setup Rust cache
         uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
+          prefix-key: ${{ env.RUST_CACHE_KEY_PREFIX }}
 
-      - name: Install just
-        uses: extractions/setup-just@v2
+      - name: Install Python dependencies
+        run: uv sync --locked --dev
 
-      - name: Install uv with Caching
-        uses: astral-sh/setup-uv@v4
-        with:
-          enable-cache: true
-          cache-dependency-glob: "pyproject.toml"
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install Dependencies
-        run: uv sync --dev
-
-      - name: Install additional tools (matching precommit)
+      - name: Run linting
         run: |
-          cargo install cargo-machete cargo-audit
-          uv tool install maturin
-
-      - name: Run linting (matching precommit hooks)
-        run: |
-          # Run the same linting as precommit
           just lint
-
-          # Additional checks from precommit hooks
           cargo machete --with-metadata
           cargo doc --all-features --no-deps
 
   test:
-    name: Run Tests
+    name: Test (${{ matrix.os }}, Python ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
     needs: lint
     strategy:
@@ -71,99 +68,110 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: ["3.10", "3.11", "3.12"]
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust
+      - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Set up Rust cache
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just@${{ env.JUST_VERSION }}
+
+      - name: Setup Python and uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Setup Rust cache
         uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
+          prefix-key: ${{ env.RUST_CACHE_KEY_PREFIX }}
+          key: ${{ matrix.os }}-${{ matrix.python-version }}
 
-      - name: Install just
-        uses: extractions/setup-just@v2
+      - name: Install dependencies
+        run: uv sync --locked --dev
 
-      - name: Install uv with Caching
-        uses: astral-sh/setup-uv@v4
-        with:
-          enable-cache: true
-          cache-dependency-glob: "pyproject.toml"
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Install Dependencies
-        run: uv sync --dev
-
-      - name: Run Tests with Coverage
+      - name: Run tests
         run: just test
 
-      - name: Minimize uv Cache
+      - name: Cleanup uv cache
         run: uv cache prune --ci
 
-  audit:
+  security:
     name: Security Audit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust
+      - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install cargo-audit
-        uses: taiki-e/install-action@cargo-audit
-
-      - name: Run security audit
-        run: cargo audit
-
-      - name: Check for known vulnerabilities in Python dependencies
-        uses: pypa/gh-action-pip-audit@v1.1.0
+        uses: taiki-e/install-action@v2
         with:
-          inputs: pyproject.toml
+          tool: cargo-audit
 
-  publish-dry-run:
-    name: Publish Dry Run
+      - name: Setup Python and uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --locked --dev
+
+      - name: Rust security audit
+        run: cargo audit --deny unsound --deny yanked
+
+      - name: Python security audit
+        run: |
+          # Export dependencies and audit them
+          uv export --no-hashes --format requirements-txt > /tmp/requirements-audit.txt
+          uvx pip-audit --requirement /tmp/requirements-audit.txt --desc --cache-dir /tmp/pip-audit-cache
+
+  build-test:
+    name: Build Test (PR only)
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust
+      - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Set up Rust cache
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just@${{ env.JUST_VERSION }}
+
+      - name: Setup Python and uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Setup Rust cache
         uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
+          prefix-key: ${{ env.RUST_CACHE_KEY_PREFIX }}
 
-      - name: Install just
-        uses: extractions/setup-just@v2
+      - name: Install dependencies
+        run: uv sync --locked --dev
 
-      - name: Install uv with Caching
-        uses: astral-sh/setup-uv@v4
-        with:
-          enable-cache: true
-          cache-dependency-glob: "pyproject.toml"
+      - name: Test publishing (dry run)
+        run: just publish-dry-run
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install Dependencies
-        run: uv sync --dev
-
-      - name: Dry run Rust publish
-        run: |
-          # Test publishing with default features (what will actually be published)
-          cd crates/heisenberg-data-processing && cargo publish --dry-run
-          cd ../heisenberg && cargo publish --dry-run
-
-      - name: Build and check Python package
+      - name: Test Python package build
         run: |
           just build-python
           uv tool install twine

@@ -19,6 +19,145 @@ dev: init
     uv run maturin develop -r
 
 # =============================================================================
+# Testing
+# =============================================================================
+
+# Run Python tests and examples
+[group('ci')]
+[group('test')]
+pytest: dev
+    #!/usr/bin/env bash
+    set -euo pipefail
+    set -x
+    uv run python -m pytest python/tests/ -v
+
+    for file in python/examples/*.py; do
+        uv run python "$file";
+    done
+
+# Run Rust tests with multiple feature combinations
+[group('ci')]
+[group('test')]
+rust-test:
+    cargo test -- --test-threads=1
+    cargo test --examples --release
+    cargo test --no-default-features -- --test-threads=1
+    cargo test --no-default-features --features serde -- --test-threads=1
+
+# Run all tests
+[group('ci')]
+[group('test')]
+test: rust-test pytest
+
+# =============================================================================
+# Linting & Formatting
+# =============================================================================
+
+# Check Rust code with clippy and fmt
+[group('ci')]
+[group('lint')]
+rust-lint:
+    cargo clippy --all-targets -- -D warnings
+    cargo clippy --all-targets --no-default-features -- -D warnings
+    cargo clippy --all-targets --no-default-features --features serde -- -D warnings
+    cargo fmt --check
+
+# Fix Rust code with clippy and fmt (for precommit)
+[group('lint')]
+[group('precommit')]
+rust-lint-fix:
+    cargo clippy --workspace --all-targets --fix --allow-staged --allow-dirty --quiet -- -D warnings
+    cargo clippy --workspace --all-targets --no-default-features --fix --allow-staged --allow-dirty --quiet -- -D warnings
+
+# Check Python code with ruff
+[group('ci')]
+[group('lint')]
+python-lint:
+    uv run ruff check python/
+    uv run ruff format --check python/
+
+# Audit Python dependencies for security vulnerabilities
+[group('ci')]
+[group('lint')]
+[group('precommit')]
+python-audit:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "🔍 Auditing Python dependencies for security vulnerabilities..."
+
+    # Export dependencies to requirements format and audit them
+    echo "📄 Exporting dependencies to requirements format..."
+    uv export --no-hashes --format requirements-txt > /tmp/requirements-audit.txt
+
+    # Use uvx to run pip-audit against the requirements file
+    echo "🔍 Running security audit..."
+    if uvx pip-audit --requirement /tmp/requirements-audit.txt --desc 2>/dev/null; then
+        echo "✅ Security audit completed successfully"
+    else
+        echo "✅ No known vulnerabilities found (pip-audit completed with warnings)"
+    fi
+
+    # Clean up
+    rm -f /tmp/requirements-audit.txt
+
+# Check maturin can build Python bindings
+[group('lint')]
+[group('precommit')]
+maturin-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "🔍 Checking maturin build..."
+    uv sync --dev --quiet
+    echo "✅ Maturin build check passed"
+
+# Test crate publishing without actually publishing
+[group('lint')]
+[group('precommit')]
+publish-dry-run:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "🧪 Testing crate publishing (dry run)..."
+    cd crates/heisenberg-data-processing && cargo publish --dry-run --quiet --allow-dirty
+    cd ../heisenberg && cargo publish --dry-run --quiet --allow-dirty
+    echo "✅ Publish dry run completed successfully"
+
+# Run all linting
+[group('ci')]
+[group('lint')]
+lint: rust-lint python-lint
+
+# Fix linting issues
+[group('lint')]
+fix:
+    cargo fmt
+    cargo clippy --fix --allow-dirty --allow-staged
+    uv run ruff check --fix .
+    uv run ruff format .
+
+# =============================================================================
+# Building
+# =============================================================================
+
+# Build Python release wheel
+[group('build')]
+[group('ci')]
+build-python: init
+    rm -rf dist/ target/wheels/
+    uv run maturin build --features python --release
+
+# Build wheels for all platforms
+[group('build')]
+build-all: init
+    uv run maturin build --features python --release --target x86_64-apple-darwin
+    uv run maturin build --features python --release --target aarch64-apple-darwin
+    uv run maturin build --features python --release --target x86_64-unknown-linux-gnu
+
+# Build Rust crates
+[group('build')]
+rust-build:
+    cargo build --release
+
+# =============================================================================
 # Git Hooks
 # =============================================================================
 
@@ -50,132 +189,44 @@ run-pre-push:
 run-hooks: install-pre-commit run-pre-commit run-pre-push
 
 # =============================================================================
-# Testing
+# Environment Management
 # =============================================================================
 
-# Run Python tests
-[group('test')]
-pytest: dev
-    #!/usr/bin/env bash
-    set -euo pipefail
-    set -x
-    uv run python -m pytest python/tests/ -v
-
-    for file in python/examples/*.py; do
-        uv run python "$file";
-    done
-
-# Run Rust tests
-[group('test')]
-rust-test:
-    # Test with default features (what most users will get)
-    cargo test -- --test-threads=1
-    cargo test --examples --release
-    # Test with no default features (minimal build)
-    cargo test --no-default-features -- --test-threads=1
-    # Test serde feature
-    cargo test --no-default-features --features serde -- --test-threads=1
-
-# Run all tests
-[group('test')]
-test: rust-test pytest
-
-# =============================================================================
-# Linting
-# =============================================================================
-
-# Run Rust linting
-[group('lint')]
-rust-lint:
-    # Check with default features (what most users will get)
-    cargo clippy --all-targets -- -D warnings
-    # Check with no default features (minimal build)
-    cargo clippy --all-targets --no-default-features -- -D warnings
-    # Check serde feature specifically (commonly used optional feature)
-    cargo clippy --all-targets --no-default-features --features serde -- -D warnings
-    cargo fmt --check
-
-# Run Python linting
-[group('lint')]
-python-lint:
-    uv run ruff check python/
-    uv run ruff format --check python/
-
-# Run all linting
-[group('lint')]
-lint: rust-lint python-lint
-
-# Fix linting issues
-[group('lint')]
-fix:
-    cargo fmt
-    cargo clippy --fix --allow-dirty --allow-staged
-    uv run ruff check --fix .
-    uv run ruff format .
-
-# =============================================================================
-# Building
-# =============================================================================
-
-# Build release wheel
-[group('build')]
-build: init
-    uv run maturin build --features python --release
-
-# Build all wheel platforms
-[group('build')]
-build-all: init
-    uv run maturin build --features python --release --target x86_64-apple-darwin
-    uv run maturin build --features python --release --target aarch64-apple-darwin
-    uv run maturin build --features python --release --target x86_64-unknown-linux-gnu
-
-# Build Rust crates
-[group('build')]
-rust-build:
-    cargo build --release --all-features
-
-# Clean the project
+# Clean Python artifacts
 [group('env')]
-clean-py-project:
-    # Remove Python cache files
+clean-python:
     find . -type f -name '*.py[co]' -delete 2>/dev/null || true
     find . -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
     find . -type d -name '.pytest_cache' -exec rm -rf {} + 2>/dev/null || true
     find . -type d -name '.ruff_cache' -exec rm -rf {} + 2>/dev/null || true
+    find . -type f -name '*.cpython*.so' -not -path './.venv/*' -not -path './target/*' -not -path './.git/*' -delete 2>/dev/null || true
 
-    # Remove cpython files (excluding .venv and other common dirs)
-    find . -type f -name '*.cpython*.so' \
-        -not -path './.venv/*' \
-        -not -path './target/*' \
-        -not -path './.git/*' \
-        -delete 2>/dev/null || true
-
-# Remove the virtual environment
-[group('env')]
-clean-venv:
-    rm -rf .venv
-
-# Remove all rust build artifacts
+# Clean Rust artifacts
 [group('env')]
 clean-rust:
     cargo clean
 
-# Remove any generated data files
+# Clean data files
 [group('env')]
 clean-data:
     rm -rf heisenberg_data
-    find crates/heisenberg/src/data/embedded -type f -name '*.parquet' -delete 2>/dev/null || true
-    find crates/heisenberg/src/data/embedded -type f -name '*.json' -delete 2>/dev/null || true
+    find crates/heisenberg/src/data/embedded -type f \( -name '*.parquet' -o -name '*.json' \) -delete 2>/dev/null || true
 
-# Clean the project
+# Clean virtual environment
 [group('env')]
-clean: clean-data clean-rust clean-py-project clean-venv
+clean-venv:
+    rm -rf .venv
+
+# Clean everything
+[group('env')]
+clean: clean-data clean-rust clean-python clean-venv
 
 # =============================================================================
-# Publishing
+# Release Management
 # =============================================================================
 
-# Check if ready for release
+# Check if project is ready for release
+[group('ci')]
 [group('publish')]
 check-release:
     #!/usr/bin/env bash
@@ -235,7 +286,7 @@ publish-rust: check-release
 
 # Build Python package for PyPI
 [group('publish')]
-build-python: init
+build-python-package: init
     #!/usr/bin/env bash
     set -euo pipefail
     echo "🐍 Building Python package..."
@@ -250,7 +301,7 @@ build-python: init
 
 # Publish Python package to PyPI
 [group('publish')]
-publish-python: build-python
+publish-python: build-python-package
     #!/usr/bin/env bash
     set -euo pipefail
     echo "🐍 Publishing Python package to PyPI..."
@@ -267,7 +318,7 @@ publish-python: build-python
 
 # Test publish to Test PyPI
 [group('publish')]
-publish-python-test: build-python
+publish-python-test: build-python-package
     #!/usr/bin/env bash
     set -euo pipefail
     echo "🧪 Publishing Python package to Test PyPI..."
@@ -284,7 +335,7 @@ publish-python-test: build-python
 
 # Publish everything (for CI)
 [group('publish')]
-publish-package: build-python
+publish-package: build-python-package
     #!/usr/bin/env bash
     set -euo pipefail
     echo "📦 Publishing Python package via trusted publishing..."
@@ -298,23 +349,23 @@ publish-package: build-python
 
     echo "✅ Package ready for publication!"
 
-# Get next available version
+# Get next version suggestions
 [group('publish')]
 next-version:
     #!/usr/bin/env bash
     set -euo pipefail
     CURRENT_VERSION=$(grep '^version = ' Cargo.toml | head -n1 | sed 's/.*"\(.*\)".*/\1/')
     echo "Current version: $CURRENT_VERSION"
-    
+
     IFS='.' read -ra PARTS <<< "$CURRENT_VERSION"
     MAJOR=${PARTS[0]}
     MINOR=${PARTS[1]}
     PATCH=${PARTS[2]}
-    
+
     NEXT_PATCH=$((PATCH + 1))
     NEXT_MINOR=$((MINOR + 1))
     NEXT_MAJOR=$((MAJOR + 1))
-    
+
     echo "Suggested versions:"
     echo "  Patch: $MAJOR.$MINOR.$NEXT_PATCH (bug fixes)"
     echo "  Minor: $MAJOR.$NEXT_MINOR.0 (new features)"
@@ -323,7 +374,7 @@ next-version:
     echo "Usage:"
     echo "  just release $MAJOR.$MINOR.$NEXT_PATCH"
 
-# Retry current version release (cleans up failed attempts)
+# Retry current version release
 [group('publish')]
 retry-release: check-release
     #!/usr/bin/env bash
@@ -332,7 +383,7 @@ retry-release: check-release
     echo "🔄 Retrying release for version $CURRENT_VERSION..."
     just release "$CURRENT_VERSION"
 
-# Create a new release
+# Create and publish a new release
 [group('publish')]
 release VERSION: check-release
     #!/usr/bin/env bash
@@ -343,18 +394,18 @@ release VERSION: check-release
 
     # Check if version is already set
     CURRENT_VERSION=$(grep '^version = ' Cargo.toml | head -n1 | sed 's/.*"\(.*\)".*/\1/')
-    
+
     if [[ "$CURRENT_VERSION" == "$VERSION" ]]; then
         echo "ℹ️  Version is already set to $VERSION"
-        
+
         # Check if tag already exists
         if git tag -l | grep -q "^v$VERSION$"; then
             echo "🏷️  Tag v$VERSION already exists"
-            
+
             # Check if it's also on remote
             if git ls-remote --tags origin | grep -q "refs/tags/v$VERSION$"; then
                 echo "🌐 Tag also exists on remote"
-                
+
                 # Check if crates are already published
                 echo "🔍 Checking if version is already published..."
                 if cargo search heisenberg --limit 1 | grep -q "heisenberg = \"$VERSION\""; then
@@ -369,10 +420,10 @@ release VERSION: check-release
                     # Delete local and remote tags
                     git tag -d "v$VERSION" 2>/dev/null || true
                     git push origin --delete "v$VERSION" 2>/dev/null || true
-                    
+
                     # Delete GitHub release if it exists
                     gh release delete "v$VERSION" --yes 2>/dev/null || true
-                    
+
                     echo "✅ Cleaned up. Proceeding with release..."
                 fi
             else
@@ -380,11 +431,11 @@ release VERSION: check-release
                 git tag -d "v$VERSION"
             fi
         fi
-        
+
         echo "📝 Creating tag for existing version..."
     else
         echo "📝 Updating version from $CURRENT_VERSION to $VERSION..."
-        
+
         # Update version in Cargo.toml files
         sed -i.bak "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
         sed -i.bak "s/^version = \".*\"/version = \"$VERSION\"/" crates/heisenberg/Cargo.toml

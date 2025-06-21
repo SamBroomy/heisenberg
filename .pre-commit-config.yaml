@@ -77,8 +77,8 @@ repos:
       # Clippy (only on Rust files or Cargo.toml changes)
       - id: cargo-clippy
         name: cargo clippy
-        description: Run cargo clippy with fixes
-        entry: cargo clippy --workspace --all-targets --all-features --fix --allow-staged --allow-dirty --quiet -- -D warnings
+        description: Run cargo clippy with fixes (multiple feature sets)
+        entry: just rust-lint-fix
         language: system
         files: '(\.rs$|Cargo\.toml$|Cargo\.lock$)'
         types_or: [rust, toml]
@@ -96,17 +96,47 @@ repos:
       - id: cargo-doc
         name: cargo doc
         description: Check documentation builds
-        entry: cargo doc --all-features
+        entry: cargo doc --all-features --no-deps
         language: system
         files: '(src/.*\.rs$|Cargo\.toml)$'
         types: [rust, toml]
         stages: [pre-commit]
         pass_filenames: false
+      # Python dependency audit
+      - id: python-audit
+        name: python audit
+        description: Check for known vulnerabilities in Python dependencies
+        entry: just python-audit
+        language: system
+        files: '^(pyproject\.toml|uv\.lock)$'
+        types: [toml]
+        pass_filenames: false
+        stages: [pre-commit]
+      # Maturin build check (Python bindings)
+      - id: maturin-check
+        name: maturin check
+        description: Verify Python bindings can build
+        entry: just maturin-check
+        language: system
+        files: '^(pyproject\.toml|crates/heisenberg/Cargo\.toml|crates/heisenberg/src/.*\.rs|crates/heisenberg/build\.rs)$'
+        types_or: [rust, toml]
+        pass_filenames: false
+        stages: [pre-push]
+      # Publish dry run check
+      - id: publish-dry-run
+        name: publish dry run
+        description: Test publishing without actually publishing
+        entry: just publish-dry-run
+        language: system
+        files: '^(Cargo\.toml|crates/.*/Cargo\.toml|crates/.*/src/.*\.rs)$'
+        types_or: [rust, toml]
+        pass_filenames: false
+        stages: [pre-push]
       # Cargo test (only on significant Rust changes)
       - id: cargo-test
         name: cargo test
         description: Run cargo test suite
-        entry: rust-test
+        entry: just rust-test
         language: system
         files: '(src/.*\.rs$|tests/.*\.rs$|Cargo\.toml$)'
         types_or: [rust, toml]
@@ -120,3 +150,13 @@ repos:
         files: '^python/.*\.py$'
         types: [python]
         pass_filenames: false
+      # Release readiness check
+      - id: release-check
+        name: release readiness
+        description: Verify project is ready for release
+        entry: just check-release
+        language: system
+        files: '^(Cargo\.toml|pyproject\.toml|CHANGELOG\.md)$'
+        types: [toml, markdown]
+        pass_filenames: false
+        stages: [manual]
