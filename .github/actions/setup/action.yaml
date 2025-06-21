@@ -48,8 +48,9 @@ runs:
       uses: Swatinem/rust-cache@v2
       with:
         cache-on-failure: true
-        prefix-key: ${{ inputs.cache-prefix }}
-        key: ${{ runner.os }}-${{ inputs.rust-toolchain }}-${{ inputs.python-version || 'default' }}
+        prefix-key: ${{ inputs.cache-prefix }}-${{ runner.os }}-${{ inputs.rust-toolchain }}
+        # Use a shared cache across jobs for the same toolchain
+        shared-key: ${{ inputs.rust-toolchain }}
         # Cache the registry index and git checkouts
         save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
 
