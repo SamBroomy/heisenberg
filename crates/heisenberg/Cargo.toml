@@ -6,7 +6,7 @@ authors.workspace = true
 license.workspace = true
 description.workspace = true
 repository.workspace = true
-readme.workspace = true
+readme = "../../README.md"
 keywords.workspace = true
 categories.workspace = true
 
@@ -55,9 +55,7 @@ pyo3-polars = { workspace = true, optional = true }
 pyo3-log = { workspace = true, optional = true }
 
 [build-dependencies]
-heisenberg-data-processing = { workspace = true, features = [
-    "download_data",
-] }
+heisenberg-data-processing = { workspace = true, features = ["download_data"] }
 polars = { workspace = true }
 tempfile = { workspace = true }
 serde_json = { workspace = true }
