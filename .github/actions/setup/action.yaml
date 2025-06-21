@@ -1,0 +1,58 @@
+name: Setup Development Environment
+description: Setup Rust, Python, and dependencies
+
+inputs:
+  rust-toolchain:
+    description: Rust toolchain to use
+    required: false
+    default: nightly
+  python-version:
+    description: Python version to use
+    required: false
+    default: ""
+  cache-prefix:
+    description: Cache prefix for Rust cache
+    required: false
+    default: "shared"
+  install-tools:
+    description: Additional tools to install (comma-separated)
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ inputs.rust-toolchain }}
+        components: rustfmt, clippy
+
+    - name: Install just
+      uses: extractions/setup-just@v3
+
+    - name: Install additional tools
+      if: inputs.install-tools != ''
+      uses: taiki-e/install-action@v2
+      with:
+        tool: ${{ inputs.install-tools }}
+
+    - name: Setup Python and uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+        enable-cache: true
+        cache-dependency-glob: "uv.lock"
+
+    - name: Setup Rust cache
+      uses: Swatinem/rust-cache@v2
+      with:
+        cache-on-failure: true
+        prefix-key: ${{ inputs.cache-prefix }}
+        key: ${{ runner.os }}-${{ inputs.python-version }}
+
+    - name: Install Python dependencies
+      run: |
+        # Install external dependencies only, skip building local package
+        uv sync --locked --dev --no-install-project
+      shell: bash

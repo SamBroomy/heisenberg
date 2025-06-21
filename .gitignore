@@ -15,6 +15,7 @@
 !.pre-commit-config.yaml
 !.github/workflows/ci.yaml
 !.github/workflows/release.yaml
+!.github/actions/setup/action.yaml
 !Cargo.lock
 !uv.lock
 !CHANGELOG.md

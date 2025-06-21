@@ -28,36 +28,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@nightly
+      - name: Setup environment
+        uses: ./.github/actions/setup
         with:
-          components: rustfmt, clippy
-      - name: Install just
-        uses: extractions/setup-just@v3
-
-      - name: Install tools
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-machete,cargo-audit
-
-      - name: Setup Python and uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-
-      - name: Setup Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
-          prefix-key: ${{ env.RUST_CACHE_KEY_PREFIX }}
-
-      - name: Install Python dependencies
-        run: uv sync --locked --dev
+          rust-toolchain: nightly
+          cache-prefix: ${{ env.RUST_CACHE_KEY_PREFIX }}
+          install-tools: cargo-machete,cargo-audit
 
       - name: Run linting
-        run: |
-          just ci-lint
+        run: just ci-lint
 
   test:
     name: Test (${{ matrix.os }}, Python ${{ matrix.python-version }})
@@ -72,28 +51,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@nightly
-
-      - name: Install just
-        uses: extractions/setup-just@v3
-
-      - name: Setup Python and uv
-        uses: astral-sh/setup-uv@v5
+      - name: Setup environment
+        uses: ./.github/actions/setup
         with:
+          rust-toolchain: nightly
           python-version: ${{ matrix.python-version }}
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-
-      - name: Setup Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
-          prefix-key: ${{ env.RUST_CACHE_KEY_PREFIX }}
-          key: ${{ matrix.os }}-${{ matrix.python-version }}
-
-      - name: Install dependencies
-        run: uv sync --locked --dev
+          cache-prefix: ${{ env.RUST_CACHE_KEY_PREFIX }}
 
       - name: Run tests
         run: just test
@@ -107,34 +70,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@nightly
-
-      - name: Install just
-        uses: extractions/setup-just@v3
-
-      - name: Install cargo-audit
-        uses: taiki-e/install-action@v2
+      - name: Setup environment
+        uses: ./.github/actions/setup
         with:
-          tool: cargo-audit
+          rust-toolchain: nightly
+          cache-prefix: ${{ env.RUST_CACHE_KEY_PREFIX }}
+          install-tools: cargo-audit
 
-      - name: Setup Python and uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-
-      - name: Install dependencies
-        run: uv sync --locked --dev
-
-      - name: Rust security audit
+      - name: Run security audit
         run: just cargo-audit
-
-      - name: Python security audit
-        run: |
-          # Export dependencies and audit them
-          uv export --no-hashes --format requirements-txt > /tmp/requirements-audit.txt
-          uvx pip-audit --requirement /tmp/requirements-audit.txt --desc --cache-dir /tmp/pip-audit-cache
 
   build-test:
     name: Build Test (PR only)
@@ -143,26 +87,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@nightly
-
-      - name: Install just
-        uses: extractions/setup-just@v3
-
-      - name: Setup Python and uv
-        uses: astral-sh/setup-uv@v5
+      - name: Setup environment
+        uses: ./.github/actions/setup
         with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-
-      - name: Setup Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
-          prefix-key: ${{ env.RUST_CACHE_KEY_PREFIX }}
-
-      - name: Install dependencies
-        run: uv sync --locked --dev
+          rust-toolchain: nightly
+          cache-prefix: ${{ env.RUST_CACHE_KEY_PREFIX }}
 
       - name: Test publishing (dry run)
         run: just publish-dry-run
