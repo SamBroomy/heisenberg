@@ -7,8 +7,6 @@ repos:
       #   stages: [pre-commit]
       - id: check-added-large-files
         stages: [pre-commit]
-      - id: check-ast
-        stages: [pre-commit]
       - id: check-merge-conflict
         stages: [pre-commit]
       - id: check-toml
@@ -59,7 +57,7 @@ repos:
       - id: cargo-machete
         name: cargo machete
         description: Find unused dependencies
-        entry: cargo machete --fix
+        entry: just cargo-machete
         language: system
         files: '^Cargo\.toml$'
         types: [toml]
@@ -68,7 +66,7 @@ repos:
       - id: cargo-audit
         name: cargo audit
         description: Audit for security vulnerabilities
-        entry: cargo audit --deny unsound --deny yanked
+        entry: just cargo-audit
         language: system
         files: '^Cargo\.lock$'
         types: [toml]
@@ -96,7 +94,7 @@ repos:
       - id: cargo-doc
         name: cargo doc
         description: Check documentation builds
-        entry: cargo doc --all-features --no-deps
+        entry: just cargo-docs
         language: system
         files: '(src/.*\.rs$|Cargo\.toml)$'
         types: [rust, toml]

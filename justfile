@@ -11,7 +11,8 @@ help:
 # Initialize development environment
 [group('dev')]
 init:
-    uv tool install maturin
+    cargo install cargo-audit
+    cargo install cargo-machete
 
 # Setup development build
 [group('dev')]
@@ -91,10 +92,11 @@ python-audit:
 
     # Use uvx to run pip-audit against the requirements file
     echo "🔍 Running security audit..."
-    if uvx pip-audit --requirement /tmp/requirements-audit.txt --desc 2>/dev/null; then
-        echo "✅ Security audit completed successfully"
+    if uvx pip-audit --requirement /tmp/requirements-audit.txt --desc; then
+        echo "✅ No known vulnerabilities found"
     else
-        echo "✅ No known vulnerabilities found (pip-audit completed with warnings)"
+        echo "❌ Security vulnerabilities detected or audit failed"
+        exit 1
     fi
 
     # Clean up
@@ -134,6 +136,30 @@ fix:
     uv run ruff check --fix .
     uv run ruff format .
 
+# Remove unused dependencies
+[group('ci')]
+[group('lint')]
+[group('precommit')]
+cargo-machete:
+    cargo machete --with-metadata --fix
+
+# Check the docs
+[group('ci')]
+[group('lint')]
+cargo-docs:
+    cargo doc --all-features --no-deps
+
+# Cargo audit
+[group('ci')]
+[group('lint')]
+cargo-audit:
+    cargo audit --deny unsound --deny yanked
+
+# Lint the docs
+[group('ci')]
+[group('lint')]
+ci-lint: lint cargo-machete cargo-docs
+
 # =============================================================================
 # Building
 # =============================================================================
@@ -141,13 +167,13 @@ fix:
 # Build Python release wheel
 [group('build')]
 [group('ci')]
-build-python: init
+build-python:
     rm -rf dist/ target/wheels/
     uv run maturin build --features python --release
 
 # Build wheels for all platforms
 [group('build')]
-build-all: init
+build-all:
     uv run maturin build --features python --release --target x86_64-apple-darwin
     uv run maturin build --features python --release --target aarch64-apple-darwin
     uv run maturin build --features python --release --target x86_64-unknown-linux-gnu
@@ -273,7 +299,7 @@ publish-rust: check-release
 
     # Wait a bit for crates.io to register the new crate
     echo "⏳ Waiting for crates.io to update..."
-    sleep 30
+    sleep 60
 
     # Publish heisenberg
     echo "Publishing heisenberg..."
@@ -286,7 +312,7 @@ publish-rust: check-release
 
 # Build Python package for PyPI
 [group('publish')]
-build-python-package: init
+build-python-package:
     #!/usr/bin/env bash
     set -euo pipefail
     echo "🐍 Building Python package..."

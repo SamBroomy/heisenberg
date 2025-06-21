@@ -56,13 +56,6 @@ pyo3-log = { workspace = true, optional = true }
 
 [build-dependencies]
 heisenberg-data-processing = { workspace = true, features = ["download_data"] }
-polars = { workspace = true }
-tempfile = { workspace = true }
-serde_json = { workspace = true }
-
-[dev-dependencies]
-chrono = { workspace = true }
-num-traits = { workspace = true }
 
 [lints]
 workspace = true

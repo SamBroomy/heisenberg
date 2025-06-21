@@ -54,9 +54,7 @@ jobs:
 
       - name: Run linting
         run: |
-          just lint
-          cargo machete --with-metadata
-          cargo doc --all-features --no-deps
+          just ci-lint
 
   test:
     name: Test (${{ matrix.os }}, Python ${{ matrix.python-version }})
@@ -124,7 +122,7 @@ jobs:
         run: uv sync --locked --dev
 
       - name: Rust security audit
-        run: cargo audit --deny unsound --deny yanked
+        run: just cargo-audit
 
       - name: Python security audit
         run: |
