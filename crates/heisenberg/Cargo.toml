@@ -1,14 +1,14 @@
 [package]
 name = "heisenberg"
-version = "0.1.0"
-edition = "2024"
-authors = ["Sam B"]
-license = "MIT"
-description = "Backfill and enrich unstructured location data into structured data using the Geonames Dataset."
-repository = "https://github.com/SamBroomy/heisenberg"
-readme = "../../README.md"
-keywords = ["geonames", "polars", "location-enrichment", "data-processing", "geocoding"]
-categories = ["science::geo"]
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 build = "build.rs"
 
