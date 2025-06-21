@@ -14,8 +14,6 @@ on:
 env:
   CARGO_TERM_COLOR: always
   # Use consistent versions across all jobs
-  UV_VERSION: "0.7.13"
-  JUST_VERSION: "v1.36.0"
   RUST_CACHE_KEY_PREFIX: "release"
 
 jobs:
@@ -132,9 +130,9 @@ jobs:
             target: x86_64-unknown-linux-gnu
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-          - os: macos-13  # Intel
+          - os: macos-13 # Intel
             target: x86_64-apple-darwin
-          - os: macos-14  # Apple Silicon
+          - os: macos-14 # Apple Silicon
             target: aarch64-apple-darwin
 
     steps:
@@ -148,7 +146,8 @@ jobs:
       - name: Setup Python and uv
         uses: astral-sh/setup-uv@v5
         with:
-          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
 
       - name: Install maturin
         run: uv tool install maturin
@@ -178,7 +177,8 @@ jobs:
       - name: Setup Python and uv
         uses: astral-sh/setup-uv@v5
         with:
-          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
 
       - name: Install maturin
         run: uv tool install maturin

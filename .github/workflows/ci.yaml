@@ -16,8 +16,6 @@ concurrency:
 
 env:
   # Use consistent versions across all jobs
-  UV_VERSION: "0.7.13"
-  JUST_VERSION: "v1.36.0"
   RUST_CACHE_KEY_PREFIX: "ci"
 
 jobs:
@@ -31,16 +29,17 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - name: Install just
+        uses: extractions/setup-just@v3
 
       - name: Install tools
         uses: taiki-e/install-action@v2
         with:
-          tool: just@${{ env.JUST_VERSION }},cargo-machete,cargo-audit
+          tool: cargo-machete,cargo-audit
 
       - name: Setup Python and uv
         uses: astral-sh/setup-uv@v5
         with:
-          version: ${{ env.UV_VERSION }}
           enable-cache: true
           cache-dependency-glob: "uv.lock"
 
@@ -76,14 +75,11 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install just
-        uses: taiki-e/install-action@v2
-        with:
-          tool: just@${{ env.JUST_VERSION }}
+        uses: extractions/setup-just@v3
 
       - name: Setup Python and uv
         uses: astral-sh/setup-uv@v5
         with:
-          version: ${{ env.UV_VERSION }}
           python-version: ${{ matrix.python-version }}
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -121,7 +117,6 @@ jobs:
       - name: Setup Python and uv
         uses: astral-sh/setup-uv@v5
         with:
-          version: ${{ env.UV_VERSION }}
           enable-cache: true
           cache-dependency-glob: "uv.lock"
 
@@ -148,14 +143,11 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install just
-        uses: taiki-e/install-action@v2
-        with:
-          tool: just@${{ env.JUST_VERSION }}
+        uses: extractions/setup-just@v3
 
       - name: Setup Python and uv
         uses: astral-sh/setup-uv@v5
         with:
-          version: ${{ env.UV_VERSION }}
           enable-cache: true
           cache-dependency-glob: "uv.lock"
 
