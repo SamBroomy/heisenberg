@@ -27,7 +27,7 @@ def main() -> None:
     print("Processing multiple cities in batch:")
     batch_results = searcher.find_batch(city_queries)
 
-    for query, results in zip(city_queries, batch_results, strict=False):
+    for query, results in zip(city_queries, batch_results):
         query_str = " + ".join(query)
         if results:
             print(f"  {query_str}: {results[0].name} (Score: {results[0].score:.3f})")
@@ -51,7 +51,7 @@ def main() -> None:
     print("Processing city + country queries in batch:")
     batch_results = searcher.find_batch(multi_term_queries)
 
-    for query, results in zip(multi_term_queries, batch_results, strict=False):
+    for query, results in zip(multi_term_queries, batch_results):
         query_str = " + ".join(query)
         if results:
             print(f"  {query_str}: {results[0].name} (Score: {results[0].score:.3f})")
@@ -101,7 +101,7 @@ def main() -> None:
     print("Batch processing with fast configuration:")
     batch_results = searcher.find_batch(diverse_queries, fast_config)
 
-    for query, results in zip(diverse_queries, batch_results, strict=False):
+    for query, results in zip(diverse_queries, batch_results):
         query_str = " + ".join(query)
         if results:
             top_result = results[0]
@@ -127,7 +127,7 @@ def main() -> None:
     print("Processing queries with mixed quality:")
     batch_results = searcher.find_batch(mixed_queries)
 
-    for i, (query, results) in enumerate(zip(mixed_queries, batch_results, strict=False)):
+    for i, (query, results) in enumerate(zip(mixed_queries, batch_results)):
         query_str = " + ".join([q.strip() for q in query if q.strip()])
         if not query_str:
             query_str = "[empty/invalid]"
@@ -147,7 +147,7 @@ def main() -> None:
     print("Using convenience function find_locations_batch:")
     convenience_results = heisenberg.find_locations_batch(simple_queries)
 
-    for query, results in zip(simple_queries, convenience_results, strict=False):
+    for query, results in zip(simple_queries, convenience_results):
         query_str = " + ".join(query)
         if results:
             print(f"  {query_str}: {results[0].name} (Score: {results[0].score:.3f})")

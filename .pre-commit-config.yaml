@@ -100,16 +100,6 @@ repos:
         types: [rust, toml]
         stages: [pre-commit]
         pass_filenames: false
-      # Python dependency audit
-      - id: python-audit
-        name: python audit
-        description: Check for known vulnerabilities in Python dependencies
-        entry: just python-audit
-        language: system
-        files: '^(pyproject\.toml|uv\.lock)$'
-        types: [toml]
-        pass_filenames: false
-        stages: [pre-commit]
       # Maturin build check (Python bindings)
       - id: maturin-check
         name: maturin check

@@ -81,7 +81,7 @@ def main() -> None:
     print("Using convenience function find_locations_batch:")
     batch_queries = [["Germany", "Berlin"], ["Spain", "Madrid"], ["Italy", "Rome"]]
     batch_results = heisenberg.find_locations_batch(batch_queries)
-    for query, results in zip(batch_queries, batch_results, strict=False):
+    for query, results in zip(batch_queries, batch_results):
         if results:
             print(f"  Query {query}: {results[0].name} (Score: {results[0].score:.3f})")
 

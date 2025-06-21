@@ -83,7 +83,7 @@ def main() -> None:
     print("Resolving multiple locations in batch:")
     batch_resolved = rust_searcher.resolve_location_batch(location_queries)
 
-    for query, results in zip(location_queries, batch_resolved, strict=False):
+    for query, results in zip(location_queries, batch_resolved):
         query_str = " + ".join(query)
         print(f"\n  Query: {query_str}")
 

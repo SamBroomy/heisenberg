@@ -17,6 +17,9 @@ concurrency:
 env:
   # Use consistent versions across all jobs
   RUST_CACHE_KEY_PREFIX: "ci"
+  CARGO_BUILD_JOBS: 1
+  CARGO_PROFILE_TEST_OPT_LEVEL: 1 # Optimize test builds
+  CARGO_PROFILE_TEST_DEBUG: 0 # Reduce debug info
 
 jobs:
   lint:
@@ -64,7 +67,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
 
     steps:
       - uses: actions/checkout@v4

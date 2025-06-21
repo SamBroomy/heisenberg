@@ -6,10 +6,16 @@ functionality, serving as the bridge between the Rust implementation and the
 Python user-facing API.
 """
 
+from __future__ import annotations
+
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Optional, Self
+from typing import TYPE_CHECKING, Any
 
+try:
+    from typing import Self
+except ImportError:
+    from typing_extensions import Self
 if TYPE_CHECKING:
     import polars as pl
 
@@ -208,7 +214,7 @@ class LocationSearcherBuilderWrapper:
         self._rust_builder.embedded_fallback(fallback)
         return self
 
-    def build(self) -> "LocationSearcher":
+    def build(self) -> LocationSearcher:
         """Build the LocationSearcher.
 
         Returns:
@@ -1017,8 +1023,8 @@ class LocationSearcher:
 
     # Low-level access to Rust methods for advanced users
     def admin_search(
-        self, term: str, levels: list[int], previous_result: Optional["pl.DataFrame"] = None
-    ) -> Optional["pl.DataFrame"]:
+        self, term: str, levels: list[int], previous_result: pl.DataFrame | None = None
+    ) -> pl.DataFrame | None:
         """Search for administrative entities at specific levels.
 
         Args:
@@ -1031,7 +1037,7 @@ class LocationSearcher:
         """
         return self._rust_searcher.admin_search(term, levels, previous_result)
 
-    def place_search(self, term: str, previous_result: Optional["pl.DataFrame"] = None) -> Optional["pl.DataFrame"]:
+    def place_search(self, term: str, previous_result: pl.DataFrame | None = None) -> pl.DataFrame | None:
         """Search for places.
 
         Args:
@@ -1043,7 +1049,7 @@ class LocationSearcher:
         """
         return self._rust_searcher.place_search(term, previous_result)
 
-    def search_raw(self, input_terms: list[str]) -> list["pl.DataFrame"]:
+    def search_raw(self, input_terms: list[str]) -> list[pl.DataFrame]:
         """Low-level search returning raw DataFrames.
 
         Important: Input terms should be in descending 'size' order (largest to
@@ -1057,7 +1063,7 @@ class LocationSearcher:
         """
         return self._rust_searcher.search(input_terms)
 
-    def search_raw_with_config(self, input_terms: list[str], config: SearchOptions) -> list["pl.DataFrame"]:
+    def search_raw_with_config(self, input_terms: list[str], config: SearchOptions) -> list[pl.DataFrame]:
         """Low-level search with configuration returning raw DataFrames.
 
         Important: Input terms should be in descending 'size' order (largest to

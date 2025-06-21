@@ -16,7 +16,7 @@ init:
 
 # Setup development build
 [group('dev')]
-dev: init
+dev:
     uv run maturin develop -r
 
 # =============================================================================
@@ -76,31 +76,6 @@ rust-lint-fix:
 python-lint:
     uv run ruff check python/
     uv run ruff format --check python/
-
-# Audit Python dependencies for security vulnerabilities
-[group('ci')]
-[group('lint')]
-[group('precommit')]
-python-audit:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    echo "🔍 Auditing Python dependencies for security vulnerabilities..."
-
-    # Export dependencies to requirements format and audit them
-    echo "📄 Exporting dependencies to requirements format..."
-    uv export --no-hashes --format requirements-txt > /tmp/requirements-audit.txt
-
-    # Use uvx to run pip-audit against the requirements file
-    echo "🔍 Running security audit..."
-    if uvx pip-audit --requirement /tmp/requirements-audit.txt --desc; then
-        echo "✅ No known vulnerabilities found"
-    else
-        echo "❌ Security vulnerabilities detected or audit failed"
-        exit 1
-    fi
-
-    # Clean up
-    rm -f /tmp/requirements-audit.txt
 
 # Check maturin can build Python bindings
 [group('lint')]

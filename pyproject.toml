@@ -3,7 +3,7 @@ name = "heisenberg"
 version = "0.1.0"
 description = "Location enrichment library for converting unstructured location data into structured administrative hierarchies using GeoNames"
 readme = "python/README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.8"
 authors = [{ name = "SamBroomy", email = "sam@example.com" }]
 license = { file = "LICENSE" }
 keywords = [
@@ -20,6 +20,8 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Rust",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -27,7 +29,11 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Typing :: Typed",
 ]
-dependencies = ["polars>=1.0"]
+dependencies = [
+    "typing-extensions>=4.0.0; python_version<'3.11'",
+    "polars>=1.0",
+]
+
 
 [dependency-groups]
 dev = ["maturin>=1.8.7", "pytest>=8.3.5", "ruff>=0.11.11"]
