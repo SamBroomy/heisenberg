@@ -1,3 +1,4 @@
+set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
 set shell := ["bash", "-uc"]
 
 # List available recipes
@@ -49,12 +50,32 @@ rust-test:
 [group('test')]
 test: rust-test pytest
 
-# Fast CI tests (reduced scope)
+# Fast CI Rust tests only
 [group('ci')]
 [group('test')]
-test-ci:
+rust-test-ci:
     cargo test -- --test-threads=1
+
+# Fast CI Python tests only (requires pre-built bindings)
+[group('ci')]
+[group('test')]
+python-test-ci:
     uv run python -m pytest python/tests/ -v --maxfail=3
+
+# Build only Rust dependencies (no Python linking)
+[group('build')]
+[group('ci')]
+rust-build-deps:
+    cargo build --lib
+    cargo build --lib --no-default-features
+    cargo test --no-run
+    cargo test --no-run --no-default-features
+
+# Build Python bindings for development/testing
+[group('build')]
+[group('dev')]
+build-python-dev:
+    uv run maturin develop --features python --uv
 
 # =============================================================================
 # Linting & Formatting

@@ -48,14 +48,21 @@ runs:
       uses: Swatinem/rust-cache@v2
       with:
         # Simplified cache key for better sharing across jobs
-        shared-key: ${{ inputs.cache-prefix }}
-        save-if: ${{ github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' }}
+        # shared-key: ${{ inputs.cache-prefix }}
         cache-on-failure: true
+        # Enable debug output
+        env-vars: |
+          CARGO_LOG
+          RUST_LOG
 
     - name: Warm up Cargo cache
       run: |
         # Pre-fetch dependencies to improve cache effectiveness
         cargo fetch --quiet || true
+        echo "=== Cache restore debug ==="
+        ls -la target/ || echo "No target directory"
+        ls -la target/debug/ || echo "No debug directory"
+        ls -la target/debug/deps/ || echo "No deps directory"
       shell: bash
 
     - name: Install Python dependencies
