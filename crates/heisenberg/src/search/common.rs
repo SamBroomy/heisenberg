@@ -9,6 +9,7 @@ use super::Result;
 
 pub(super) fn text_relevance_score(lf: LazyFrame, search_term: &str) -> LazyFrame {
     let search_term_capture = search_term.to_string();
+    let scorer = RatioBatchComparator::new(search_term_capture.chars());
     lf.with_column(
         ((col("fts_score") - col("fts_score").mean())
             / when(col("fts_score").std(0).gt(0.0))
@@ -20,7 +21,6 @@ pub(super) fn text_relevance_score(lf: LazyFrame, search_term: &str) -> LazyFram
         as_struct(vec![col("name"), col("alternatenames")])
             .map(
                 move |s| {
-                    let scorer = RatioBatchComparator::new(search_term_capture.chars());
                     let s = s.struct_().unwrap();
                     let name = s.field_by_name("name").unwrap();
                     let name = name.str().unwrap();
@@ -66,9 +66,9 @@ pub(super) fn text_relevance_score(lf: LazyFrame, search_term: &str) -> LazyFram
                         })
                         .collect::<Vec<_>>();
                     let out = Column::new("fuzzy_score".into(), matches);
-                    Ok(Some(out))
+                    Ok(out)
                 },
-                GetOutput::from_type(DataType::Float32),
+                |_schema, field| Ok(Field::new(field.name.clone(), DataType::Float32)),
             )
             .alias("fuzzy_score"),
     )
@@ -173,7 +173,7 @@ pub(super) fn get_join_expr_from_previous_result(
 pub(super) fn get_col_name_from_expr(expr: &Expr) -> Result<Rc<str>> {
     match expr {
         Expr::Column(name) => Ok(name.as_str().into()),
-        _ => Err(anyhow::anyhow!("Expected Expr::Column, got {:?}", expr).into()),
+        _ => Err(anyhow::anyhow!("Expected Expr::Column, got {expr:?}").into()),
     }
 }
 
@@ -292,7 +292,7 @@ pub(super) fn filter_data_from_previous_results(
             lfs_to_concat.len()
         );
         concat(&lfs_to_concat, UnionArgs::default())
-            .map(|lf| lf.unique_stable(Some(vec!["geonameId".into()]), UniqueKeepStrategy::First))
+            .map(|lf| lf.unique_stable(col("geonameId").into_selector(), UniqueKeepStrategy::First))
             .map_err(From::from)
     }
 }

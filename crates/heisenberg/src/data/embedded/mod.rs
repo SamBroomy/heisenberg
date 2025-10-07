@@ -1,5 +1,5 @@
 /// Generated embedded data module
-use std::sync::OnceLock;
+use std::sync::{LazyLock, OnceLock};
 
 use bytes::Bytes;
 use heisenberg_data_processing::{embedded::EmbeddedMetadata, embedded_file_paths};
@@ -11,7 +11,7 @@ static RAW_METADATA: &[u8] = include_bytes!(embedded_file_paths!(metadata));
 static ADMIN_SEARCH_DATA: &[u8] = include_bytes!(embedded_file_paths!(admin));
 static PLACE_SEARCH_DATA: &[u8] = include_bytes!(embedded_file_paths!(place));
 
-pub static METADATA: std::sync::LazyLock<EmbeddedMetadata> = std::sync::LazyLock::new(|| {
+pub static METADATA: LazyLock<EmbeddedMetadata> = LazyLock::new(|| {
     EmbeddedMetadata::from_bytes(RAW_METADATA).expect("Failed to parse embedded metadata")
 });
 

@@ -26,8 +26,8 @@ const ALL_COUNTRIES_SCHEMA: [(PlSmallStr, DataType); 19] = [
     (PlSmallStr::from_static("modification_date"), DataType::Date),
 ];
 
-pub fn get_all_countries_df(path: impl AsRef<Path>) -> Result<LazyFrame> {
-    Ok(LazyCsvReader::new(path)
+pub fn get_all_countries_df(path: impl Into<Arc<Path>>) -> Result<LazyFrame> {
+    Ok(LazyCsvReader::new(PlPath::Local(path.into()))
         .with_separator(b'\t')
         .with_has_header(false)
         .with_schema(Some(Schema::from_iter(ALL_COUNTRIES_SCHEMA).into()))
@@ -39,22 +39,24 @@ pub fn get_all_countries_df(path: impl AsRef<Path>) -> Result<LazyFrame> {
                 .with_nulls_last(true),
         )
         .unique_stable(
-            Some(vec![
-                PlSmallStr::from_static("name"),
-                PlSmallStr::from_static("asciiname"),
-                PlSmallStr::from_static("feature_class"),
-                PlSmallStr::from_static("feature_code"),
-                PlSmallStr::from_static("admin0_code"),
-                PlSmallStr::from_static("admin1_code"),
-                PlSmallStr::from_static("admin2_code"),
-                PlSmallStr::from_static("admin3_code"),
-                PlSmallStr::from_static("admin4_code"),
-                PlSmallStr::from_static("timezone"),
-            ]),
+            Some(cols([
+                "name",
+                "asciiname",
+                "feature_class",
+                "feature_code",
+                "admin0_code",
+                "admin1_code",
+                "admin2_code",
+                "admin3_code",
+                "admin4_code",
+                "timezone",
+            ])),
             UniqueKeepStrategy::First,
         )
         .with_column(
             dtype_col(&DataType::String)
+                .as_selector()
+                .as_expr()
                 .str()
                 .strip_chars(lit("\"':"))
                 .str()

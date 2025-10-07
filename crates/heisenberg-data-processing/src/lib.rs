@@ -158,7 +158,8 @@ fn get_default_data_dir() -> PathBuf {
         // 4. Production: use system directories
         #[cfg(feature = "system-dirs")]
         {
-            if let Some(proj_dirs) = directories::ProjectDirs::from("com", "yourorg", "heisenberg")
+            if let Some(proj_dirs) =
+                directories::ProjectDirs::from("com", "heisenberg", "heisenberg-data")
             {
                 return proj_dirs.cache_dir().to_path_buf();
             }
@@ -169,8 +170,9 @@ fn get_default_data_dir() -> PathBuf {
     }
 }
 
-fn load_single_parquet_file(path: &Path) -> Result<LazyFrame> {
-    LazyFrame::scan_parquet(path, ScanArgsParquet::default()).map_err(Into::into)
+fn load_single_parquet_file(path: impl Into<Arc<Path>>) -> Result<LazyFrame> {
+    LazyFrame::scan_parquet(PlPath::Local(path.into()), ScanArgsParquet::default())
+        .map_err(Into::into)
 }
 
 fn load_parquet_files(admin_path: &Path, place_path: &Path) -> Result<(LazyFrame, LazyFrame)> {
@@ -190,12 +192,18 @@ fn validate_data_files(data_source: DataSource) -> Result<(PathBuf, PathBuf)> {
     }
 
     // Try to validate files by attempting to read their metadata
-    if let Err(e) = LazyFrame::scan_parquet(&admin_path, ScanArgsParquet::default()) {
+    if let Err(e) = LazyFrame::scan_parquet(
+        PlPath::Local(admin_path.clone().into()),
+        ScanArgsParquet::default(),
+    ) {
         warn!("Admin file corrupted or unreadable: {}", e);
         return Err(DataError::RequiredFilesNotFound);
     }
 
-    if let Err(e) = LazyFrame::scan_parquet(&place_path, ScanArgsParquet::default()) {
+    if let Err(e) = LazyFrame::scan_parquet(
+        PlPath::Local(place_path.clone().into()),
+        ScanArgsParquet::default(),
+    ) {
         warn!("Place file corrupted or unreadable: {}", e);
         return Err(DataError::RequiredFilesNotFound);
     }
@@ -278,7 +286,7 @@ pub fn get_data(data_source: DataSource) -> Result<(LazyFrame, LazyFrame)> {
 /// If either file is missing or corrupted, both will be regenerated.
 pub fn get_admin_data(data_source: DataSource) -> Result<LazyFrame> {
     let (admin_path, _place_path) = ensure_data_files(data_source)?;
-    load_single_parquet_file(&admin_path)
+    load_single_parquet_file(admin_path)
 }
 
 /// Get only place search data as `LazyFrame`
@@ -287,7 +295,7 @@ pub fn get_admin_data(data_source: DataSource) -> Result<LazyFrame> {
 /// If either file is missing or corrupted, both will be regenerated.
 pub fn get_place_data(data_source: DataSource) -> Result<LazyFrame> {
     let (_admin_path, place_path) = ensure_data_files(data_source)?;
-    load_single_parquet_file(&place_path)
+    load_single_parquet_file(place_path)
 }
 
 /// Check if processed data exists for the given data source without loading it

@@ -730,7 +730,7 @@ impl<D: IndexDefinition> FTSIndex<D> {
                     .get_first(gid_field)
                     .and_then(|v| v.as_u64())
                     .ok_or_else(|| {
-                        anyhow::anyhow!("Failed to get geonameId from document: {:?}", received_doc)
+                        anyhow::anyhow!("Failed to get geonameId from document: {received_doc:?}")
                     })?;
 
                 Ok((doc_id_val, score))

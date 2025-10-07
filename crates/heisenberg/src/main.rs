@@ -17,7 +17,48 @@ fn main() -> Result<()> {
         .init();
 
     let t_total_setup = std::time::Instant::now();
-    let search_service = LocationSearcher::new_embedded().unwrap();
+    let s = LocationSearcher::new(heisenberg::DataSource::AllCountries, false)
+        .expect("Failed to create LocationSearcher");
+    let admins = s
+        .admin_search(
+            "The united states of america",
+            &[0, 1],
+            None::<DataFrame>,
+            &AdminSearchParams::default(),
+        )?
+        .unwrap_or_default();
+
+    let admins1 = s
+        .admin_search(
+            "California",
+            &[1, 2],
+            Some(admins), // Pass the DataFrame directly
+            &AdminSearchParams::default(),
+        )?
+        .unwrap();
+    let admins2 = s
+        .admin_search(
+            "Los Angeles County",
+            &[2, 3],
+            Some(admins1),
+            &AdminSearchParams::default(),
+        )?
+        .unwrap();
+
+    let _admin3 = s
+        .admin_search(
+            "Beverly Hills",
+            &[3, 4],
+            Some(admins2.clone()), // Clone if admins2 is used again
+            &AdminSearchParams::default(),
+        )?
+        .unwrap();
+
+    let search_service =
+        LocationSearcher::new_embedded().expect("Failed to create embedded LocationSearcher");
+
+    search_service.data().admin_search_df().collect()?;
+    search_service.data().place_search_df().collect()?;
 
     debug!(
         elapsed_seconds = t_total_setup.elapsed().as_secs_f32(),
@@ -27,24 +68,24 @@ fn main() -> Result<()> {
     let example_search_span = info_span!("manual_search_example").entered();
 
     // Example using the service
-    let admins = search_service
-        .admin_search(
-            "The united states of america",
-            &[0, 1],
-            None::<DataFrame>,
-            &AdminSearchParams::default(),
-        )?
-        .unwrap_or_default();
-    debug!(admins = ?admins, "Admin search results");
+    // let admins = search_service
+    //     .admin_search(
+    //         "United States",
+    //         &[0, 1],
+    //         None::<DataFrame>,
+    //         &AdminSearchParams::default(),
+    //     )?
+    //     .unwrap();
+    // debug!(admins = ?admins, "Admin search results");
 
     let admins1 = search_service
         .admin_search(
             "California",
             &[1, 2],
-            Some(admins), // Pass the DataFrame directly
+            None, //Some(admins), // Pass the DataFrame directly
             &AdminSearchParams::default(),
         )?
-        .unwrap_or_default();
+        .unwrap();
     debug!(admins1 = ?admins1, "Admin1 search results");
     let admins2 = search_service
         .admin_search(
@@ -53,7 +94,7 @@ fn main() -> Result<()> {
             Some(admins1),
             &AdminSearchParams::default(),
         )?
-        .unwrap_or_default();
+        .unwrap();
     debug!(admins2 = ?admins2, "Admin2 search results");
 
     let admin3 = search_service
@@ -63,7 +104,7 @@ fn main() -> Result<()> {
             Some(admins2.clone()), // Clone if admins2 is used again
             &AdminSearchParams::default(),
         )?
-        .unwrap_or_default();
+        .unwrap();
     debug!(admin3 = ?admin3, "Admin3 search results");
 
     if !admins2.is_empty() && !admin3.is_empty() {

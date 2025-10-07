@@ -62,7 +62,6 @@ impl From<DataFrame> for AdminFrame {
     fn from(df: DataFrame) -> Self {
         // Ensure the DataFrame has the expected columns for admin search
         let expected_columns = [
-            "admin_level",
             "geonameId",
             "name",
             "asciiname",
@@ -151,7 +150,7 @@ fn search_score_admin(
     let lf = super::common::text_relevance_score(lf, search_term).with_columns([
         // ===== 2. Population importance =====
         when(col("population").gt(0))
-            .then(lit(1.0) - lit(1.0) / (lit(1.0) + (col("population").log(10.0) / lit(3.0))))
+            .then(lit(1.0) - lit(1.0) / (lit(1.0) + (col("population").log(lit(10.0)) / lit(3.0))))
             .otherwise(lit(0.1))
             .alias("pop_score"),
         // ===== 3. Feature type importance =====
@@ -342,7 +341,7 @@ pub fn admin_search_inner(
     )
     .select([
         // Select all columns except fts_score
-        col("*").exclude(["fts_score"]),
+        all().exclude_cols(["fts_score"]).as_expr(),
         // Then select fts_score to place it at the end
         col("fts_score"),
     ]);
@@ -458,7 +457,7 @@ pub fn admin_search_inner(
     )?;
 
     let output_lf = scored_lf
-        .unique_stable(Some(vec!["geonameId".into()]), UniqueKeepStrategy::First)
+        .unique_stable(col("geonameId").into_selector(), UniqueKeepStrategy::First)
         .limit(params.limit as u32)
         .select(&select_exprs);
 

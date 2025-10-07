@@ -50,7 +50,7 @@ pub fn save_processed_data_to_parquet(df: DataFrame, path: &Path) -> Result<()> 
 
     let mut df = df
         .lazy()
-        .drop_nulls(Some(vec!["geonameId".into()]))
+        .drop_nulls(col("geonameId").into_selector())
         .sort(["geonameId"], SortMultipleOptions::default())
         .collect()?;
     let mut file = std::fs::File::create(path)?;

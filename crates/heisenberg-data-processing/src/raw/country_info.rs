@@ -13,10 +13,7 @@ const COUNTRY_INFO_SCHEMA: [(PlSmallStr, DataType); 19] = [
     (PlSmallStr::from_static("Capital"), DataType::String),
     (PlSmallStr::from_static("Area"), DataType::Float32),
     (PlSmallStr::from_static("Population"), DataType::Int32),
-    (
-        PlSmallStr::from_static("Continent"),
-        DataType::Categorical(None, CategoricalOrdering::Lexical),
-    ),
+    (PlSmallStr::from_static("Continent"), DataType::String),
     (PlSmallStr::from_static("tld"), DataType::String),
     (PlSmallStr::from_static("CurrencyCode"), DataType::String),
     (PlSmallStr::from_static("CurrencyName"), DataType::String),
@@ -38,8 +35,8 @@ const COUNTRY_INFO_SCHEMA: [(PlSmallStr, DataType); 19] = [
     ),
 ];
 
-pub fn get_country_info_df(path: impl AsRef<Path>) -> Result<LazyFrame> {
-    Ok(LazyCsvReader::new(path)
+pub fn get_country_info_df(path: impl Into<Arc<Path>>) -> Result<LazyFrame> {
+    Ok(LazyCsvReader::new(PlPath::Local(path.into()))
         .with_separator(b'\t')
         .with_has_header(false)
         .with_schema(Some(Schema::from_iter(COUNTRY_INFO_SCHEMA).into()))
@@ -47,6 +44,8 @@ pub fn get_country_info_df(path: impl AsRef<Path>) -> Result<LazyFrame> {
         .finish()?
         .with_column(
             dtype_col(&DataType::String)
+                .as_selector()
+                .as_expr()
                 .str()
                 .strip_chars(lit("\"':"))
                 .str()

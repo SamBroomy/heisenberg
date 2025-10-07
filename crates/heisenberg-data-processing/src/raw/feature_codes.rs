@@ -10,8 +10,8 @@ const FEATURE_CODES_SCHEMA: [(PlSmallStr, DataType); 3] = [
     (PlSmallStr::from_static("description"), DataType::String),
 ];
 
-pub fn get_feature_codes_df(path: impl AsRef<Path>) -> Result<LazyFrame> {
-    Ok(LazyCsvReader::new(path)
+pub fn get_feature_codes_df(path: impl Into<Arc<Path>>) -> Result<LazyFrame> {
+    Ok(LazyCsvReader::new(PlPath::Local(path.into()))
         .with_separator(b'\t')
         .with_has_header(false)
         .with_schema(Some(Schema::from_iter(FEATURE_CODES_SCHEMA).into()))
@@ -21,9 +21,11 @@ pub fn get_feature_codes_df(path: impl AsRef<Path>) -> Result<LazyFrame> {
             col("_tmp").list().first().alias("feature_class"),
             col("_tmp").list().last().alias("feature_code"),
         ])
-        .drop(["_tmp", "code"])
+        .drop(cols(["_tmp", "code"]))
         .with_column(
             dtype_col(&DataType::String)
+                .as_selector()
+                .as_expr()
                 .str()
                 .strip_chars(lit("\"':"))
                 .str()

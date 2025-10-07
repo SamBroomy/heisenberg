@@ -1,4 +1,3 @@
-#![allow(clippy::needless_pass_by_value)]
 //! Python bindings for the Heisenberg location search library.
 //!
 //! This module provides the main Python interface to the Rust implementation,

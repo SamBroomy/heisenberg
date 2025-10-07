@@ -455,7 +455,7 @@ pub fn place_search_inner(
     )
     .select([
         // Select all columns except fts_score
-        col("*").exclude(["fts_score"]),
+        all().exclude_cols(["fts_score"]).as_expr(),
         // Then select fts_score to place it at the end
         col("fts_score"),
     ]);
@@ -497,7 +497,8 @@ pub fn place_search_inner(
                 })
                 .collect_vec();
             let prev_lf_for_join = prev_lf_processed.select(&cols_to_select_from_prev).unique(
-                Some(cols_to_select_from_prev_str),
+                Some(cols(cols_to_select_from_prev_str)),
+                // Some(cols_to_select_from_prev_str),
                 UniqueKeepStrategy::First,
             );
 
@@ -593,7 +594,7 @@ pub fn place_search_inner(
     };
 
     let output_lf = scored_lf
-        .unique_stable(Some(vec!["geonameId".into()]), UniqueKeepStrategy::First) // Keep best score for each place
+        .unique_stable(col("geonameId").into_selector(), UniqueKeepStrategy::First) // Keep best score for each place
         .limit(params.limit as u32)
         .select(&final_select_exprs);
 

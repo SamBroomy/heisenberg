@@ -1,14 +1,14 @@
 [package]
 name = "heisenberg-data-processing"
-version = { workspace = true }
-edition = { workspace = true }
-authors = { workspace = true }
-license = "MIT"
-description = "Data processing pipeline for Heisenberg location enrichment library"
-repository = { workspace = true }
-readme = { workspace = true }
-keywords = { workspace = true }
-categories = { workspace = true }
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Data processing pipeline for Heisenberg location enrichment library. Includes data downloading, extraction, transformation, and loading the raw data into a queryable format that gets embedded into the Heisenberg library."
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 polars = { workspace = true }
@@ -38,7 +38,7 @@ num-traits = { workspace = true }
 
 [features]
 system-dirs = ["directories"]
-default = ["download_data"]
+default = ["download_data", "directories"]
 download_data = ["reqwest", "tokio", "indicatif", "futures"]
 
 [lints]
