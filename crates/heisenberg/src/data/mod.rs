@@ -30,7 +30,7 @@ impl LocationSearchData {
     /// Create new `LocationSearchData` using default embedded data
     #[must_use]
     pub fn new_embedded() -> Self {
-        Self::new(METADATA.source)
+        Self::new(METADATA.source.clone())
     }
 
     /// Get admin search data as `LazyFrame` with fallback loading

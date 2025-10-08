@@ -27,8 +27,6 @@ fn main() -> Result<()> {
             &AdminSearchParams::default(),
         )?
         .unwrap_or_default();
-    dbg!(&admins);
-
     let admins1 = s
         .admin_search(
             "California",
@@ -37,7 +35,6 @@ fn main() -> Result<()> {
             &AdminSearchParams::default(),
         )?
         .unwrap();
-    dbg!(&admins1);
     let admins2 = s
         .admin_search(
             "Los Angeles County",
@@ -46,8 +43,6 @@ fn main() -> Result<()> {
             &AdminSearchParams::default(),
         )?
         .unwrap();
-    dbg!(&admins2);
-
     let _admin3 = s
         .admin_search(
             "Beverly Hills",
@@ -56,7 +51,6 @@ fn main() -> Result<()> {
             &AdminSearchParams::default(),
         )?
         .unwrap();
-    dbg!(&_admin3);
 
     let search_service =
         LocationSearcher::new_embedded().expect("Failed to create embedded LocationSearcher");
@@ -80,7 +74,6 @@ fn main() -> Result<()> {
             &AdminSearchParams::default(),
         )?
         .unwrap();
-    dbg!(&admins);
     debug!(admins = ?admins, "Admin search results");
 
     let admins1 = search_service
@@ -91,7 +84,6 @@ fn main() -> Result<()> {
             &AdminSearchParams::default(),
         )?
         .unwrap();
-    dbg!(&admins1);
     debug!(admins1 = ?admins1, "Admin1 search results");
     let admins2 = search_service
         .admin_search(

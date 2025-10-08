@@ -33,7 +33,7 @@ pub static DATA_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
     std::env::var("DATA_DIR").map_or_else(|_| get_default_data_dir(), PathBuf::from)
 });
 
-#[derive(Debug, Copy, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 /// Enum representing the available data sources for `GeoNames` data processing
 #[serde(rename_all = "snake_case")]
 pub enum DataSource {
@@ -320,11 +320,8 @@ pub fn regenerate_data(data_source: &DataSource) -> Result<(LazyFrame, LazyFrame
 
 #[cfg(test)]
 pub(crate) mod tests_utils {
-    use std::io::Write;
-
     use num_traits::NumCast;
     use polars::prelude::*;
-    use tempfile::NamedTempFile;
 
     pub fn assert_has_columns(df: &DataFrame, expected_columns: &[&str]) {
         let actual_columns: Vec<_> = df.get_column_names().iter().map(|s| s.as_str()).collect();
@@ -383,37 +380,5 @@ pub(crate) mod tests_utils {
                 "Column '{column}' max value {max_actual:?} is above expected maximum {max_val:?}"
             );
         }
-    }
-
-    pub fn create_test_all_countries_file() -> NamedTempFile {
-        let mut file = NamedTempFile::new().unwrap();
-        writeln!(file, "6252001\tUnited States\tUnited States\tUS,USA,America\t39.5\t-98.35\tA\tPCLI\tUS\t\t\t\t\t\t331000000\t0\t0\tAmerica/New_York\t2023-01-01").unwrap();
-        writeln!(file, "5332921\tCalifornia\tCalifornia\tCA,Calif\t36.17\t-119.75\tA\tADM1\tUS\t\tCA\t\t\t\t39538223\t0\t0\tAmerica/Los_Angeles\t2023-01-01").unwrap();
-        writeln!(file, "5391959\tSan Francisco\tSan Francisco\tSF,San Fran\t37.7749\t-122.4194\tP\tPPLA2\tUS\t\tCA\t075\t\t\t873965\t16\t16\tAmerica/Los_Angeles\t2023-01-01").unwrap();
-        file.flush().unwrap();
-        file
-    }
-
-    pub fn create_test_country_info_file() -> NamedTempFile {
-        let mut file = NamedTempFile::new().unwrap();
-        for i in 1..=51 {
-            writeln!(file, "# Header line {i}").unwrap();
-        }
-        writeln!(file, "US\tUSA\t840\tUS\tUnited States\tWashington\t9629091\t331002651\tNA\t.us\tUSD\tDollar\t1\t#####-####\t^\\d{{5}}(-\\d{{4}})?$\ten-US,es-US,haw,fr\t6252001\tCA,MX\t").unwrap();
-        file.flush().unwrap();
-        file
-    }
-
-    pub fn create_test_feature_codes_file() -> NamedTempFile {
-        let mut file = NamedTempFile::new().unwrap();
-        writeln!(file, "A.ADM1\tfirst-order administrative division\ta primary administrative division of a country").unwrap();
-        writeln!(file, "A.PCLI\tindependent political entity\t").unwrap();
-        writeln!(
-            file,
-            "P.PPLA2\tseat of a second-order administrative division\t"
-        )
-        .unwrap();
-        file.flush().unwrap();
-        file
     }
 }

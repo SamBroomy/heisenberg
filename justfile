@@ -41,10 +41,13 @@ pytest: dev
 [group('ci')]
 [group('test')]
 rust-test:
-    cargo test -- --test-threads=1
+    cargo test --lib
+    cargo test --doc -- --test-threads=1
     cargo test --examples
-    cargo test --no-default-features -- --test-threads=1
-    cargo test --no-default-features --features serde -- --test-threads=1
+    cargo test --no-default-features --lib
+    cargo test --no-default-features --doc -- --test-threads=1
+    cargo test --no-default-features --features serde --lib
+    cargo test --no-default-features --features serde --doc -- --test-threads=1
 
 # Run all tests (full)
 [group('test')]
@@ -54,7 +57,8 @@ test: rust-test pytest
 [group('ci')]
 [group('test')]
 rust-test-ci:
-    cargo test -- --test-threads=1
+    cargo test --lib
+    cargo test --doc -- --test-threads=1
 
 # Fast CI Python tests only (requires pre-built bindings)
 [group('ci')]

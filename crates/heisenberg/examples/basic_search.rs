@@ -54,8 +54,6 @@ fn print_search_results(results: &[heisenberg::SearchResult], limit: usize) {
 
 #[cfg(test)]
 mod tests {
-    use std::env;
-
     use super::*;
 
     fn setup_test_env() {

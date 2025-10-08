@@ -215,24 +215,24 @@ impl LocationSearcher {
     /// use heisenberg::{DataSource, LocationSearcher};
     ///
     /// // Try to load existing, fall back to initialization if needed
-    /// let searcher = if let Some(existing) = LocationSearcher::load_existing(DataSource::Cities15000)?
-    /// {
-    ///     existing
-    /// } else {
-    ///     LocationSearcher::initialize(DataSource::Cities15000)?
-    /// };
+    /// let searcher =
+    ///     if let Some(existing) = LocationSearcher::load_existing(&DataSource::Cities15000)? {
+    ///         existing
+    ///     } else {
+    ///         LocationSearcher::initialize(DataSource::Cities15000)?
+    ///     };
     /// # Ok::<(), heisenberg::error::HeisenbergError>(())
     /// ```
     #[instrument(name = "Load Existing LocationSearcher", level = "info")]
-    pub fn load_existing(data_source: DataSource) -> Result<Option<Self>, HeisenbergError> {
+    pub fn load_existing(data_source: &DataSource) -> Result<Option<Self>, HeisenbergError> {
         info!(
             "Attempting to load existing LocationSearcher for data source: {:?}",
             data_source
         );
 
-        let data = LocationSearchData::new(data_source);
+        let data = LocationSearchData::new(data_source.clone());
 
-        if let Some(index) = LocationSearchIndex::load_existing(&data_source)? {
+        if let Some(index) = LocationSearchIndex::load_existing(data_source)? {
             // Verify the indexes are up-to-date with the data
             if index.is_up_to_date(&data)? {
                 info!("Successfully loaded existing up-to-date LocationSearcher");
@@ -281,15 +281,15 @@ impl LocationSearcher {
     /// ```rust
     /// use heisenberg::{DataSource, LocationSearcher};
     ///
-    /// if LocationSearcher::indexes_exist(DataSource::Cities15000) {
+    /// if LocationSearcher::indexes_exist(&DataSource::Cities15000) {
     ///     println!("Indexes are available for fast loading");
     /// } else {
     ///     println!("Indexes will need to be built");
     /// }
     /// ```
     #[must_use]
-    pub fn indexes_exist(data_source: DataSource) -> bool {
-        LocationSearchIndex::exists_for_source(&data_source)
+    pub fn indexes_exist(data_source: &DataSource) -> bool {
+        LocationSearchIndex::exists_for_source(data_source)
     }
 
     /// Legacy constructor for backward compatibility.
@@ -325,7 +325,7 @@ impl LocationSearcher {
     /// Get information about the searcher's configuration.
     pub fn info(&self) -> SearcherInfo {
         SearcherInfo {
-            data_source: *self.data.data_source(),
+            data_source: self.data.data_source().clone(),
             has_admin_index: true, // We always have both with LocationSearchIndex
             has_places_index: true,
             embedded_metadata: METADATA.clone(),

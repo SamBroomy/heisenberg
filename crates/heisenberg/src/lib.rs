@@ -73,7 +73,9 @@ pub use config::SearchConfigBuilder;
 pub use data::LocationSearchData;
 pub use heisenberg_data_processing as data_processing;
 pub use heisenberg_data_processing::DataSource;
-pub use index::{FTSIndexSearchParams, LocationSearchIndex};
+pub use index::{
+    AdminIndexDef, FTSIndex, FTSIndexSearchParams, LocationSearchIndex, PlacesIndexDef,
+};
 pub use polars;
 pub use search::{
     AdminFrame, AdminSearchParams, PlaceFrame, PlaceSearchParams, SearchConfig, SearchResult,
@@ -122,28 +124,60 @@ pub fn init_logging(level: impl Into<LevelFilter>) -> Result<&'static (), error:
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use super::*;
+
+    // Counter for unique test IDs
+    static TEST_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
     fn setup_test_env() {
         let _ = init_logging(tracing::Level::WARN);
     }
 
-    #[test]
-    fn test_searcher_creation() {
+    /// Create a `LocationSearcher` with a unique index directory for parallel test execution
+    fn create_test_searcher() -> LocationSearcher {
         setup_test_env();
 
-        let searcher = LocationSearcher::new_embedded();
-        assert!(
-            searcher.is_ok(),
-            "Should be able to create searcher with test data"
-        );
+        // Create a unique temp directory for this test's indexes
+        let test_id = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
+        let temp_dir = std::env::temp_dir()
+            .join("heisenberg_tests")
+            .join(format!("test_{test_id}"));
+        std::fs::create_dir_all(&temp_dir).expect("Failed to create test dir");
+
+        let admin_index_path = temp_dir.join("admin_search");
+        let places_index_path = temp_dir.join("places_search");
+
+        // Create searcher with embedded data but unique index location
+        let data = LocationSearchData::new_embedded();
+        let admin_data = data.admin_search_df();
+        let places_data = data.place_search_df();
+
+        // Create indexes with custom paths
+        let admin_index = FTSIndex::new(AdminIndexDef, admin_data, &admin_index_path, false)
+            .expect("Failed to create admin index");
+
+        let places_index = FTSIndex::new(PlacesIndexDef, places_data, &places_index_path, false)
+            .expect("Failed to create places index");
+
+        let indexes = LocationSearchIndex {
+            admin: admin_index,
+            places: places_index,
+        };
+
+        LocationSearcher::from_components(data, indexes)
+    }
+
+    #[test]
+    fn test_searcher_creation() {
+        let _searcher = create_test_searcher();
+        // If we got here, creation succeeded
     }
 
     #[test]
     fn test_basic_search() {
-        setup_test_env();
-
-        let searcher = LocationSearcher::new_embedded().unwrap();
+        let searcher = create_test_searcher();
 
         // Try a few different search terms that should exist in cities15000
         let test_terms = vec!["New York", "London", "Tokyo", "Berlin", "Paris"];
@@ -163,9 +197,7 @@ mod tests {
 
     #[test]
     fn test_multi_term_search() {
-        setup_test_env();
-
-        let searcher = LocationSearcher::new_embedded().unwrap();
+        let searcher = create_test_searcher();
         let results = searcher.search(&["New York", "USA"]);
 
         assert!(results.is_ok(), "Multi-term search should work");
@@ -175,9 +207,7 @@ mod tests {
 
     #[test]
     fn test_resolution() {
-        setup_test_env();
-
-        let searcher = LocationSearcher::new_embedded().unwrap();
+        let searcher = create_test_searcher();
         let resolved = searcher.resolve_location(&["London"]);
 
         assert!(resolved.is_ok(), "Resolution should work");
@@ -186,9 +216,7 @@ mod tests {
 
     #[test]
     fn test_batch_search() {
-        setup_test_env();
-
-        let searcher = LocationSearcher::new_embedded().unwrap();
+        let searcher = create_test_searcher();
         let queries = vec![vec!["London"], vec!["Paris"], vec!["Tokyo"]];
         let results = searcher.search_bulk(&queries);
 
@@ -199,8 +227,6 @@ mod tests {
 
     #[test]
     fn test_configuration() {
-        setup_test_env();
-
         // Test that configuration builder works
         let config = SearchConfigBuilder::fast()
             .limit(5)
@@ -211,7 +237,7 @@ mod tests {
         assert_eq!(config.place_min_importance_tier, 3);
 
         // Test search with configuration
-        let searcher = LocationSearcher::new_embedded().unwrap();
+        let searcher = create_test_searcher();
         let results = searcher.search_with_config(&["London"], &config);
 
         assert!(results.is_ok(), "Search with config should work");
@@ -221,9 +247,7 @@ mod tests {
 
     #[test]
     fn test_empty_search() {
-        setup_test_env();
-
-        let searcher = LocationSearcher::new_embedded().unwrap();
+        let searcher = create_test_searcher();
 
         // Test empty query
         let results = searcher.search(&[""]);

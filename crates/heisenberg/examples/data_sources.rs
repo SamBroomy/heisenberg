@@ -28,7 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Method 4: Try to load existing (returns None if doesn't exist)
     println!("4. Try to load existing indexes:");
-    match LocationSearcher::load_existing(DataSource::Cities1000)? {
+    match LocationSearcher::load_existing(&DataSource::Cities1000)? {
         Some(existing_searcher) => {
             let results = existing_searcher.search(&["Berlin"])?;
             println!(

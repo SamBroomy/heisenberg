@@ -60,13 +60,15 @@ impl PyLocationSearcher {
     ///     `RuntimeError`: If initialization fails.
     #[staticmethod]
     fn with_data_source(py: Python<'_>, data_source: &PyDataSource) -> PyResult<Self> {
-        py.allow_threads(|| match LocationSearcher::initialize(data_source.inner) {
-            Ok(inner) => Ok(Self { inner }),
-            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-                "Failed to initialize LocationSearcher with data source {:?}: {e}",
-                data_source.inner
-            ))),
-        })
+        py.allow_threads(
+            || match LocationSearcher::initialize(data_source.inner.clone()) {
+                Ok(inner) => Ok(Self { inner }),
+                Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                    "Failed to initialize LocationSearcher with data source {:?}: {e}",
+                    data_source.inner
+                ))),
+            },
+        )
     }
 
     /// Create a new `LocationSearcher` instance with fresh indexes.
@@ -84,14 +86,14 @@ impl PyLocationSearcher {
     ///     `RuntimeError`: If initialization fails.
     #[staticmethod]
     fn with_fresh_indexes(py: Python<'_>, data_source: &PyDataSource) -> PyResult<Self> {
-        py.allow_threads(
-            || match LocationSearcher::new_with_fresh_indexes(data_source.inner) {
+        py.allow_threads(|| {
+            match LocationSearcher::new_with_fresh_indexes(data_source.inner.clone()) {
                 Ok(inner) => Ok(Self { inner }),
                 Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
                     "Failed to initialize LocationSearcher with fresh indexes: {e}"
                 ))),
-            },
-        )
+            }
+        })
     }
 
     /// Try to load an existing `LocationSearcher` instance.
@@ -110,7 +112,7 @@ impl PyLocationSearcher {
     #[staticmethod]
     fn load_existing(py: Python<'_>, data_source: &PyDataSource) -> PyResult<Option<Self>> {
         py.allow_threads(
-            || match LocationSearcher::load_existing(data_source.inner) {
+            || match LocationSearcher::load_existing(&data_source.inner) {
                 Ok(Some(inner)) => Ok(Some(Self { inner })),
                 Ok(None) => Ok(None),
                 Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
@@ -878,7 +880,7 @@ impl PyDataSource {
     #[classmethod]
     fn embedded(_cls: &Bound<'_, PyType>) -> Self {
         Self {
-            inner: METADATA.source,
+            inner: METADATA.source.clone(),
         }
     }
 
@@ -918,7 +920,7 @@ impl PyLocationSearcherBuilder {
     /// Args:
     ///     `data_source`: The data source to use.
     fn data_source(&mut self, data_source: &PyDataSource) {
-        self.inner = self.inner.clone().data_source(data_source.inner);
+        self.inner = self.inner.clone().data_source(data_source.inner.clone());
     }
 
     /// Set whether to force rebuild indexes.

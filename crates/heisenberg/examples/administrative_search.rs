@@ -109,8 +109,6 @@ fn print_admin_result(df: &DataFrame) -> Result<(), Box<dyn std::error::Error>> 
 
 #[cfg(test)]
 mod tests {
-    use std::env;
-
     use super::*;
 
     fn setup_test_env() {

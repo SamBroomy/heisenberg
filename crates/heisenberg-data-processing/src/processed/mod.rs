@@ -64,19 +64,11 @@ mod tests {
 
     #[test]
     fn test_create_admin_search_actual_transformation() {
-        // Use the actual test files
-        let all_countries_file = create_test_all_countries_file();
-        let country_info_file = create_test_country_info_file();
-
-        let all_countries_lf = crate::raw::places::get_geoname_lf(all_countries_file.path());
-        let country_info_lf =
-            crate::raw::country_info::get_country_info_lf(country_info_file.path());
+        // Use the actual test data from samples
+        let temp_data = crate::raw::test_data::create_test_data();
 
         // Test the actual transformation
-        let result = create_admin_search::get_admin_search_lf_from_all_countries_data(
-            all_countries_lf,
-            country_info_lf,
-        );
+        let result = create_admin_search::get_admin_search_lf(&temp_data);
         let df = result.collect().unwrap();
 
         // Test that the transformation worked
@@ -118,32 +110,25 @@ mod tests {
 
     #[test]
     fn test_create_place_search_actual_transformation() {
-        let all_countries_file = create_test_all_countries_file();
-        let feature_codes_file = create_test_feature_codes_file();
-
-        let all_countries_lf =
-            crate::raw::places::get_geoname_lf(all_countries_file.path()).unwrap();
-        let feature_codes_lf =
-            crate::raw::feature_codes::get_feature_codes_lf(feature_codes_file.path()).unwrap();
+        // Use the actual test data from samples
+        let temp_data = crate::raw::test_data::create_test_data();
 
         // Debug: Check input data
-        let all_countries_df = all_countries_lf.clone().collect().unwrap();
+        let all_countries_df = temp_data.places.as_lazy_frame().collect().unwrap();
         println!(
             "All countries data (before anti-join): {} rows",
             all_countries_df.height()
         );
 
-        // Create empty admin search for anti-join
-        let admin_search_lf = all_countries_lf.clone().limit(0);
+        // Create admin search
+        let admin_search_lf = create_admin_search::get_admin_search_lf(&temp_data);
         let admin_search_df = admin_search_lf.clone().collect().unwrap();
-        println!(
-            "Admin search data (empty): {} rows",
-            admin_search_df.height()
-        );
+        println!("Admin search data: {} rows", admin_search_df.height());
 
         // Debug: Test the anti-join directly
-        let after_anti_join = all_countries_lf
-            .clone()
+        let after_anti_join = temp_data
+            .places
+            .as_lazy_frame()
             .join(
                 admin_search_lf.clone(),
                 [col("geonameId")],
@@ -158,8 +143,9 @@ mod tests {
         println!("After anti-join: {} rows", after_anti_join.height());
 
         // Debug: Test the filter step
-        let after_filter = all_countries_lf
-            .clone()
+        let after_filter = temp_data
+            .places
+            .as_lazy_frame()
             .join(
                 admin_search_lf.clone(),
                 [col("geonameId")],
@@ -187,17 +173,12 @@ mod tests {
         println!("After filter data: {after_filter:?}");
 
         // Debug: Check if feature_codes parsing is working
-        let feature_codes_df = feature_codes_lf.clone().collect().unwrap();
+        let feature_codes_df = temp_data.feature_codes.as_lazy_frame().collect().unwrap();
         println!("Feature codes data: {} rows", feature_codes_df.height());
         println!("Feature codes: {feature_codes_df:?}");
 
         // Debug the actual transformation - run it but collect intermediate steps
-        let result = create_place_search::get_place_search_lf(
-            all_countries_lf,
-            feature_codes_lf,
-            admin_search_lf,
-        )
-        .unwrap();
+        let result = create_place_search::get_place_search_lf(&temp_data, admin_search_lf);
 
         let df = result.collect().unwrap();
         println!("Final result: {} rows", df.height());
