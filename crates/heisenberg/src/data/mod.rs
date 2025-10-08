@@ -68,7 +68,7 @@ impl LocationSearchData {
             return embedded::load_embedded_admin_search_data();
         }
 
-        match get_admin_data(self.data_source) {
+        match get_admin_data(&self.data_source) {
             // If the data source is the same as the embedded one, we can load the embedded data directly.
             Ok(admin_lf) => Ok(admin_lf),
             Err(e) => {
@@ -88,7 +88,7 @@ impl LocationSearchData {
             return embedded::load_embedded_place_search_data();
         }
 
-        match get_admin_data(self.data_source) {
+        match get_admin_data(&self.data_source) {
             // If the data source is the same as the embedded one, we can load the embedded data directly.
             Ok(place_lf) => Ok(place_lf),
             Err(e) => {

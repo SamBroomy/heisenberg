@@ -27,6 +27,7 @@ fn main() -> Result<()> {
             &AdminSearchParams::default(),
         )?
         .unwrap_or_default();
+    dbg!(&admins);
 
     let admins1 = s
         .admin_search(
@@ -36,6 +37,7 @@ fn main() -> Result<()> {
             &AdminSearchParams::default(),
         )?
         .unwrap();
+    dbg!(&admins1);
     let admins2 = s
         .admin_search(
             "Los Angeles County",
@@ -44,6 +46,7 @@ fn main() -> Result<()> {
             &AdminSearchParams::default(),
         )?
         .unwrap();
+    dbg!(&admins2);
 
     let _admin3 = s
         .admin_search(
@@ -53,6 +56,7 @@ fn main() -> Result<()> {
             &AdminSearchParams::default(),
         )?
         .unwrap();
+    dbg!(&_admin3);
 
     let search_service =
         LocationSearcher::new_embedded().expect("Failed to create embedded LocationSearcher");
@@ -68,24 +72,26 @@ fn main() -> Result<()> {
     let example_search_span = info_span!("manual_search_example").entered();
 
     // Example using the service
-    // let admins = search_service
-    //     .admin_search(
-    //         "United States",
-    //         &[0, 1],
-    //         None::<DataFrame>,
-    //         &AdminSearchParams::default(),
-    //     )?
-    //     .unwrap();
-    // debug!(admins = ?admins, "Admin search results");
-
-    let admins1 = search_service
+    let admins = search_service
         .admin_search(
-            "California",
-            &[1, 2],
-            None, //Some(admins), // Pass the DataFrame directly
+            "United States",
+            &[0, 1],
+            None::<DataFrame>,
             &AdminSearchParams::default(),
         )?
         .unwrap();
+    dbg!(&admins);
+    debug!(admins = ?admins, "Admin search results");
+
+    let admins1 = search_service
+        .admin_search(
+            "CA",
+            &[1, 2],
+            Some(admins), // Pass the DataFrame directly
+            &AdminSearchParams::default(),
+        )?
+        .unwrap();
+    dbg!(&admins1);
     debug!(admins1 = ?admins1, "Admin1 search results");
     let admins2 = search_service
         .admin_search(

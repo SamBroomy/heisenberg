@@ -11,6 +11,7 @@ keywords.workspace = true
 categories.workspace = true
 
 build = "build.rs"
+default-run = "heisenberg"
 
 
 [lib]
@@ -18,11 +19,12 @@ name = "heisenberg"
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = ["download_data", "system-dirs"]
-download_data = ["heisenberg-data-processing/download_data"]
+default = ["download-data", "system-dirs"]
+download-data = ["heisenberg-data-processing/download-data"]
 system-dirs = ["heisenberg-data-processing/system-dirs"]
 python = ["dep:pyo3", "dep:pyo3-polars", "dep:pyo3-log", "serde"]
 serde = ["dep:serde"]
+test-data = ["heisenberg-data-processing/test-data"]
 
 [dependencies]
 # Workspace dependencies
@@ -55,7 +57,7 @@ pyo3-polars = { workspace = true, optional = true }
 pyo3-log = { workspace = true, optional = true }
 
 [build-dependencies]
-heisenberg-data-processing = { workspace = true, features = ["download_data"] }
+heisenberg-data-processing = { workspace = true, features = ["download-data"] }
 
 [lints]
 workspace = true

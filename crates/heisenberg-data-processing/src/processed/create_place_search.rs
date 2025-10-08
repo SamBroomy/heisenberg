@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use itertools::multiunzip;
 use polars::prelude::*;
 
-use super::Result;
+use crate::raw::fetch::TempData;
 
-fn get_category_features() -> Result<LazyFrame> {
+fn get_category_features() -> LazyFrame {
     let categories = [
         ("capitals", vec!["PPLC", "PPLG", "PPLCH"]),
         (
@@ -88,15 +88,16 @@ fn get_category_features() -> Result<LazyFrame> {
     let (feature_code, category_name, category_weight): (Vec<&str>, Vec<&str>, Vec<f64>) =
         multiunzip(category_map);
 
-    Ok(df!(
+    df!(
         "feature_code" => feature_code,
         "category_name" => category_name,
         "category_weight" => category_weight
-    )?
-    .lazy())
+    )
+    .expect("DataFrame is valid")
+    .lazy()
 }
 
-fn get_class_defaults() -> Result<LazyFrame> {
+fn get_class_defaults() -> LazyFrame {
     let class_category_weights = vec![
         ("P", "populated", 0.2),
         ("A", "area", 0.2),
@@ -110,19 +111,20 @@ fn get_class_defaults() -> Result<LazyFrame> {
     ];
     let (feature_class, category_name, category_weight): (Vec<&str>, Vec<&str>, Vec<f64>) =
         multiunzip(class_category_weights);
-    Ok(df!(
+    df!(
         "feature_class" => feature_class,
         "category_name" => category_name,
         "category_weight" => category_weight
-    )?
-    .lazy())
+    )
+    .expect("DataFrame is valid")
+    .lazy()
 }
 
-fn get_category_features_lf(feature_codes: LazyFrame) -> Result<LazyFrame> {
-    let category_features_lf = get_category_features()?;
-    let class_defaults_lf = get_class_defaults()?;
+fn get_category_features_lf(feature_codes: LazyFrame) -> LazyFrame {
+    let category_features_lf = get_category_features();
+    let class_defaults_lf = get_class_defaults();
 
-    Ok(feature_codes
+    feature_codes
         .join(
             category_features_lf,
             [col("feature_code")],
@@ -163,17 +165,17 @@ fn get_category_features_lf(feature_codes: LazyFrame) -> Result<LazyFrame> {
             col("description"),
             col("category_name"),
             col("category_weight"),
-        ]))
+        ])
 }
 
-pub fn get_place_search_lf(
-    all_countries: LazyFrame,
-    feature_codes: LazyFrame,
-    admin_search: LazyFrame,
-) -> Result<LazyFrame> {
-    let category_features = get_category_features_lf(feature_codes)?;
+pub fn get_place_search_lf(temp_data: &TempData, admin_search: LazyFrame) -> LazyFrame {
+    let places_lf = temp_data.places.as_lazy_frame();
+    let feature_codes_lf = temp_data.feature_codes.as_lazy_frame();
 
-    Ok(all_countries
+    let category_features = get_category_features_lf(feature_codes_lf);
+
+    places_lf
+        // Exclude any places that are already in the admin search dataset (we only want places that are not already represented by an admin unit)
         .join(
             admin_search,
             [col("geonameId")],
@@ -183,20 +185,25 @@ pub fn get_place_search_lf(
                 ..Default::default()
             },
         )
+        // Only include places that have an associated country (admin0_code) and are of a feature class we want to include
         .filter(
             (col("admin0_code").is_not_null()).and(
                 col("feature_class").is_in(
                     lit(Series::new(
                         "feature_class_to_keep".into(),
-                        ["P", "S", "T", "H", "L", "V", "R"],
+                        ["H", "L", "P", "R", "S", "T", "V"],
                     ))
                     .implode(),
                     false,
                 ),
             ),
         )
+        // Generate some additional features we can use to help score the importance of each place
         .with_columns([
-            col("population").log1p().alias("pop_log1p"),
+            col("population")
+                .fill_null(lit(0i32))
+                .log1p()
+                .alias("pop_log1p"),
             col("alternatenames")
                 .list()
                 .len()
@@ -208,12 +215,15 @@ pub fn get_place_search_lf(
             ((col("pop_log1p") - col("pop_log1p").min())
                 / (col("pop_log1p").max() - col("pop_log1p").min()))
             .fill_nan(0.0)
+            .fill_null(0.0)
             .alias("pop_boost"),
             ((col("name_len_log1p") - col("name_len_log1p").min())
                 / (col("name_len_log1p").max() - col("name_len_log1p").min()))
             .fill_nan(0.0)
+            .fill_null(0.0)
             .alias("name_boost"),
         ])
+        // Join with category features to get a category weight for each place based on its feature code and class
         .join(
             category_features,
             [col("feature_code")],
@@ -223,24 +233,35 @@ pub fn get_place_search_lf(
                 ..Default::default()
             },
         )
-        .with_columns([((col("pop_boost") * lit(0.5))
-            + (col("category_weight") * lit(0.3))
-            + (col("name_boost") * lit(0.2)))
-        .alias("importance_score")])
-        .with_columns([(lit(1.0)
-            / (
-                lit(1.0)
-                    + when(col("importance_score").std(1).gt(lit(1e-8)))
-                        .then(
-                            (((col("importance_score") - col("importance_score").mean())
-                                / col("importance_score").std(1))
-                                * lit(-1.5))
-                            .exp(),
-                        )
-                        .otherwise(lit(1.0))
-                // When std is 0 (single row), use neutral scaling
-            ))
-        .alias("importance_score")])
+        .with_column(
+            col("category_weight")
+                .fill_null(lit(0.1))
+                .alias("category_weight"),
+        )
+        // Create an importance score based on a weighted combination of population boost, name boost, and category weight
+        .with_column(
+            ((col("pop_boost") * lit(0.5))
+                + (col("category_weight") * lit(0.3))
+                + (col("name_boost") * lit(0.2)))
+            .alias("importance_score"),
+        )
+        // Scale the importance score to a 0-1 range using a logistic function to compress outliers
+        .with_column(
+            (lit(1.0)
+                / (
+                    lit(1.0)
+                        + when(col("importance_score").std(1).gt(lit(1e-8)))
+                            .then(
+                                (((col("importance_score") - col("importance_score").mean())
+                                    / col("importance_score").std(1))
+                                    * lit(-1.5))
+                                .exp(),
+                            )
+                            .otherwise(lit(1.0))
+                    // When std is 0 (single row), use neutral scaling
+                ))
+            .alias("importance_score"),
+        )
         .with_column(
             // All we are doing is defining the cumulative proportion of items belonging to the top tiers in a way that each successively smaller group of top tiers is approximately 30% the size of the next larger group.
             // Defining the cumulative percentage thresholds for each tier as:
@@ -274,6 +295,7 @@ pub fn get_place_search_lf(
             .cast(DataType::UInt8)
             .alias("importance_tier"),
         )
+        // We only want to keep places that have a non-null importance score (this should be all places that pass the earlier filter)
         .filter(col("importance_score").is_not_null())
         .select([
             col("geonameId"),
@@ -292,5 +314,5 @@ pub fn get_place_search_lf(
             col("alternatenames"),
             col("importance_score"),
             col("importance_tier"),
-        ]))
+        ])
 }

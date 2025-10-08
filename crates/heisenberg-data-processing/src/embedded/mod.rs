@@ -2,13 +2,14 @@ use std::{path::PathBuf, sync::LazyLock};
 
 use polars::prelude::*;
 use serde::{Deserialize, Serialize};
-use tempfile::NamedTempFile;
 use tracing::info;
 
+#[cfg(any(test, feature = "test-data"))]
+use crate::raw::test_data::create_test_data;
 use crate::{
     DataSource, Result,
     processed::{generate_processed_data, save_processed_data_to_parquet},
-    test_data::TestDataConfig,
+    raw::fetch::TempData,
 };
 
 // Sweaty workaround to let us use the same string as a static here and also in the include_bytes! macro
@@ -39,35 +40,41 @@ pub static EMBEDDED_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
 
 /// Generate embedded data from cities15000.zip and write as Rust source files
 pub fn generate_embedded_dataset(data_source: DataSource) -> Result<()> {
-    #[cfg(feature = "download_data")]
+    #[cfg(feature = "download-data")]
     {
-        crate::raw::fetch::download_data(data_source)
-            .and_then(|temp_files| embed_data(&temp_files, data_source))
+        crate::raw::fetch::download_data(&data_source)
+            .and_then(|temp_data| embed_data(temp_data, data_source))?;
+        Ok(())
     }
-    #[cfg(not(feature = "download_data"))]
+    #[cfg(all(not(feature = "download-data"), any(test, feature = "test-data")))]
     {
         tracing::warn!("download_data feature not enabled, falling back to test data");
-        return generate_test_data_rust_code();
+        generate_test_data_rust_code()
+    }
+
+    #[cfg(all(not(feature = "download-data"), not(any(test, feature = "test-data"))))]
+    {
+        compile_error!(
+            "Either 'download_data' or 'test_data' feature must be enabled to generate embedded datasets"
+        )
     }
 }
 
 /// Generate embedded data from test data and write as Rust source files
+#[cfg(any(test, feature = "test-data"))]
 pub fn generate_test_data_rust_code() -> Result<()> {
     tracing::info!("Generating embedded dataset from test data");
 
-    crate::test_data::create_test_data(&TestDataConfig::sample())
-        .and_then(|temp_files| embed_data(&temp_files, DataSource::TestData))
+    let test_temp_files = create_test_data();
+    embed_data(test_temp_files, DataSource::TestData)
 }
 
-fn embed_data(
-    temp_files: &(NamedTempFile, NamedTempFile, NamedTempFile),
-    data_source: DataSource,
-) -> Result<()> {
+fn embed_data(temp_data: TempData, data_source: DataSource) -> Result<()> {
     info!("Generating processed data for {}", data_source);
 
     std::fs::create_dir_all(EMBEDDED_DIR.as_path())?;
 
-    let (admin_df, place_df) = generate_processed_data(temp_files)?;
+    let (admin_df, place_df) = generate_processed_data(temp_data)?;
 
     let metadata = EmbeddedMetadata::from_dfs(&admin_df, &place_df, data_source)?;
     let metadata_path = EMBEDDED_DIR.join(METADATA_PATH);

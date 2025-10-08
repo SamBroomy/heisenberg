@@ -8,13 +8,13 @@ pub enum DataError {
     Io(#[from] std::io::Error),
     #[error("Polars error: {0}")]
     Polars(#[from] PolarsError),
-    #[cfg(feature = "download_data")]
+    #[cfg(feature = "download-data")]
     #[error("HTTP error: {0}")]
     Http(#[from] reqwest::Error),
-    #[cfg(feature = "download_data")]
+    #[cfg(feature = "download-data")]
     #[error("Join error: {0}")]
     JoinError(#[from] tokio::task::JoinError),
-    #[cfg(feature = "download_data")]
+    #[cfg(feature = "download-data")]
     #[error("Zip error: {0}")]
     ZipError(#[from] zip::result::ZipError),
     #[error("Serialization error: {0}")]

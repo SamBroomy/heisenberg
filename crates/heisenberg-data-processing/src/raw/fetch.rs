@@ -9,28 +9,66 @@ use tracing::{info, instrument};
 use zip::ZipArchive;
 
 use super::Result;
-use crate::{DataError, DataSource};
+use crate::{
+    DataError, DataSource,
+    raw::{
+        admin::{Admin1CodeRawData, Admin2CodeRawData},
+        country_info::CountryInfoRawData,
+        feature_codes::FeatureCodesRawData,
+        places::PlacesRawData,
+    },
+};
+
+pub struct TempData {
+    pub places: PlacesRawData,
+    pub country_info: CountryInfoRawData,
+    pub admin1: Admin1CodeRawData,
+    pub admin2: Admin2CodeRawData,
+    pub feature_codes: FeatureCodesRawData,
+}
+impl TempData {
+    #[must_use]
+    pub fn from_temp_files(
+        places: NamedTempFile,
+        country_info: NamedTempFile,
+        admin1: NamedTempFile,
+        admin2: NamedTempFile,
+        feature_codes: NamedTempFile,
+    ) -> Self {
+        Self {
+            places: PlacesRawData::new(places),
+            country_info: CountryInfoRawData::new(country_info),
+            admin1: Admin1CodeRawData::new(admin1),
+            admin2: Admin2CodeRawData::new(admin2),
+            feature_codes: FeatureCodesRawData::new(feature_codes),
+        }
+    }
+}
 
 #[instrument(name = "Download data", skip_all, level = "info")]
-pub fn download_data(
-    data_source: DataSource,
-) -> Result<(NamedTempFile, NamedTempFile, NamedTempFile)> {
-    let rt = tokio::runtime::Runtime::new()?;
-
+pub fn download_data(data_source: &DataSource) -> Result<TempData> {
     let data_source_url = data_source
-        .geonames_url()
+        .places_url()
         .ok_or_else(|| DataError::NoDataDirProvided)?;
 
-    rt.block_on(async {
+    tokio::runtime::Runtime::new()?.block_on(async {
         let client = Client::new();
 
-        let (cities15000_file, country_info_df, feature_codes_df) = tokio::try_join!(
-            download_raw_data(&client, &data_source_url),
+        let (places, country_info, admin1, admin2, feature_codes) = tokio::try_join!(
+            download_places_data(&client, &data_source_url),
             download_country_info(&client),
+            download_admin1_codes(&client),
+            download_admin2_codes(&client),
             download_feature_codes(&client),
         )?;
 
-        Ok((cities15000_file, country_info_df, feature_codes_df))
+        Ok(TempData::from_temp_files(
+            places,
+            country_info,
+            admin1,
+            admin2,
+            feature_codes,
+        ))
     })
 }
 
@@ -57,7 +95,7 @@ warning: heisenberg@0.1.0:   Place: 9504661 bytes (9281.9 KB)
 warning: heisenberg@0.1.0:   Total: 14798118 bytes (14451.3 KB)
 */
 
-async fn download_raw_data(client: &Client, url: &str) -> Result<NamedTempFile> {
+async fn download_places_data(client: &Client, url: &str) -> Result<NamedTempFile> {
     download_zip_and_extract_first_entry_to_temp_file(client, url).await
 }
 
@@ -71,6 +109,18 @@ const FEATURE_CODES_URL: &str = "https://download.geonames.org/export/dump/featu
 /// Downloads the feature codes file from `GeoNames` and extracts it to a temporary file.
 async fn download_feature_codes(client: &Client) -> Result<NamedTempFile> {
     download_to_temp_file(client, FEATURE_CODES_URL).await
+}
+
+const ADMIN1_CODES_URL: &str = "https://download.geonames.org/export/dump/admin1CodesASCII.txt";
+/// Downloads the admin1 codes file from `GeoNames` and extracts it to a temporary file.
+async fn download_admin1_codes(client: &Client) -> Result<NamedTempFile> {
+    download_to_temp_file(client, ADMIN1_CODES_URL).await
+}
+
+const ADMIN2_CODES_URL: &str = "https://download.geonames.org/export/dump/admin2Codes.txt";
+/// Downloads the admin2 codes file from `GeoNames` and extracts it to a temporary file.
+async fn download_admin2_codes(client: &Client) -> Result<NamedTempFile> {
+    download_to_temp_file(client, ADMIN2_CODES_URL).await
 }
 
 async fn download_to_temp_file(client: &Client, url: &str) -> Result<NamedTempFile> {

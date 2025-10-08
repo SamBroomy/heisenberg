@@ -1,38 +1,12 @@
-use std::path::Path;
-
-use polars::prelude::LazyFrame;
-use tracing::{instrument, warn};
-pub(super) mod all_countries;
+pub(super) mod admin;
 pub(super) mod country_info;
 pub(super) mod feature_codes;
-#[cfg(feature = "download_data")]
+#[cfg(feature = "download-data")]
 pub mod fetch;
+pub(super) mod places;
+#[cfg(any(test, feature = "test-data"))]
+pub mod test_data;
 pub use super::error::Result;
-
-#[instrument(name = "Transform GeoNames data", skip_all, level = "info")]
-pub fn get_raw_data_as_lazy_frames<T: AsRef<Path>>(
-    raw_data: &(T, T, T),
-) -> Result<(LazyFrame, LazyFrame, LazyFrame)> {
-    let all_countries_df = all_countries::get_all_countries_df(raw_data.0.as_ref())?;
-    let country_info_df = country_info::get_country_info_df(raw_data.1.as_ref())?;
-    let feature_codes_df = feature_codes::get_feature_codes_df(raw_data.2.as_ref())?;
-
-    Ok((all_countries_df, country_info_df, feature_codes_df))
-}
-
-/// Transform `GeoNames` data from separate file paths
-#[instrument(name = "Transform GeoNames data from paths", skip_all, level = "info")]
-pub fn get_raw_data_as_lazy_frames_from_paths(
-    all_countries_path: &Path,
-    country_info_path: &Path,
-    feature_codes_path: &Path,
-) -> Result<(LazyFrame, LazyFrame, LazyFrame)> {
-    let all_countries_df = all_countries::get_all_countries_df(all_countries_path)?;
-    let country_info_df = country_info::get_country_info_df(country_info_path)?;
-    let feature_codes_df = feature_codes::get_feature_codes_df(feature_codes_path)?;
-
-    Ok((all_countries_df, country_info_df, feature_codes_df))
-}
 
 #[cfg(test)]
 mod tests {

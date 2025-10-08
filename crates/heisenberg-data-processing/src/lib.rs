@@ -9,13 +9,15 @@ use std::{
     fmt,
     path::{Path, PathBuf},
     str::FromStr,
-    sync::LazyLock,
+    sync::{
+        LazyLock,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
 pub use error::{DataError, Result};
 use polars::prelude::*;
 use serde::{Deserialize, Serialize};
-pub use test_data::{TestDataConfig, create_test_data};
 use tracing::{info, warn};
 
 use crate::processed::{generate_processed_data, save_processed_data_to_parquet};
@@ -24,7 +26,6 @@ pub mod embedded;
 pub mod error;
 pub mod processed;
 pub mod raw;
-pub mod test_data;
 
 pub const DATA_DIR_DEFAULT: &str = "heisenberg_data";
 
@@ -47,6 +48,7 @@ pub enum DataSource {
     Cities500,
     /// Download and process allCountries.zip (full dataset)
     AllCountries,
+    // Files(PathBuf, PathBuf, PathBuf, PathBuf, PathBuf),
     /// Use Test data for development
     TestData,
 }
@@ -72,11 +74,11 @@ impl DataSource {
         DATA_DIR.join(self.to_string())
     }
 
-    fn processed_dir(self) -> PathBuf {
+    fn processed_dir(&self) -> PathBuf {
         self.data_source_dir().join(Self::PROCESSED_DIR)
     }
 
-    pub fn geonames_url(&self) -> Option<String> {
+    pub fn places_url(&self) -> Option<String> {
         match self {
             Self::TestData => {
                 warn!("Using test data, no download URL available");
@@ -115,7 +117,7 @@ impl FromStr for DataSource {
     }
 }
 
-static TEST_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static TEST_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 static TEST_DIR: LazyLock<tempfile::TempDir> =
     LazyLock::new(|| tempfile::tempdir().expect("Failed to create temporary test directory"));
@@ -125,7 +127,7 @@ fn get_default_data_dir() -> PathBuf {
     // Check if we're in a doctest environment
     if std::env::var("CARGO_TARGET_TMPDIR").is_ok() {
         // In doctests, create a unique directory
-        let test_id = TEST_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let test_id = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
         return TEST_DIR
             .path()
             .join(format!("heisenberg_doctest_{test_id}"));
@@ -134,7 +136,7 @@ fn get_default_data_dir() -> PathBuf {
     {
         TEST_DIR.path().to_path_buf().join(format!(
             "heisenberg_data_test_{}",
-            TEST_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
         ))
     }
     #[cfg(not(any(test, doctest)))]
@@ -152,7 +154,7 @@ fn get_default_data_dir() -> PathBuf {
         // 3. Development detection
         if std::env::var("CARGO_PKG_NAME").is_ok() {
             // We're being built by cargo, use relative to workspace
-            return PathBuf::from(format!("../../{DATA_DIR_DEFAULT}"));
+            return PathBuf::from(DATA_DIR_DEFAULT.to_string());
         }
 
         // 4. Production: use system directories
@@ -182,7 +184,7 @@ fn load_parquet_files(admin_path: &Path, place_path: &Path) -> Result<(LazyFrame
 }
 
 /// Check if both admin and place files exist and are readable
-fn validate_data_files(data_source: DataSource) -> Result<(PathBuf, PathBuf)> {
+fn validate_data_files(data_source: &DataSource) -> Result<(PathBuf, PathBuf)> {
     let admin_path = data_source.admin_parquet();
     let place_path = data_source.place_parquet();
 
@@ -212,7 +214,7 @@ fn validate_data_files(data_source: DataSource) -> Result<(PathBuf, PathBuf)> {
 }
 
 /// Remove existing data files to force regeneration
-fn clean_data_files(data_source: DataSource) -> Result<()> {
+fn clean_data_files(data_source: &DataSource) -> Result<()> {
     let admin_path = data_source.admin_parquet();
     let place_path = data_source.place_parquet();
 
@@ -230,7 +232,7 @@ fn clean_data_files(data_source: DataSource) -> Result<()> {
 }
 
 /// Ensure both admin and place data files exist and are valid, regenerating if necessary
-fn ensure_data_files(data_source: DataSource) -> Result<(PathBuf, PathBuf)> {
+fn ensure_data_files(data_source: &DataSource) -> Result<(PathBuf, PathBuf)> {
     // First try to validate existing files
     if let Ok(paths) = validate_data_files(data_source) {
         info!("Using existing processed data for {}", data_source);
@@ -244,14 +246,13 @@ fn ensure_data_files(data_source: DataSource) -> Result<(PathBuf, PathBuf)> {
     clean_data_files(data_source)?;
 
     // Generate new data files
-    #[cfg(feature = "download_data")]
+    #[cfg(feature = "download-data")]
     {
-        let temp_files = raw::fetch::download_data(data_source)?;
-
         info!("Generating processed data for {}", data_source);
         std::fs::create_dir_all(data_source.processed_dir())?;
+        let temp_files = raw::fetch::download_data(data_source)?;
 
-        let (admin_df, place_df) = generate_processed_data(&temp_files)?;
+        let (admin_df, place_df) = generate_processed_data(temp_files)?;
 
         let admin_path = data_source.admin_parquet();
         let place_path = data_source.place_parquet();
@@ -267,7 +268,7 @@ fn ensure_data_files(data_source: DataSource) -> Result<(PathBuf, PathBuf)> {
         // Validate the newly created files
         validate_data_files(data_source)
     }
-    #[cfg(not(feature = "download_data"))]
+    #[cfg(not(feature = "download-data"))]
     {
         warn!("download_data feature not enabled, cannot regenerate data");
         Err(DataError::RequiredFilesNotFound)
@@ -275,7 +276,7 @@ fn ensure_data_files(data_source: DataSource) -> Result<(PathBuf, PathBuf)> {
 }
 
 /// Get both admin and place data as `LazyFrames`
-pub fn get_data(data_source: DataSource) -> Result<(LazyFrame, LazyFrame)> {
+pub fn get_data(data_source: &DataSource) -> Result<(LazyFrame, LazyFrame)> {
     let (admin_path, place_path) = ensure_data_files(data_source)?;
     load_parquet_files(&admin_path, &place_path)
 }
@@ -284,7 +285,7 @@ pub fn get_data(data_source: DataSource) -> Result<(LazyFrame, LazyFrame)> {
 ///
 /// This function ensures data consistency by validating that both admin and place files exist.
 /// If either file is missing or corrupted, both will be regenerated.
-pub fn get_admin_data(data_source: DataSource) -> Result<LazyFrame> {
+pub fn get_admin_data(data_source: &DataSource) -> Result<LazyFrame> {
     let (admin_path, _place_path) = ensure_data_files(data_source)?;
     load_single_parquet_file(admin_path)
 }
@@ -293,21 +294,21 @@ pub fn get_admin_data(data_source: DataSource) -> Result<LazyFrame> {
 ///
 /// This function ensures data consistency by validating that both admin and place files exist.
 /// If either file is missing or corrupted, both will be regenerated.
-pub fn get_place_data(data_source: DataSource) -> Result<LazyFrame> {
+pub fn get_place_data(data_source: &DataSource) -> Result<LazyFrame> {
     let (_admin_path, place_path) = ensure_data_files(data_source)?;
     load_single_parquet_file(place_path)
 }
 
 /// Check if processed data exists for the given data source without loading it
 #[must_use]
-pub fn data_exists(data_source: DataSource) -> bool {
+pub fn data_exists(data_source: &DataSource) -> bool {
     validate_data_files(data_source).is_ok()
 }
 
 /// Force regeneration of processed data for the given data source
 ///
 /// This will delete existing files and download/process fresh data.
-pub fn regenerate_data(data_source: DataSource) -> Result<(LazyFrame, LazyFrame)> {
+pub fn regenerate_data(data_source: &DataSource) -> Result<(LazyFrame, LazyFrame)> {
     info!("Force regenerating data for {}", data_source);
 
     // Clean existing files

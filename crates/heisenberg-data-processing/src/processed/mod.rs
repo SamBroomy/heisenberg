@@ -4,31 +4,22 @@ use polars::prelude::*;
 use tracing::{info, info_span};
 
 use super::error::Result;
+use crate::raw::fetch::TempData;
 
 pub mod create_admin_search;
 pub mod create_place_search;
 
 /// Generate processed data from raw sources and save to parquet files
-pub fn generate_processed_data(
-    raw_data: &(
-        tempfile::NamedTempFile,
-        tempfile::NamedTempFile,
-        tempfile::NamedTempFile,
-    ),
-) -> Result<(DataFrame, DataFrame)> {
-    // Generate from raw data
+pub fn generate_processed_data(temp_data: TempData) -> Result<(DataFrame, DataFrame)> {
+    // Cant drop temp files until end of scope otherwise they get deleted and the lazy frames
+    // cant read the data.
     let mut dfs = {
         let _span = info_span!("Transform Raw Data").entered();
-        let (all_countries_lf, country_info_lf, feature_codes_lf) =
-            super::raw::get_raw_data_as_lazy_frames(raw_data)?;
 
-        let admin_search_lf =
-            create_admin_search::get_admin_search_lf(all_countries_lf.clone(), country_info_lf)?;
-        let place_search_lf = create_place_search::get_place_search_lf(
-            all_countries_lf,
-            feature_codes_lf,
-            admin_search_lf.clone(),
-        )?;
+        let admin_search_lf = create_admin_search::get_admin_search_lf(&temp_data);
+
+        let place_search_lf =
+            create_place_search::get_place_search_lf(&temp_data, admin_search_lf.clone());
         info!("Collecting transformed data");
         let transform_time = std::time::Instant::now();
         let dfs = collect_all([admin_search_lf, place_search_lf])?;
@@ -41,6 +32,8 @@ pub fn generate_processed_data(
 
     let place_search_df = dfs.pop().expect("Place search should be last");
     let admin_search_df = dfs.pop().expect("Admin search should be first");
+
+    drop(temp_data); // Drop temp data to clean up files
 
     Ok((admin_search_df, place_search_df))
 }
@@ -75,14 +68,15 @@ mod tests {
         let all_countries_file = create_test_all_countries_file();
         let country_info_file = create_test_country_info_file();
 
-        let all_countries_lf =
-            crate::raw::all_countries::get_all_countries_df(all_countries_file.path()).unwrap();
+        let all_countries_lf = crate::raw::places::get_geoname_lf(all_countries_file.path());
         let country_info_lf =
-            crate::raw::country_info::get_country_info_df(country_info_file.path()).unwrap();
+            crate::raw::country_info::get_country_info_lf(country_info_file.path());
 
         // Test the actual transformation
-        let result =
-            create_admin_search::get_admin_search_lf(all_countries_lf, country_info_lf).unwrap();
+        let result = create_admin_search::get_admin_search_lf_from_all_countries_data(
+            all_countries_lf,
+            country_info_lf,
+        );
         let df = result.collect().unwrap();
 
         // Test that the transformation worked
@@ -128,9 +122,9 @@ mod tests {
         let feature_codes_file = create_test_feature_codes_file();
 
         let all_countries_lf =
-            crate::raw::all_countries::get_all_countries_df(all_countries_file.path()).unwrap();
+            crate::raw::places::get_geoname_lf(all_countries_file.path()).unwrap();
         let feature_codes_lf =
-            crate::raw::feature_codes::get_feature_codes_df(feature_codes_file.path()).unwrap();
+            crate::raw::feature_codes::get_feature_codes_lf(feature_codes_file.path()).unwrap();
 
         // Debug: Check input data
         let all_countries_df = all_countries_lf.clone().collect().unwrap();

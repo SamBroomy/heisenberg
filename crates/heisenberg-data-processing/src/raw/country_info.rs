@@ -1,8 +1,5 @@
-use std::path::Path;
-
 use polars::prelude::*;
-
-use super::Result;
+use tempfile::NamedTempFile;
 
 const COUNTRY_INFO_SCHEMA: [(PlSmallStr, DataType); 19] = [
     (PlSmallStr::from_static("ISO"), DataType::String),
@@ -34,21 +31,32 @@ const COUNTRY_INFO_SCHEMA: [(PlSmallStr, DataType); 19] = [
         DataType::String,
     ),
 ];
+pub struct CountryInfoRawData {
+    data: NamedTempFile,
+}
 
-pub fn get_country_info_df(path: impl Into<Arc<Path>>) -> Result<LazyFrame> {
-    Ok(LazyCsvReader::new(PlPath::Local(path.into()))
-        .with_separator(b'\t')
-        .with_has_header(false)
-        .with_schema(Some(Schema::from_iter(COUNTRY_INFO_SCHEMA).into()))
-        .with_skip_lines(51)
-        .finish()?
-        .with_column(
-            dtype_col(&DataType::String)
-                .as_selector()
-                .as_expr()
-                .str()
-                .strip_chars(lit("\"':"))
-                .str()
-                .strip_chars(lit("")),
-        ))
+impl CountryInfoRawData {
+    pub fn new(file: NamedTempFile) -> Self {
+        Self { data: file }
+    }
+
+    pub fn as_lazy_frame(&self) -> LazyFrame {
+        LazyCsvReader::new(PlPath::Local(self.data.path().into()))
+            .with_separator(b'\t')
+            .with_has_header(false)
+            .with_schema(Some(Schema::from_iter(COUNTRY_INFO_SCHEMA).into()))
+            .with_skip_lines(51)
+            .with_quote_char(None)
+            .finish()
+            .expect("Failed to read `countryInfo.txt`")
+            .with_column(
+                dtype_col(&DataType::String)
+                    .as_selector()
+                    .as_expr()
+                    .str()
+                    .strip_chars(lit("\"'"))
+                    .str()
+                    .strip_chars(lit("")),
+            )
+    }
 }

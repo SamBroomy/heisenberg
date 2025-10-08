@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 pub use error::IndexError;
 use error::Result;
 use itertools::izip;
-use polars::prelude::{DataFrame, DataType, LazyFrame, col};
+use polars::prelude::*;
 use tantivy::{
     Index, IndexWriter, TantivyDocument, Term,
     collector::TopDocs,
@@ -223,6 +223,7 @@ impl IndexDefinition for AdminIndexDef {
         schema_builder.add_text_field("ISO", code_options.clone());
         schema_builder.add_text_field("ISO3", code_options.clone());
         schema_builder.add_text_field("fips", code_options);
+        schema_builder.add_text_field("admin_code", text_options);
         schema_builder.build()
     }
 
@@ -236,10 +237,37 @@ impl IndexDefinition for AdminIndexDef {
             "ISO",
             "ISO3",
             "fips",
+            "admin0_code",
+            "admin1_code",
+            "admin2_code",
+            "admin3_code",
+            "admin4_code",
         ]
     }
 
     fn index_data(&self, writer: &mut IndexWriter, df: DataFrame, schema: &Schema) -> Result<()> {
+        let admin_code_df = df
+            .clone()
+            .lazy()
+            .with_column(
+                // First get the coalesced admin code
+                coalesce(&[
+                    col("admin4_code"),
+                    col("admin3_code"),
+                    col("admin2_code"),
+                    col("admin1_code"),
+                    col("admin0_code"),
+                ])
+                .alias("admin_code"),
+            )
+            .select([
+                when(col("admin_code").str().contains(lit(r"^[a-zA-Z]+$"), true))
+                    .then(col("admin_code"))
+                    .otherwise(lit(NULL))
+                    .alias("admin_code"),
+            ])
+            .collect()?;
+
         let geoname_id_series = df.column("geonameId")?.cast(&DataType::UInt64)?;
         let geoname_id_series = geoname_id_series.u64()?;
         let name_series = df.column("name")?.str()?;
@@ -249,6 +277,7 @@ impl IndexDefinition for AdminIndexDef {
         let iso_series = df.column("ISO")?.str()?;
         let iso3_series = df.column("ISO3")?.str()?;
         let fips_series = df.column("fips")?.str()?;
+        let admin_code_series = admin_code_df.column("admin_code")?.str()?;
 
         let f_gid = schema.get_field("geonameId")?;
         let f_name = schema.get_field("name")?;
@@ -258,8 +287,9 @@ impl IndexDefinition for AdminIndexDef {
         let f_iso = schema.get_field("ISO")?;
         let f_iso3 = schema.get_field("ISO3")?;
         let f_fips = schema.get_field("fips")?;
+        let f_admin_code = schema.get_field("admin_code")?;
 
-        for (gid, name, asciiname, alternatenames, official_name, iso, iso3, fips) in izip!(
+        for (gid, name, asciiname, alternatenames, official_name, iso, iso3, fips, admin_code) in izip!(
             geoname_id_series,
             name_series,
             asciiname_series,
@@ -267,7 +297,8 @@ impl IndexDefinition for AdminIndexDef {
             official_name_series,
             iso_series,
             iso3_series,
-            fips_series
+            fips_series,
+            admin_code_series
         ) {
             if let (Some(gid_val), Some(name_val)) = (gid, name) {
                 let mut doc = TantivyDocument::default();
@@ -292,6 +323,9 @@ impl IndexDefinition for AdminIndexDef {
                 }
                 if let Some(val) = fips {
                     doc.add_text(f_fips, val);
+                }
+                if let Some(val) = admin_code {
+                    doc.add_text(f_admin_code, val);
                 }
                 writer.add_document(doc)?;
             }
@@ -322,6 +356,7 @@ impl IndexDefinition for AdminIndexDef {
             (schema.get_field("ISO3").unwrap(), 1000.0),
             (schema.get_field("ISO").unwrap(), 800.0),
             (schema.get_field("fips").unwrap(), 400.0),
+            (schema.get_field("admin_code").unwrap(), 600.0),
         ]
     }
 }
