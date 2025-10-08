@@ -68,6 +68,17 @@ jobs:
             fi
           fi
 
+      - name: Verify secrets are configured
+        run: |
+          echo "🔍 Verifying required secrets..."
+          if [ -z "${{ secrets.CRATES_IO_TOKEN }}" ]; then
+            echo "ERROR: CRATES_IO_TOKEN secret is not set"
+            echo "Please configure it in repository settings: Settings → Secrets → Actions"
+            exit 1
+          fi
+          echo "CRATES_IO_TOKEN is configured"
+          echo "All required secrets are configured"
+
   publish-crates:
     name: Publish Rust Crates
     needs: verify-release
@@ -80,9 +91,6 @@ jobs:
         with:
           rust-toolchain: stable
           cache-prefix: ${{ env.RUST_CACHE_KEY_PREFIX }}
-
-      - name: Verify package builds
-        run: just check-release
 
       - name: Publish Rust crates
         env:
@@ -186,7 +194,7 @@ jobs:
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v2
         with:
-          subject-path: 'dist/*'
+          subject-path: "dist/*"
 
       - name: Check distributions
         run: |

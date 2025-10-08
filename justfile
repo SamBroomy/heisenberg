@@ -44,6 +44,7 @@ rust-test:
     cargo test --lib
     cargo test --doc -- --test-threads=1
     cargo test --examples
+    cargo test --test integration_tests
     cargo test --no-default-features --lib
     cargo test --no-default-features --doc -- --test-threads=1
     cargo test --no-default-features --features serde --lib
@@ -59,6 +60,7 @@ test: rust-test pytest
 rust-test-ci:
     cargo test --lib
     cargo test --doc -- --test-threads=1
+    cargo test --test integration_tests
 
 # Fast CI Python tests only (requires pre-built bindings)
 [group('ci')]
@@ -74,12 +76,6 @@ rust-build-deps:
     cargo build --lib --no-default-features
     cargo test --no-run
     cargo test --no-run --no-default-features
-
-# Build Python bindings for development/testing
-[group('build')]
-[group('dev')]
-build-python-dev:
-    uv run maturin develop --features python --uv
 
 # =============================================================================
 # Linting & Formatting
@@ -179,20 +175,6 @@ ci-lint: lint-ci cargo-machete cargo-docs
 # =============================================================================
 # Building
 # =============================================================================
-
-# Build Python release wheel
-[group('build')]
-[group('ci')]
-build-python:
-    rm -rf dist/ target/wheels/
-    uv run maturin build --features python --release
-
-# Build wheels for all platforms
-[group('build')]
-build-all:
-    uv run maturin build --features python --release --target x86_64-apple-darwin
-    uv run maturin build --features python --release --target aarch64-apple-darwin
-    uv run maturin build --features python --release --target x86_64-unknown-linux-gnu
 
 # Build Rust crates
 [group('build')]
@@ -301,7 +283,7 @@ check-release:
 
 # Publish Rust crates to crates.io
 [group('publish')]
-publish-rust: check-release
+publish-rust:
     #!/usr/bin/env bash
     set -euo pipefail
     echo "📦 Publishing Rust crates to crates.io..."
@@ -327,8 +309,10 @@ publish-rust: check-release
     echo "✅ Rust crates published successfully!"
 
 # Build Python package for PyPI
+[group('build')]
+[group('ci')]
 [group('publish')]
-build-python-package:
+build-python:
     #!/usr/bin/env bash
     set -euo pipefail
     echo "🐍 Building Python package..."
@@ -343,7 +327,7 @@ build-python-package:
 
 # Publish Python package to PyPI
 [group('publish')]
-publish-python: build-python-package
+publish-python: build-python
     #!/usr/bin/env bash
     set -euo pipefail
     echo "🐍 Publishing Python package to PyPI..."
@@ -360,7 +344,7 @@ publish-python: build-python-package
 
 # Test publish to Test PyPI
 [group('publish')]
-publish-python-test: build-python-package
+publish-python-test: build-python
     #!/usr/bin/env bash
     set -euo pipefail
     echo "🧪 Publishing Python package to Test PyPI..."
@@ -374,22 +358,6 @@ publish-python-test: build-python-package
     uvx twine upload --repository testpypi target/wheels/*
 
     echo "✅ Python package published to Test PyPI!"
-
-# Publish everything (for CI)
-[group('publish')]
-publish-package: build-python-package
-    #!/usr/bin/env bash
-    set -euo pipefail
-    echo "📦 Publishing Python package via trusted publishing..."
-
-    # This assumes we're in GitHub Actions with OIDC token
-    # The actual upload will be handled by pypa/gh-action-pypi-publish
-    echo "Python wheels built and ready for trusted publishing"
-
-    # Just verify the wheels exist
-    ls -la target/wheels/
-
-    echo "✅ Package ready for publication!"
 
 # Get next version suggestions
 [group('publish')]
@@ -416,14 +384,47 @@ next-version:
     echo "Usage:"
     echo "  just release $MAJOR.$MINOR.$NEXT_PATCH"
 
-# Retry current version release
+# Bump patch version and release (0.1.0 -> 0.1.1)
 [group('publish')]
-retry-release: check-release
+bump-patch: check-release
     #!/usr/bin/env bash
     set -euo pipefail
     CURRENT_VERSION=$(grep '^version = ' Cargo.toml | head -n1 | sed 's/.*"\(.*\)".*/\1/')
-    echo "🔄 Retrying release for version $CURRENT_VERSION..."
-    just release "$CURRENT_VERSION"
+    IFS='.' read -ra PARTS <<< "$CURRENT_VERSION"
+    MAJOR=${PARTS[0]}
+    MINOR=${PARTS[1]}
+    PATCH=${PARTS[2]}
+    NEXT_PATCH=$((PATCH + 1))
+    NEW_VERSION="$MAJOR.$MINOR.$NEXT_PATCH"
+    echo "📦 Bumping patch version: $CURRENT_VERSION → $NEW_VERSION"
+    just release "$NEW_VERSION"
+
+# Bump minor version and release (0.1.0 -> 0.2.0)
+[group('publish')]
+bump-minor: check-release
+    #!/usr/bin/env bash
+    set -euo pipefail
+    CURRENT_VERSION=$(grep '^version = ' Cargo.toml | head -n1 | sed 's/.*"\(.*\)".*/\1/')
+    IFS='.' read -ra PARTS <<< "$CURRENT_VERSION"
+    MAJOR=${PARTS[0]}
+    MINOR=${PARTS[1]}
+    NEXT_MINOR=$((MINOR + 1))
+    NEW_VERSION="$MAJOR.$NEXT_MINOR.0"
+    echo "📦 Bumping minor version: $CURRENT_VERSION → $NEW_VERSION"
+    just release "$NEW_VERSION"
+
+# Bump major version and release (0.1.0 -> 1.0.0)
+[group('publish')]
+bump-major: check-release
+    #!/usr/bin/env bash
+    set -euo pipefail
+    CURRENT_VERSION=$(grep '^version = ' Cargo.toml | head -n1 | sed 's/.*"\(.*\)".*/\1/')
+    IFS='.' read -ra PARTS <<< "$CURRENT_VERSION"
+    MAJOR=${PARTS[0]}
+    NEXT_MAJOR=$((MAJOR + 1))
+    NEW_VERSION="$NEXT_MAJOR.0.0"
+    echo "📦 Bumping major version: $CURRENT_VERSION → $NEW_VERSION"
+    just release "$NEW_VERSION"
 
 # Create and publish a new release
 [group('publish')]
