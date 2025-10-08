@@ -1,0 +1,287 @@
+UA.27	Zhytomyr	Zhytomyr	686966
+UA.26	Zaporizhzhia	Zaporizhzhia	687699
+UA.25	Zakarpattia	Zakarpattia	687869
+UA.24	Volyn	Volyn	689064
+UA.23	Vinnytsia	Vinnytsia	689559
+UA.22	Ternopil	Ternopil	691649
+UA.21	Sumy	Sumy	692196
+UA.20	Sevastopol City	Sevastopol City	694422
+UA.19	Rivne	Rivne	695592
+UA.18	Poltava	Poltava	696634
+UA.17	Odessa	Odessa	698738
+UA.16	Mykolaiv	Mykolaiv	700567
+UA.15	Lviv	Lviv	702549
+UA.14	Luhansk	Luhansk	702657
+UA.13	Kiev	Kiev	703446
+UA.12	Kyiv City	Kyiv City	703447
+UA.11	Crimea	Crimea	703883
+UA.10	Kirovohrad	Kirovohrad	705811
+UA.09	Khmelnytskyi	Khmelnytskyi	706370
+UA.08	Kherson	Kherson	706442
+UA.07	Kharkivs’ka Oblast’	Kharkivs'ka Oblast'	706482
+UA.06	Ivano-Frankivsk	Ivano-Frankivsk	707470
+UA.05	Donetsk	Donetsk	709716
+UA.04	Dnipropetrovsk	Dnipropetrovsk	709929
+UA.03	Chernivtsi	Chernivtsi	710720
+UA.02	Chernihiv	Chernihiv	710734
+UA.01	Cherkasy	Cherkasy	710802
+UG.C	Central Region	Central Region	234594
+UG.E	Eastern Region	Eastern Region	8260673
+UG.N	Northern Region	Northern Region	8260674
+UG.W	Western Region	Western Region	8260675
+UM.450	Wake Island	Wake Island	4041685
+UM.350	Navassa Island	Navassa Island	4743755
+UM.050	Baker Island	Baker Island	5854907
+UM.100	Howland Island	Howland Island	5854922
+UM.150	Jarvis Island	Jarvis Island	5854926
+UM.200	Johnston Atoll	Johnston Atoll	5854929
+UM.250	Kingman Reef	Kingman Reef	5854936
+UM.300	Midway Islands	Midway Islands	5854943
+UM.400	Palmyra Atoll	Palmyra Atoll	5854952
+US.AR	Arkansas	Arkansas	4099753
+US.DC	District of Columbia	District of Columbia	4138106
+US.DE	Delaware	Delaware	4142224
+US.FL	Florida	Florida	4155751
+US.GA	Georgia	Georgia	4197000
+US.KS	Kansas	Kansas	4273857
+US.LA	Louisiana	Louisiana	4331987
+US.MD	Maryland	Maryland	4361885
+US.MO	Missouri	Missouri	4398678
+US.MS	Mississippi	Mississippi	4436296
+US.NC	North Carolina	North Carolina	4482348
+US.OK	Oklahoma	Oklahoma	4544379
+US.SC	South Carolina	South Carolina	4597040
+US.TN	Tennessee	Tennessee	4662168
+US.TX	Texas	Texas	4736286
+US.WV	West Virginia	West Virginia	4826850
+US.AL	Alabama	Alabama	4829764
+US.CT	Connecticut	Connecticut	4831725
+US.IA	Iowa	Iowa	4862182
+US.IL	Illinois	Illinois	4896861
+US.IN	Indiana	Indiana	4921868
+US.ME	Maine	Maine	4971068
+US.MI	Michigan	Michigan	5001836
+US.MN	Minnesota	Minnesota	5037779
+US.NE	Nebraska	Nebraska	5073708
+US.NH	New Hampshire	New Hampshire	5090174
+US.NJ	New Jersey	New Jersey	5101760
+US.NY	New York	New York	5128638
+US.OH	Ohio	Ohio	5165418
+US.RI	Rhode Island	Rhode Island	5224323
+US.VT	Vermont	Vermont	5242283
+US.WI	Wisconsin	Wisconsin	5279468
+US.CA	California	California	5332921
+US.CO	Colorado	Colorado	5417618
+US.NM	New Mexico	New Mexico	5481136
+US.NV	Nevada	Nevada	5509151
+US.UT	Utah	Utah	5549030
+US.AZ	Arizona	Arizona	5551752
+US.ID	Idaho	Idaho	5596512
+US.MT	Montana	Montana	5667009
+US.ND	North Dakota	North Dakota	5690763
+US.OR	Oregon	Oregon	5744337
+US.SD	South Dakota	South Dakota	5769223
+US.WA	Washington	Washington	5815135
+US.WY	Wyoming	Wyoming	5843591
+US.HI	Hawaii	Hawaii	5855797
+US.AK	Alaska	Alaska	5879092
+US.KY	Kentucky	Kentucky	6254925
+US.MA	Massachusetts	Massachusetts	6254926
+US.PA	Pennsylvania	Pennsylvania	6254927
+US.VA	Virginia	Virginia	6254928
+UY.19	Treinta y Tres Department	Treinta y Tres Department	3439780
+UY.18	Tacuarembó Department	Tacuarembo Department	3440033
+UY.17	Soriano	Soriano	3440054
+UY.16	San José Department	San Jose Department	3440645
+UY.15	Salto Department	Salto Department	3440711
+UY.14	Rocha Department	Rocha Department	3440771
+UY.13	Rivera Department	Rivera Department	3440780
+UY.12	Río Negro Department	Rio Negro Department	3440789
+UY.11	Paysandú Department	Paysandu Department	3441242
+UY.10	Montevideo Department	Montevideo Department	3441572
+UY.09	Maldonado	Maldonado	3441890
+UY.08	Lavalleja	Lavalleja	3442007
+UY.07	Florida	Florida	3442584
+UY.06	Flores Department	Flores Department	3442587
+UY.05	Durazno Department	Durazno Department	3442720
+UY.04	Colonia	Colonia	3443025
+UY.03	Cerro Largo	Cerro Largo	3443173
+UY.02	Canelones	Canelones	3443411
+UY.01	Artigas	Artigas	3443756
+UZ.09	Karakalpakstan	Karakalpakstan	453752
+UZ.12	Surxondaryo Region	Surxondaryo Region	1114926
+UZ.10	Samarqand Region	Samarqand Region	1114927
+UZ.08	Qashqadaryo	Qashqadaryo	1114928
+UZ.02	Bukhara	Bukhara	1114929
+UZ.14	Tashkent Region	Tashkent Region	1484838
+UZ.13	Tashkent	Tashkent	1484839
+UZ.16	Sirdaryo Region	Sirdaryo Region	1484840
+UZ.07	Navoiy Region	Navoiy Region	1484841
+UZ.06	Namangan	Namangan	1484842
+UZ.05	Xorazm Region	Xorazm Region	1484843
+UZ.15	Jizzakh Region	Jizzakh Region	1484844
+UZ.03	Fergana	Fergana	1484845
+UZ.01	Andijan Region	Andijan Region	1484846
+VC.05	Saint Patrick Parish	Saint Patrick Parish	3577818
+VC.04	Saint George Parish	Saint George Parish	3577819
+VC.03	Saint David Parish	Saint David Parish	3577821
+VC.02	Saint Andrew Parish	Saint Andrew Parish	3577822
+VC.06	Grenadines Parish	Grenadines Parish	3577892
+VC.01	Charlotte Parish	Charlotte Parish	3577934
+VE.23	Zulia	Zulia	3625035
+VE.22	Yaracuy	Yaracuy	3625210
+VE.21	Trujillo	Trujillo	3625974
+VE.20	Táchira	Tachira	3626553
+VE.19	Sucre	Sucre	3626655
+VE.18	Portuguesa	Portuguesa	3629941
+VE.17	Nueva Esparta	Nueva Esparta	3631462
+VE.16	Monagas	Monagas	3632100
+VE.15	Miranda	Miranda	3632191
+VE.14	Mérida	Merida	3632306
+VE.13	Lara	Lara	3636539
+VE.12	Guárico	Guarico	3640017
+VE.24	Dependencias Federales	Dependencias Federales	3640846
+VE.25	Distrito Federal	Distrito Federal	3640847
+VE.11	Falcón	Falcon	3640873
+VE.09	Delta Amacuro	Delta Amacuro	3644541
+VE.08	Cojedes	Cojedes	3645386
+VE.07	Carabobo	Carabobo	3646751
+VE.06	Bolívar	Bolivar	3648106
+VE.05	Barinas	Barinas	3648544
+VE.04	Aragua	Aragua	3649110
+VE.03	Apure	Apure	3649151
+VE.02	Anzoátegui	Anzoategui	3649198
+VE.01	Amazonas	Amazonas	3649302
+VE.26	Vargas	Vargas	3830309
+VI.010	Saint Croix Island	Saint Croix Island	7267902
+VI.020	Saint John Island	Saint John Island	7267903
+VI.030	Saint Thomas Island	Saint Thomas Island	7267904
+VN.40	Nghệ An Province	Nghe An Province	1559969
+VN.46	Thừa Thiên Huế Province	Thua Thien Hue Province	1565033
+VN.38	Thanh Hóa Province	Thanh Hoa Province	1566165
+VN.14	Sơn La Province	Son La Province	1567643
+VN.22	Quảng Ninh	Quang Ninh	1568758
+VN.20	Lạng Sơn Province	Lang Son Province	1576632
+VN.12	Lai Châu Province	Lai Chau Province	1577954
+VN.42	Hà Tĩnh Province	Ha Tinh Province	1580700
+VN.01	Hanoi	Hanoi	1581129
+VN.04	Cao Bằng Province	Cao Bang Province	1586182
+VN.11	Điện Biên Province	GJien Bien Province	1905099
+VN.15	Lao Cai	Lao Cai	13494334
+VN.19	Thai Nguyen	Thai Nguyen	13494335
+VN.24	Bac Ninh	Bac Ninh	13494344
+VN.25	Phu Tho	Phu Tho	13494345
+VN.31	Hai Phong	Hai Phong	13494346
+VN.33	Hưng Yên Province	Hung Yen Province	13494347
+VN.37	Ninh Binh	Ninh Binh	13494348
+VN.44	Quang Tri	Quang Tri	13494350
+VN.48	Da Nang City	Da Nang City	13494351
+VN.51	Quang Ngai	Quang Ngai	13494352
+VN.52	Gia Lai	Gia Lai	13494353
+VN.56	Khanh Hoa	Khanh Hoa	13494354
+VN.66	Dak Lak	Dak Lak	13494355
+VN.68	Lam Dong	Lam Dong	13494356
+VN.75	Dong Nai	Dong Nai	13494357
+VN.79	Ho Chi Minh City (HCMC)	Ho Chi Minh City (HCMC)	13494358
+VN.80	Tay Ninh	Tay Ninh	13494359
+VN.82	Dong Thap	Dong Thap	13494360
+VN.86	Vinh Long	Vinh Long	13494361
+VN.91	An Giang	An Giang	13494362
+VN.92	Can Tho City	Can Tho City	13494363
+VN.96	Ca Mau	Ca Mau	13494364
+VN.08	Tuyen Quang	Tuyen Quang	13494365
+VU.15	Tafea	Tafea	2134739
+VU.13	Sanma	Sanma	2134898
+VU.07	Torba	Torba	2137421
+VU.16	Malampa	Malampa	2208265
+VU.17	Penama	Penama	2208266
+VU.18	Shefa	Shefa	2208267
+WF.98613	Uvea	Uvea	4034759
+WF.98612	Sigave	Sigave	4034776
+WF.98611	Alo	Alo	4034884
+WS.11	Vaisigano	Vaisigano	4034910
+WS.06	Va'a-o-Fonoti	Va'a-o-Fonoti	4034943
+WS.10	Tuamasaga	Tuamasaga	4034977
+WS.09	Satupa'itea	Satupa'itea	4035046
+WS.08	Palauli	Palauli	4035154
+WS.07	Gaga'ifomauga	Gaga'ifomauga	4035313
+WS.05	Gaga'emauga	Gaga'emauga	4035314
+WS.04	Fa'asaleleaga	Fa'asaleleaga	4035383
+WS.03	Atua	Atua	4035402
+WS.02	Aiga-i-le-Tai	Aiga-i-le-Tai	4035425
+WS.01	A'ana	A'ana	4035434
+XK.10096138	Ferizaj	Ferizaj	10096138
+XK.10096859	Gjakova	Gjakova	10096859
+XK.10097357	Gjilan	Gjilan	10097357
+XK.10097358	Mitrovica	Mitrovica	10097358
+XK.10097359	Pec	Pec	10097359
+XK.10097360	Pristina	Pristina	10097360
+XK.10097361	Prizren	Prizren	10097361
+YE.25	Ta‘izz	Ta'izz	70222
+YE.05	Shabwah	Shabwah	70935
+YE.16	Sanaa Governorate	Sanaa Governorate	71132
+YE.15	Şa‘dah	Sa'dah	71333
+YE.27	Raymah	Raymah	71532
+YE.14	Ma’rib	Ma'rib	72966
+YE.10	Al Mahwit Governorate	Al Mahwit Governorate	73200
+YE.21	Al Jawf	Al Jawf	74222
+YE.04	Muhafazat Hadramaout	Muhafazat Hadramaout	75411
+YE.11	Dhamār	Dhamar	76183
+YE.03	Al Mahrah Governorate	Al Mahrah Governorate	78985
+YE.08	Al Hudaydah	Al Hudaydah	79416
+YE.20	Al Bayda	Al Bayda	79838
+YE.02	Aden	Aden	80412
+YE.01	Abyan Governorate	Abyan Governorate	80425
+YE.18	Aḑ Ḑāli‘	Ad Dali'	6201193
+YE.19	Omran	Omran	6201194
+YE.22	Ḩajjah	Hajjah	6201195
+YE.23	Ibb Governorate	Ibb Governorate	6201196
+YE.24	Laḩij	Lahij	6201197
+YE.26	Amanat Alasimah	Amanat Alasimah	6940571
+YE.28	Soqatra	Soqatra	9645387
+YT.97601	Acoua	Acoua	7521421
+YT.97602	Bandraboua	Bandraboua	7521422
+YT.97603	Bandrele	Bandrele	7521423
+YT.97604	Bouéni	Boueni	7521424
+YT.97605	Chiconi	Chiconi	7521425
+YT.97606	Chirongui	Chirongui	7521426
+YT.97607	Dembeni	Dembeni	7521427
+YT.97608	Dzaoudzi	Dzaoudzi	7521428
+YT.97609	Kani-Kéli	Kani-Keli	7521429
+YT.97610	Koungou	Koungou	7521430
+YT.97611	Mamoudzou	Mamoudzou	7521431
+YT.97612	Mtsamboro	Mtsamboro	7521432
+YT.97613	M'Tsangamouji	M'Tsangamouji	7521433
+YT.97614	Ouangani	Ouangani	7521434
+YT.97615	Pamandzi	Pamandzi	7521435
+YT.97616	Sada	Sada	7521436
+YT.97617	Tsingoni	Tsingoni	7521437
+ZA.03	Free State	Free State	967573
+ZA.02	KwaZulu-Natal	KwaZulu-Natal	972062
+ZA.05	Eastern Cape	Eastern Cape	1085593
+ZA.06	Gauteng	Gauteng	1085594
+ZA.07	Mpumalanga	Mpumalanga	1085595
+ZA.08	Northern Cape	Northern Cape	1085596
+ZA.09	Limpopo	Limpopo	1085597
+ZA.10	North West	North West	1085598
+ZA.11	Western Cape	Western Cape	1085599
+ZM.01	Western Province	Western Province	896140
+ZM.07	Southern Province	Southern Province	896972
+ZM.06	North-Western	North-Western	900594
+ZM.05	Northern Province	Northern Province	900601
+ZM.09	Lusaka Province	Lusaka Province	909129
+ZM.04	Luapula Province	Luapula Province	909845
+ZM.03	Eastern Province	Eastern Province	917388
+ZM.08	Copperbelt	Copperbelt	917524
+ZM.02	Central Province	Central Province	921064
+ZM.10	Muchinga	Muchinga	11154503
+ZW.02	Midlands Province	Midlands Province	886119
+ZW.07	Matabeleland South Province	Matabeleland South Province	886747
+ZW.06	Matabeleland North	Matabeleland North	886748
+ZW.08	Masvingo Province	Masvingo Province	886761
+ZW.05	Mashonaland West	Mashonaland West	886841
+ZW.04	Mashonaland East Province	Mashonaland East Province	886842
+ZW.03	Mashonaland Central	Mashonaland Central	886843
+ZW.01	Manicaland	Manicaland	887358
+ZW.09	Bulawayo	Bulawayo	1105843
+ZW.10	Harare	Harare	1105844

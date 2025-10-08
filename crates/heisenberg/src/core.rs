@@ -292,9 +292,7 @@ impl LocationSearcher {
         LocationSearchIndex::exists_for_source(data_source)
     }
 
-    /// Legacy constructor for backward compatibility.
-    ///
-    /// This method maintains the old API while using the new internal structure.
+    /// Constructor for `LocationSearcher` with option to overwrite indexes.
     ///
     /// # Arguments
     ///
@@ -306,11 +304,10 @@ impl LocationSearcher {
     /// ```rust
     /// use heisenberg::{DataSource, LocationSearcher};
     ///
-    /// // Legacy API (backward compatible)
     /// let searcher = LocationSearcher::initialize(DataSource::Cities15000)?;
     /// # Ok::<(), heisenberg::error::HeisenbergError>(())
     /// ```
-    #[instrument(name = "Initialize LocationSearcher (Legacy)", level = "info")]
+    #[instrument(name = "Initialize LocationSearcher", level = "info")]
     pub fn new(
         data_source: DataSource,
         overwrite_fts_indexes: bool,

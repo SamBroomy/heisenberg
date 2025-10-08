@@ -19,3 +19,4 @@
 !Cargo.lock
 !uv.lock
 !CHANGELOG.md
+!crates/heisenberg-data-processing/src/raw/test_data/samples/*.txt
