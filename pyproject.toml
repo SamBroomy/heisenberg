@@ -1,6 +1,6 @@
 [project]
-name = "heisenberg"
-version = "0.1.0"
+name = "heisenberg-geo"
+version = "0.2.0"
 description = "Location enrichment library for converting unstructured location data into structured administrative hierarchies using GeoNames"
 readme = "python/README.md"
 requires-python = ">=3.8"

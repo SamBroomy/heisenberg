@@ -148,6 +148,7 @@ heisenberg = "0.1"
 **Embedded by Default**: Heisenberg ships with the Cities15000 dataset embedded (~25MB compressed), providing instant startup with no downloads required.
 
 **Multiple Data Sources**: Choose from different datasets based on your needs:
+
 - `Cities15000`: Cities with population > 15,000 (default, embedded)
 - `Cities5000`: Cities with population > 5,000
 - `Cities1000`: Cities with population > 1,000
@@ -157,6 +158,7 @@ heisenberg = "0.1"
 **Smart Fallback**: When requesting non-embedded datasets, Heisenberg automatically downloads and processes data on first use, then caches locally.
 
 **Development**:
+
 ```bash
 # Use embedded test data for development
 USE_TEST_DATA=true cargo test

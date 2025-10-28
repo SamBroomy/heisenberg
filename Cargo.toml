@@ -6,7 +6,7 @@ default-members = ["crates/heisenberg", "crates/heisenberg-data-processing"]
 [workspace.package]
 edition = "2024"
 rust-version = "1.89"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["SamBroomy"]
 license = "MIT"
 repository = "https://github.com/SamBroomy/heisenberg"
