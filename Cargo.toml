@@ -14,15 +14,7 @@ homepage = "https://github.com/SamBroomy/heisenberg"
 readme = "README.md"
 description = "Backfill and enrich unstructured location data into structured data using the Geonames Dataset."
 categories = ["science::geo"]
-keywords = [
-    "geonames",
-    "polars",
-    "location-enrichment",
-    "data-processing",
-    "geocoding",
-    "location",
-    "parsing",
-]
+keywords = ["geonames", "polars", "location-enrichment", "location", "parsing"]
 
 
 [workspace.dependencies]
