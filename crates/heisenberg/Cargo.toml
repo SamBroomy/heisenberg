@@ -13,6 +13,15 @@ categories.workspace = true
 build = "build.rs"
 default-run = "heisenberg"
 
+# Include embedded data files in published package
+include = [
+    "src/**/*",
+    "build.rs",
+    "Cargo.toml",
+    "README.md",
+    "LICENSE",
+]
+
 
 [lib]
 name = "heisenberg"
