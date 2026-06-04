@@ -41,22 +41,27 @@ impl CountryInfoRawData {
     }
 
     pub fn as_lazy_frame(&self) -> LazyFrame {
-        LazyCsvReader::new(PlPath::Local(self.data.path().into()))
-            .with_separator(b'\t')
-            .with_has_header(false)
-            .with_schema(Some(Schema::from_iter(COUNTRY_INFO_SCHEMA).into()))
-            .with_skip_lines(51)
-            .with_quote_char(None)
-            .finish()
-            .expect("Failed to read `countryInfo.txt`")
-            .with_column(
-                dtype_col(&DataType::String)
-                    .as_selector()
-                    .as_expr()
-                    .str()
-                    .strip_chars(lit("\"'"))
-                    .str()
-                    .strip_chars(lit("")),
-            )
+        LazyCsvReader::new(PlRefPath::new(
+            self.data
+                .path()
+                .to_str()
+                .expect("Failed to convert place data file path to string"),
+        ))
+        .with_separator(b'\t')
+        .with_has_header(false)
+        .with_schema(Some(Schema::from_iter(COUNTRY_INFO_SCHEMA).into()))
+        .with_skip_lines(51)
+        .with_quote_char(None)
+        .finish()
+        .expect("Failed to read `countryInfo.txt`")
+        .with_column(
+            dtype_col(&DataType::String)
+                .as_selector()
+                .as_expr()
+                .str()
+                .strip_chars(lit("\"'"))
+                .str()
+                .strip_chars(lit("")),
+        )
     }
 }

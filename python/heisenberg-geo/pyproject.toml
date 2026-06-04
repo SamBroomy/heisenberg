@@ -1,17 +1,18 @@
 [project]
-name = "heisenberg-package"
-version = "0.3.0-alpha.1"
+name = "heisenberg-geo"
+dynamic = ["version"]
 description = "Location enrichment library for converting unstructured location data into structured administrative hierarchies using GeoNames"
-requires-python = ">=3.12"
 authors = [
     { name = "SamBroomy", email = "36888606+SamBroomy@users.noreply.github.com" },
 ]
+requires-python = ">=3.8"
 keywords = [
     "geonames",
     "location",
     "geocoding",
     "data-processing",
     "location-enrichment",
+    "polars",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -25,38 +26,35 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
     "Topic :: Scientific/Engineering :: GIS",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Typing :: Typed",
 ]
-license = { file = "./LICENSE" }
+license = { text = "MIT" }
 readme = { file = "./README.md", content-type = "text/markdown" }
 
-dependencies = ["heisenberg-geo"]
-
-
-[dependency-groups]
-dev = [
-    "ipykernel>=7.2.0",
-    "ipywidgets>=8.1.7",
-    "prek>=0.3.8",
-    "ruff>=0.15.7",
-    "ty>=0.0.27",
+dependencies = [
+    "typing-extensions>=4.0.0; python_version<'3.11'",
+    "polars>=1.0",
 ]
 
-
 [project.urls]
-Homepage = "https://github.com/SamBroomy/heisenberg"
+Homepage = "https://github.com/SamBroomy/heisenberg/blob/main/python/heisenberg-geo/README.md"
 Documentation = "https://github.com/SamBroomy/heisenberg/blob/main/README.md"
 Repository = "https://github.com/SamBroomy/heisenberg"
 Issues = "https://github.com/SamBroomy/heisenberg/issues"
 
 
-[tool.uv]
-package = false
+[build-system]
+requires = ["maturin>=1.10,<2.0"]
+build-backend = "maturin"
 
-[tool.uv.workspace]
-members = ["python/heisenberg-geo"]
-
-[tool.uv.sources]
-heisenberg-geo = { workspace = true }
+[tool.maturin]
+bindings = "pyo3"
+features = ["python"]
+python-source = "src"
+manifest-path = "../../crates/heisenberg-geo/Cargo.toml"
+module-name = "heisenberg_geo._heisenberg_geo_rust_bindings"

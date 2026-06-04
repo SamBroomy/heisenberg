@@ -1,4 +1,8 @@
-use std::{path::PathBuf, sync::LazyLock};
+use std::{
+    hash::Hash,
+    path::{Path, PathBuf},
+    sync::LazyLock,
+};
 
 use polars::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -12,44 +16,39 @@ use crate::{
     raw::fetch::TempData,
 };
 
-// Sweaty workaround to let us use the same string as a static here and also in the include_bytes! macro
-#[macro_export]
-macro_rules! embedded_file_paths {
-    (admin) => {
-        "embedded_admin_search.parquet"
-    };
-    (place) => {
-        "embedded_place_search.parquet"
-    };
-    (metadata) => {
-        "embedded_data_metadata.json"
-    };
-}
-
-// Also provide constants for runtime use
-pub static ADMIN_DATA_PATH: &str = embedded_file_paths!(admin);
-pub static PLACE_DATA_PATH: &str = embedded_file_paths!(place);
-pub static METADATA_PATH: &str = embedded_file_paths!(metadata);
+// File names for embedded data (used by build.rs and data generation)
+pub static ADMIN_DATA_PATH: &str = "embedded_admin_search.parquet";
+pub static PLACE_DATA_PATH: &str = "embedded_place_search.parquet";
+pub static METADATA_PATH: &str = "embedded_data_metadata.json";
 
 static EMBEDDED_DIR_DEFAULT: &str = "src/data/embedded";
 
 pub static EMBEDDED_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
-    std::env::var("EMBEDDED_DIR")
-        .map_or_else(|_| PathBuf::from(EMBEDDED_DIR_DEFAULT), PathBuf::from)
+    // First check OUT_DIR (for build script usage)
+    std::env::var("OUT_DIR")
+        .ok()
+        .map(|out_dir| PathBuf::from(out_dir).join("embedded_data"))
+        .or_else(|| std::env::var("EMBEDDED_DIR").ok().map(PathBuf::from))
+        .unwrap_or_else(|| PathBuf::from(EMBEDDED_DIR_DEFAULT))
 });
 
 /// Generate embedded data from cities15000.zip and write as Rust source files
 pub fn generate_embedded_dataset(data_source: DataSource) -> Result<()> {
+    generate_embedded_dataset_to_dir(data_source, &EMBEDDED_DIR)
+}
+
+/// Generate embedded dataset to a specific directory (for build scripts with custom `OUT_DIR`)
+pub fn generate_embedded_dataset_to_dir(data_source: DataSource, output_dir: &Path) -> Result<()> {
     #[cfg(feature = "download-data")]
     {
         crate::raw::fetch::download_data(&data_source)
-            .and_then(|temp_data| embed_data(temp_data, data_source))?;
+            .and_then(|temp_data| embed_data_to_dir(temp_data, data_source, output_dir))?;
         Ok(())
     }
     #[cfg(all(not(feature = "download-data"), any(test, feature = "test-data")))]
     {
         tracing::warn!("download_data feature not enabled, falling back to test data");
-        generate_test_data_rust_code()
+        generate_test_data_to_dir(output_dir)
     }
 
     #[cfg(all(not(feature = "download-data"), not(any(test, feature = "test-data"))))]
@@ -63,38 +62,50 @@ pub fn generate_embedded_dataset(data_source: DataSource) -> Result<()> {
 /// Generate embedded data from test data and write as Rust source files
 #[cfg(any(test, feature = "test-data"))]
 pub fn generate_test_data_rust_code() -> Result<()> {
+    generate_test_data_to_dir(&EMBEDDED_DIR)
+}
+
+#[cfg(any(test, feature = "test-data"))]
+fn generate_test_data_to_dir(output_dir: &Path) -> Result<()> {
     tracing::info!("Generating embedded dataset from test data");
 
     let test_temp_files = create_test_data();
-    embed_data(test_temp_files, DataSource::TestData)
+    embed_data_to_dir(test_temp_files, DataSource::TestData, output_dir)
 }
 
-fn embed_data(temp_data: TempData, data_source: DataSource) -> Result<()> {
-    info!("Generating processed data for {}", data_source);
+fn embed_data_to_dir(
+    temp_data: TempData,
+    data_source: DataSource,
+    output_dir: &Path,
+) -> Result<()> {
+    info!(
+        "Generating processed data for {} to {:?}",
+        data_source, output_dir
+    );
 
-    std::fs::create_dir_all(EMBEDDED_DIR.as_path())?;
+    std::fs::create_dir_all(output_dir)?;
 
     let (admin_df, place_df) = generate_processed_data(temp_data)?;
 
     let metadata = EmbeddedMetadata::from_dfs(&admin_df, &place_df, data_source)?;
-    let metadata_path = EMBEDDED_DIR.join(METADATA_PATH);
+    let metadata_path = output_dir.join(METADATA_PATH);
     metadata.write_to_file(&metadata_path)?;
 
-    let admin_path = EMBEDDED_DIR.join(ADMIN_DATA_PATH);
-    let place_path = EMBEDDED_DIR.join(PLACE_DATA_PATH);
+    let admin_path = output_dir.join(ADMIN_DATA_PATH);
+    let place_path = output_dir.join(PLACE_DATA_PATH);
 
     save_processed_data_to_parquet(admin_df.clone(), &admin_path)?;
     save_processed_data_to_parquet(place_df.clone(), &place_path)?;
     Ok(())
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, Hash)]
 pub struct DataFrameMetadata {
     pub rows: usize,
     pub size_bytes: usize,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, Hash)]
 pub struct EmbeddedMetadata {
     pub version: String,
     pub source: DataSource,
@@ -149,12 +160,12 @@ impl EmbeddedMetadata {
         serde_json::to_string_pretty(self).map_err(Into::into)
     }
 
-    pub fn write_to_file(&self, path: &std::path::Path) -> Result<()> {
+    pub fn write_to_file(&self, path: &Path) -> Result<()> {
         let json = self.to_json()?;
         std::fs::write(path, json).map_err(Into::into)
     }
 
-    pub fn load_from_file(path: &std::path::Path) -> Result<Self> {
+    pub fn load_from_file(path: &Path) -> Result<Self> {
         let content = std::fs::read_to_string(path)?;
         serde_json::from_str(&content).map_err(Into::into)
     }

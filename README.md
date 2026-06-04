@@ -56,11 +56,11 @@ print(f"City: {context.place.name}")      # San Francisco
 
 ```toml
 [dependencies]
-heisenberg = "0.1"
+heisenberg_geo = "0.1"
 ```
 
 ```rust
-use heisenberg::{LocationSearcher, DataSource};
+use heisenberg_geo::{LocationSearcher, DataSource};
 
 // Create searcher using embedded data (fastest, no downloads)
 let searcher = LocationSearcher::new_embedded()?;
@@ -140,7 +140,7 @@ pip install heisenberg
 
 ```toml
 [dependencies]
-heisenberg = "0.1"
+heisenberg_geo = "0.1"
 ```
 
 ## Data

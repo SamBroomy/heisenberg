@@ -1,14 +1,21 @@
 repos:
+  - repo: https://github.com/kynan/nbstripout
+    rev: 0.9.1
+    hooks:
+      - id: nbstripout
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v6.0.0
     hooks:
       # - id: no-commit-to-branch
       #   args: [--branch, main]
       #   stages: [pre-commit]
-      - id: check-added-large-files
-        stages: [pre-commit]
       - id: check-merge-conflict
         stages: [pre-commit]
+      - id: check-added-large-files
+        stages: [pre-commit]
+        args: ["--maxkb=500"]
+        exclude: '^(plots/.*\.png|uv\.lock)$' # Exclude plots and uv.lock
       - id: check-toml
         stages: [pre-commit]
       - id: check-yaml
@@ -17,20 +24,22 @@ repos:
         stages: [pre-commit]
       - id: end-of-file-fixer
         stages: [pre-commit]
+        exclude: '^notebooks/.*\.py$' # Exclude synced notebook scripts
       - id: mixed-line-ending
         stages: [pre-commit]
       - id: trailing-whitespace
         stages: [pre-commit]
+        exclude: '^notebooks/.*\.py$' # Exclude synced notebook scripts
 
   - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: 0.7.13
+    rev: 0.11.3
     hooks:
       - id: uv-sync
         args: ["--locked", "--all-packages"]
       - id: uv-lock
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.12.0
+    rev: v0.15.8
     hooks:
       - id: ruff-check
         args: [--fix, --exit-non-zero-on-fix, --unsafe-fixes]
@@ -57,7 +66,7 @@ repos:
       - id: cargo-machete
         name: cargo machete
         description: Find unused dependencies
-        entry: just cargo-machete
+        entry: cargo machete --with-metadata --fix
         language: system
         files: '^Cargo\.toml$'
         types: [toml]
@@ -66,7 +75,7 @@ repos:
       - id: cargo-audit
         name: cargo audit
         description: Audit for security vulnerabilities
-        entry: just cargo-audit
+        entry: cargo audit --deny unsound --deny yanked
         language: system
         files: '^Cargo\.lock$'
         types: [toml]
@@ -76,7 +85,7 @@ repos:
       - id: cargo-clippy
         name: cargo clippy
         description: Run cargo clippy with fixes (multiple feature sets)
-        entry: just rust-lint-fix
+        entry: cargo clippy --fix --allow-staged --all-targets --workspace -- -D warnings
         language: system
         files: '(\.rs$|Cargo\.toml$|Cargo\.lock$)'
         types_or: [rust, toml]
@@ -94,9 +103,9 @@ repos:
       - id: cargo-doc
         name: cargo doc
         description: Check documentation builds
-        entry: just cargo-docs
+        entry: cargo doc --all-features --workspace --no-deps
         language: system
-        files: '(src/.*\.rs$|Cargo\.toml)$'
+        files: '(Cargo\.toml|crates/*/Cargo\.toml|crates/*/src/.*\.rs)$'
         types: [rust, toml]
         stages: [pre-commit]
         pass_filenames: false
@@ -106,46 +115,7 @@ repos:
         description: Verify Python bindings can build
         entry: just maturin-check
         language: system
-        files: '^(pyproject\.toml|crates/heisenberg/Cargo\.toml|crates/heisenberg/src/.*\.rs|crates/heisenberg/build\.rs)$'
+        files: '^(pyproject\.toml|Cargo\.toml|crates/*/Cargo\.toml|crates/*/src/.*\.rs|crates/*/build\.rs)$'
         types_or: [rust, toml]
         pass_filenames: false
         stages: [pre-push]
-      # Publish dry run check
-      - id: publish-dry-run
-        name: publish dry run
-        description: Test publishing without actually publishing
-        entry: just publish-dry-run
-        language: system
-        files: '^(Cargo\.toml|crates/.*/Cargo\.toml|crates/.*/src/.*\.rs)$'
-        types_or: [rust, toml]
-        pass_filenames: false
-        stages: [pre-push]
-      # Cargo test (only on significant Rust changes)
-      - id: cargo-test
-        name: cargo test
-        description: Run cargo test suite
-        entry: just rust-test
-        language: system
-        files: '(src/.*\.rs$|tests/.*\.rs$|Cargo\.toml$)'
-        types_or: [rust, toml]
-        pass_filenames: false
-        stages: [pre-push] # Only run on push, not every commit
-      - id: python-tests
-        name: python tests
-        description: Run Python tests with pytest
-        entry: just pytest
-        language: system
-        files: '^python/.*\.py$'
-        types: [python]
-        stages: [pre-push]
-        pass_filenames: false
-      # Release readiness check
-      - id: release-check
-        name: release readiness
-        description: Verify project is ready for release
-        entry: just check-release
-        language: system
-        files: '^(Cargo\.toml|pyproject\.toml|CHANGELOG\.md)$'
-        types: [toml, markdown]
-        pass_filenames: false
-        stages: [manual]

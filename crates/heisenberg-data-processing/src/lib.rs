@@ -2,7 +2,7 @@
 //! This functionality was moved to a separate crate in order for us to be able to embed data into the main crate.
 //!
 //! This embedding allows us to ship the library with a small, self-contained dataset
-//! This data is built as part of the build process of the main heisenberg crate,
+//! This data is built as part of the build process of the main `heisenberg_geo` crate,
 //! so it is always available without requiring any external downloads or configuration.
 
 use std::{
@@ -33,7 +33,7 @@ pub static DATA_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
     std::env::var("DATA_DIR").map_or_else(|_| get_default_data_dir(), PathBuf::from)
 });
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
 /// Enum representing the available data sources for `GeoNames` data processing
 #[serde(rename_all = "snake_case")]
 pub enum DataSource {
@@ -172,9 +172,12 @@ fn get_default_data_dir() -> PathBuf {
     }
 }
 
-fn load_single_parquet_file(path: impl Into<Arc<Path>>) -> Result<LazyFrame> {
-    LazyFrame::scan_parquet(PlPath::Local(path.into()), ScanArgsParquet::default())
-        .map_err(Into::into)
+fn load_single_parquet_file(path: &Path) -> Result<LazyFrame> {
+    let path = path
+        .to_str()
+        .ok_or_else(|| DataError::InvalidFilePath(path.to_string_lossy().to_string()))?;
+
+    LazyFrame::scan_parquet(path.into(), ScanArgsParquet::default()).map_err(Into::into)
 }
 
 fn load_parquet_files(admin_path: &Path, place_path: &Path) -> Result<(LazyFrame, LazyFrame)> {
@@ -194,18 +197,12 @@ fn validate_data_files(data_source: &DataSource) -> Result<(PathBuf, PathBuf)> {
     }
 
     // Try to validate files by attempting to read their metadata
-    if let Err(e) = LazyFrame::scan_parquet(
-        PlPath::Local(admin_path.clone().into()),
-        ScanArgsParquet::default(),
-    ) {
+    if let Err(e) = load_single_parquet_file(&admin_path) {
         warn!("Admin file corrupted or unreadable: {}", e);
         return Err(DataError::RequiredFilesNotFound);
     }
 
-    if let Err(e) = LazyFrame::scan_parquet(
-        PlPath::Local(place_path.clone().into()),
-        ScanArgsParquet::default(),
-    ) {
+    if let Err(e) = load_single_parquet_file(&place_path) {
         warn!("Place file corrupted or unreadable: {}", e);
         return Err(DataError::RequiredFilesNotFound);
     }
@@ -287,7 +284,7 @@ pub fn get_data(data_source: &DataSource) -> Result<(LazyFrame, LazyFrame)> {
 /// If either file is missing or corrupted, both will be regenerated.
 pub fn get_admin_data(data_source: &DataSource) -> Result<LazyFrame> {
     let (admin_path, _place_path) = ensure_data_files(data_source)?;
-    load_single_parquet_file(admin_path)
+    load_single_parquet_file(&admin_path)
 }
 
 /// Get only place search data as `LazyFrame`
@@ -296,7 +293,7 @@ pub fn get_admin_data(data_source: &DataSource) -> Result<LazyFrame> {
 /// If either file is missing or corrupted, both will be regenerated.
 pub fn get_place_data(data_source: &DataSource) -> Result<LazyFrame> {
     let (_admin_path, place_path) = ensure_data_files(data_source)?;
-    load_single_parquet_file(place_path)
+    load_single_parquet_file(&place_path)
 }
 
 /// Check if processed data exists for the given data source without loading it
@@ -357,7 +354,13 @@ pub(crate) mod tests_utils {
 
     pub fn assert_column_range<T>(df: &DataFrame, column: &str, min_val: T, max_val: T)
     where
-        T: std::fmt::Debug + NumCast + PartialOrd + Clone + Copy + 'static,
+        T: std::fmt::Debug
+            + NumCast
+            + PartialOrd
+            + Clone
+            + Copy
+            + 'static
+            + polars::polars_utils::float::IsFloat,
     {
         let series = df
             .column(column)

@@ -22,7 +22,11 @@ pub fn generate_processed_data(temp_data: TempData) -> Result<(DataFrame, DataFr
             create_place_search::get_place_search_lf(&temp_data, admin_search_lf.clone());
         info!("Collecting transformed data");
         let transform_time = std::time::Instant::now();
-        let dfs = collect_all([admin_search_lf, place_search_lf])?;
+        let plans = [admin_search_lf, place_search_lf]
+            .into_iter()
+            .map(|lf| lf.logical_plan)
+            .collect();
+        let dfs = LazyFrame::collect_all_with_engine(plans, Engine::Auto, OptFlags::default())?;
         info!(
             transform_time = ?transform_time.elapsed()
             , "Transforming data took"

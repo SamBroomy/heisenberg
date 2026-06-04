@@ -3,282 +3,124 @@ name: Release
 on:
   push:
     tags:
-      - "v*.*.*"
+      - "v*"
   workflow_dispatch:
     inputs:
-      version:
-        description: "Version to release (without v prefix, e.g., 0.1.0)"
-        required: true
-        type: string
+      dry_run:
+        description: "Dry run (build but do not publish)"
+        required: false
+        default: false
+        type: boolean
 
-env:
-  CARGO_TERM_COLOR: always
-  # Use consistent versions across all jobs
-  RUST_CACHE_KEY_PREFIX: "shared"
+permissions:
+  contents: read
 
 jobs:
-  verify-release:
-    name: Verify Release Readiness
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Extract version
-        id: version
-        run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            VERSION="${{ github.event.inputs.version }}"
-          else
-            VERSION="${GITHUB_REF#refs/tags/v}"
-          fi
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Version: $VERSION"
-
-      - name: Verify version consistency
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-
-          # Check Cargo.toml workspace version
-          WORKSPACE_VERSION=$(grep '^version = ' Cargo.toml | head -n1 | sed 's/.*"\(.*\)".*/\1/')
-          echo "Workspace version: $WORKSPACE_VERSION"
-
-          # Check pyproject.toml version
-          PYTHON_VERSION=$(grep '^version = ' pyproject.toml | sed 's/.*"\(.*\)".*/\1/')
-          echo "Python version: $PYTHON_VERSION"
-
-          # Verify versions match
-          if [[ "$VERSION" != "$WORKSPACE_VERSION" ]]; then
-            echo "ERROR: Tag version ($VERSION) doesn't match workspace version ($WORKSPACE_VERSION)"
-            exit 1
-          fi
-
-          if [[ "$VERSION" != "$PYTHON_VERSION" ]]; then
-            echo "ERROR: Tag version ($VERSION) doesn't match Python version ($PYTHON_VERSION)"
-            exit 1
-          fi
-
-      - name: Check changelog
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          if [ -f "CHANGELOG.md" ]; then
-            if ! grep -q "## \[$VERSION\]" CHANGELOG.md; then
-              echo "WARNING: Version $VERSION not found in CHANGELOG.md"
-            fi
-          fi
-
-      - name: Verify secrets are configured
-        run: |
-          echo "🔍 Verifying required secrets..."
-          if [ -z "${{ secrets.CRATES_IO_TOKEN }}" ]; then
-            echo "ERROR: CRATES_IO_TOKEN secret is not set"
-            echo "Please configure it in repository settings: Settings → Secrets → Actions"
-            exit 1
-          fi
-          echo "CRATES_IO_TOKEN is configured"
-          echo "All required secrets are configured"
-
-  publish-crates:
-    name: Publish Rust Crates
-    needs: verify-release
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup environment
-        uses: ./.github/actions/setup
-        with:
-          rust-toolchain: stable
-          cache-prefix: ${{ env.RUST_CACHE_KEY_PREFIX }}
-
-      - name: Publish Rust crates
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
-        run: just publish-rust
-
-  test-release:
-    name: Test Release (${{ matrix.os }}, Python ${{ matrix.python-version }})
-    needs: verify-release
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup environment
-        uses: ./.github/actions/setup
-        with:
-          rust-toolchain: stable
-          python-version: ${{ matrix.python-version }}
-          cache-prefix: shared
-
-      - name: Run tests
-        run: just test
-        env:
-          USE_TEST_DATA: true
-
+  # =============================================================================
+  # Build Python Wheels for all platforms
+  # =============================================================================
   build-wheels:
-    name: Build Python Wheels (${{ matrix.target }})
-    needs: [verify-release, test-release]
-    runs-on: ${{ matrix.os }}
+    name: Build wheels (${{ matrix.platform.target }})
+    runs-on: ${{ matrix.platform.runner }}
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-latest
+        platform:
+          # Linux runners
+          - runner: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
-          - os: windows-latest
+            manylinux: manylinux_2_28
+          - runner: ubuntu-22.04
+            target: aarch64-unknown-linux-gnu
+            manylinux: manylinux_2_28
+          # Windows runners
+          - runner: windows-latest
             target: x86_64-pc-windows-msvc
-          - os: windows-latest
-            target: i686-pc-windows-msvc
-          - os: macos-13 # Intel
-            target: x86_64-apple-darwin
-          - os: macos-14 # Apple Silicon
+            manylinux: null
+          # macOS runners
+          - runner: macos-14
             target: aarch64-apple-darwin
-
+            manylinux: null
     steps:
       - uses: actions/checkout@v4
-
+      - name: "Set up Python"
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2.8.2
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
-          target: ${{ matrix.target }}
-          args: --release --out dist --features python
-          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
-          manylinux: auto
-
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist --find-interpreter
+          sccache: true
+          manylinux: ${{ matrix.platform.manylinux }}
+          working-directory: python/heisenberg-geo
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-${{ matrix.target }}
-          path: dist
+          name: wheels-${{ matrix.platform.target }}
+          path: python/heisenberg-geo/dist
 
-  publish-python:
-    name: Publish Python Package
-    needs: [verify-release, build-wheels]
+  build-sdist:
+    name: Build source distribution
     runs-on: ubuntu-latest
-    environment:
-      name: pypi
     permissions:
-      id-token: write # IMPORTANT: this permission is mandatory for trusted publishing
-      contents: write # Used to upload release artifacts
-      attestations: write # Used to generate artifact attestation
-
+      contents: write
     steps:
       - uses: actions/checkout@v4
-
-      - name: Download all wheels
-        uses: actions/download-artifact@v4
+      - uses: actions/setup-python@v6
         with:
-          pattern: wheels-*
-          path: dist-all
-          merge-multiple: true
-
-      - name: Build source distribution
+          python-version: "3.11"
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2.8.2
+      - name: Build sdist
         uses: PyO3/maturin-action@v1
         with:
           command: sdist
           args: --out dist
+          working-directory: python/heisenberg-geo
+      - name: Upload sdist
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: python/heisenberg-geo/dist
 
-      - name: Organize distributions
+  # =============================================================================
+  # Publish to PyPI (only on tags, not dry run)
+  # =============================================================================
+  publish-pypi:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') && !inputs.dry_run
+    needs: [build-wheels, build-sdist]
+    environment:
+      name: pypi
+    permissions:
+      id-token: write
+      contents: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: "{wheels-*,sdist}"
+          merge-multiple: true
+          path: dist
+      - name: List artifacts
         run: |
-          mkdir -p dist
-          find dist-all -name "*.whl" -exec cp {} dist/ \;
+          echo "=== Artifacts to publish ==="
           ls -la dist/
-
+          echo ""
+          echo "Total: $(ls dist/ | wc -l) files"
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: "dist/*"
-
-      - name: Check distributions
-        run: |
-          pip install twine
-          twine check dist/*
-
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-
-  create-release:
-    name: Create GitHub Release
-    needs: [verify-release, publish-crates, publish-python]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Extract version
-        id: version
-        run: |
-          VERSION="${{ needs.verify-release.outputs.version }}"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
-      - name: Generate changelog
-        id: changelog
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-
-          # Try to extract changelog for this version
-          if [ -f "CHANGELOG.md" ]; then
-            # Look for the version section in changelog
-            sed -n "/^## \[$VERSION\]/,/^## \[/p" CHANGELOG.md | sed '$d' > RELEASE_NOTES.md
-
-            # If the release notes are empty or very short, create a basic one
-            if [ ! -s RELEASE_NOTES.md ] || [ $(wc -l < RELEASE_NOTES.md) -lt 3 ]; then
-              cat > RELEASE_NOTES.md << EOF
-          ## Release $VERSION
-
-          This release includes improvements and updates to the Heisenberg location enrichment library.
-
-          ### Changes
-          - See the [full changelog](https://github.com/SamBroomy/heisenberg/blob/main/CHANGELOG.md) for detailed changes
-
-          ### Installation
-
-          **Rust:**
-          \`\`\`toml
-          [dependencies]
-          heisenberg = "$VERSION"
-          \`\`\`
-
-          **Python:**
-          \`\`\`bash
-          pip install heisenberg==$VERSION
-          \`\`\`
-          EOF
-            fi
-          else
-            # No changelog file, create a basic release note
-            cat > RELEASE_NOTES.md << EOF
-          ## Release $VERSION
-
-          Heisenberg location enrichment library release.
-
-          ### Installation
-
-          **Rust:**
-          \`\`\`toml
-          [dependencies]
-          heisenberg = "$VERSION"
-          \`\`\`
-
-          **Python:**
-          \`\`\`bash
-          pip install heisenberg==$VERSION
-          \`\`\`
-          EOF
-          fi
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ steps.version.outputs.version }}
-          name: Release ${{ steps.version.outputs.version }}
-          body_path: RELEASE_NOTES.md
-          draft: false
-          prerelease: false
-          generate_release_notes: true
+        run: uv publish
+        working-directory: .

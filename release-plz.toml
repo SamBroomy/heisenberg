@@ -1,0 +1,26 @@
+[workspace]
+# Use a single tag without package name prefix
+git_tag_name = "v{{ version }}"
+dependencies_update = true
+semver_check = true
+# All packages share the same version
+allow_dirty = false
+changelog_update = true
+
+
+[[package]]
+name = "heisenberg-data-processing"
+version_group = "main"
+release = true
+git_release_enable = false
+git_tag_enable = false
+
+[[package]]
+name = "heisenberg-geo"
+version_group = "main"
+release = true
+git_release_enable = true
+
+
+[changelog]
+protect_breaking_commits = true

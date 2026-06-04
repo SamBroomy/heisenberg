@@ -33,45 +33,50 @@ impl PlacesRawData {
     }
 
     pub fn as_lazy_frame(&self) -> LazyFrame {
-        LazyCsvReader::new(PlPath::Local(self.data.path().into()))
-            .with_separator(b'\t')
-            .with_has_header(false)
-            .with_schema(Some(Schema::from_iter(PLACES_FILE_SCHEMA).into()))
-            .with_quote_char(None)
-            .with_ignore_errors(true)
-            .with_truncate_ragged_lines(true)
-            .finish()
-            .expect("Failed to read place data `allCountries.txt` or `cities*.txt`")
-            .sort(
-                ["modification_date"],
-                SortMultipleOptions::default()
-                    .with_order_descending(true)
-                    .with_nulls_last(true),
-            )
-            .unique_stable(
-                Some(cols([
-                    "name",
-                    "asciiname",
-                    "feature_class",
-                    "feature_code",
-                    "admin0_code",
-                    "admin1_code",
-                    "admin2_code",
-                    "admin3_code",
-                    "admin4_code",
-                    "timezone",
-                ])),
-                UniqueKeepStrategy::First,
-            )
-            .with_column(
-                dtype_col(&DataType::String)
-                    .as_selector()
-                    .as_expr()
-                    .str()
-                    .strip_chars(lit("\"'"))
-                    .str()
-                    .strip_chars(lit("")),
-            )
-            .with_column(col("alternatenames").str().split(lit(",")))
+        LazyCsvReader::new(PlRefPath::new(
+            self.data
+                .path()
+                .to_str()
+                .expect("Failed to convert place data file path to string"),
+        ))
+        .with_separator(b'\t')
+        .with_has_header(false)
+        .with_schema(Some(Schema::from_iter(PLACES_FILE_SCHEMA).into()))
+        .with_quote_char(None)
+        .with_ignore_errors(true)
+        .with_truncate_ragged_lines(true)
+        .finish()
+        .expect("Failed to read place data `allCountries.txt` or `cities*.txt`")
+        .sort(
+            ["modification_date"],
+            SortMultipleOptions::default()
+                .with_order_descending(true)
+                .with_nulls_last(true),
+        )
+        .unique_stable(
+            Some(cols([
+                "name",
+                "asciiname",
+                "feature_class",
+                "feature_code",
+                "admin0_code",
+                "admin1_code",
+                "admin2_code",
+                "admin3_code",
+                "admin4_code",
+                "timezone",
+            ])),
+            UniqueKeepStrategy::First,
+        )
+        .with_column(
+            dtype_col(&DataType::String)
+                .as_selector()
+                .as_expr()
+                .str()
+                .strip_chars(lit("\"'"))
+                .str()
+                .strip_chars(lit("")),
+        )
+        .with_column(col("alternatenames").str().split(lit(",")))
     }
 }

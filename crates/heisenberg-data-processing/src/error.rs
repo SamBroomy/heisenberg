@@ -23,6 +23,8 @@ pub enum DataError {
     NoDataDirProvided,
     #[error("Required data files not found in the provided directory")]
     RequiredFilesNotFound,
+    #[error("Invalid file path: {0}")]
+    InvalidFilePath(String),
     #[error("Metadata file not found in the provided directory")]
     MetadataFileNotFound,
     #[error("Embedded Admin data not found in the provided directory")]

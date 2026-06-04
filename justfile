@@ -1,24 +1,23 @@
 set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
 set shell := ["bash", "-uc"]
 
-# List available recipes
-help:
+# Default recipe shows available commands
+default:
     @just --list
 
-# =============================================================================
-# Development Environment
-# =============================================================================
+[group('setup')]
+bootstrap: && install-pre-commit
+    uv sync --dev --all-extras --all-groups
 
-# Initialize development environment
-[group('dev')]
-init:
-    cargo install cargo-audit
-    cargo install cargo-machete
+# Install pre-commit hooks
+[group('setup')]
+install-pre-commit:
+    prek install
 
 # Setup development build
 [group('dev')]
-dev:
-    uv run maturin develop -r
+build-bindings:
+    uv run --directory python/heisenberg-geo maturin develop --release --uv
 
 # =============================================================================
 # Testing
@@ -27,7 +26,7 @@ dev:
 # Run Python tests and examples
 [group('ci')]
 [group('test')]
-pytest: dev
+pytest: build-bindings
     #!/usr/bin/env bash
     set -euo pipefail
     set -x
@@ -128,7 +127,7 @@ publish-dry-run:
     set -euo pipefail
     echo "🧪 Testing crate publishing (dry run)..."
     cd crates/heisenberg-data-processing && cargo publish --dry-run --quiet --allow-dirty
-    cd ../heisenberg && cargo publish --dry-run --quiet --allow-dirty
+    cd ../heisenberg-geo && cargo publish --dry-run --quiet --allow-dirty
     echo "✅ Publish dry run completed successfully"
 
 # Run all linting (full)
@@ -182,37 +181,6 @@ rust-build:
     cargo build --release
 
 # =============================================================================
-# Git Hooks
-# =============================================================================
-
-# Install Git hooks using prefligit
-[group('git-hooks')]
-install-pre-commit:
-    #!/usr/bin/env sh
-    if ! command -v prefligit &> /dev/null; then
-        echo "Installing prefligit..."
-        cargo install --locked --git https://github.com/j178/prefligit
-    else
-        echo "prefligit is already installed"
-    fi
-    prefligit install
-    prefligit run --all-files
-
-# Run the pre-commit hooks
-[group('git-hooks')]
-run-pre-commit:
-    prefligit run --all-files
-
-# Run the pre-push hooks
-[group('git-hooks')]
-run-pre-push:
-    prefligit run --hook-stage pre-push
-
-# Run all hooks
-[group('git-hooks')]
-run-hooks: install-pre-commit run-pre-commit run-pre-push
-
-# =============================================================================
 # Environment Management
 # =============================================================================
 
@@ -234,7 +202,7 @@ clean-rust:
 [group('env')]
 clean-data:
     rm -rf heisenberg_data
-    find crates/heisenberg/src/data/embedded -type f \( -name '*.parquet' -o -name '*.json' \) -delete 2>/dev/null || true
+    find crates/heisenberg-geo/src/data/embedded -type f \( -name '*.parquet' -o -name '*.json' \) -delete 2>/dev/null || true
 
 # Clean virtual environment
 [group('env')]
@@ -299,9 +267,9 @@ publish-rust:
     echo "⏳ Waiting for crates.io to update..."
     sleep 60
 
-    # Publish heisenberg
-    echo "Publishing heisenberg..."
-    cd crates/heisenberg
+    # Publish heisenberg-geo
+    echo "Publishing heisenberg-geo..."
+    cd crates/heisenberg-geo
     cargo publish --dry-run
     cargo publish
     cd ../..
@@ -321,7 +289,7 @@ build-python:
     rm -rf dist/ target/wheels/
 
     # Build wheels
-    uv run maturin build --features python --release
+    uv run --directory python/heisenberg-geo maturin build --features python --release
 
     echo "✅ Python package built successfully!"
 
@@ -451,7 +419,7 @@ release VERSION: check-release
 
                 # Check if crates are already published
                 echo "🔍 Checking if version is already published..."
-                if cargo search heisenberg --limit 1 | grep -q "heisenberg = \"$VERSION\""; then
+                if cargo search heisenberg_geo --limit 1 | grep -q "heisenberg_geo = \"$VERSION\""; then
                     echo "❌ Version $VERSION is already published to crates.io"
                     echo "💡 Tip: Use a higher version number, e.g.:"
                     IFS='.' read -ra PARTS <<< "$VERSION"
@@ -481,12 +449,12 @@ release VERSION: check-release
 
         # Update version in Cargo.toml files
         sed -i.bak "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
-        sed -i.bak "s/^version = \".*\"/version = \"$VERSION\"/" crates/heisenberg/Cargo.toml
+        sed -i.bak "s/^version = \".*\"/version = \"$VERSION\"/" crates/heisenberg-geo/Cargo.toml
         sed -i.bak "s/^version = \".*\"/version = \"$VERSION\"/" crates/heisenberg-data-processing/Cargo.toml
         sed -i.bak "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
 
         # Update workspace dependency versions
-        sed -i.bak "s/heisenberg = { version = \".*\", path = \"crates\/heisenberg\" }/heisenberg = { version = \"$VERSION\", path = \"crates\/heisenberg\" }/" Cargo.toml
+        sed -i.bak "s/heisenberg-geo = { version = \".*\", path = \"crates\/heisenberg-geo\" }/heisenberg-geo = { version = \"$VERSION\", path = \"crates\/heisenberg-geo\" }/" Cargo.toml
         sed -i.bak "s/heisenberg-data-processing = { version = \".*\", path = \"crates\/heisenberg-data-processing\" }/heisenberg-data-processing = { version = \"$VERSION\", path = \"crates\/heisenberg-data-processing\" }/" Cargo.toml
 
         # Remove backup files
@@ -507,3 +475,140 @@ release VERSION: check-release
     git push origin "v$VERSION"
 
     echo "✅ Release $VERSION created and pushed!"
+
+# Clean all caches (embedded data + indexes)
+[group('env')]
+clean-cache:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    # Determine cache directory based on OS
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        CACHE_DIR="${HOME}/Library/Caches/heisenberg-geo"
+    else
+        CACHE_DIR="${HOME}/.cache/heisenberg-geo"
+    fi
+
+    if [ -d "$CACHE_DIR" ]; then
+        echo "🗑️  Cleaning cache at $CACHE_DIR"
+
+        # Show what we're removing
+        echo ""
+        echo "📊 Current cache contents:"
+        du -sh "$CACHE_DIR"/* 2>/dev/null || echo "  (empty)"
+
+        # Remove it
+        rm -rf "$CACHE_DIR"
+
+        echo ""
+        echo "✅ Cache cleaned"
+    else
+        echo "ℹ️  No cache directory found at $CACHE_DIR"
+    fi
+
+# Clean old version caches (keep current version only)
+[group('env')]
+clean-old-caches:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    CURRENT_VERSION=$(grep '^version = ' Cargo.toml | head -n1 | sed 's/.*"\(.*\)".*/\1/')
+
+    # Determine cache directory based on OS
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        CACHE_DIR="${HOME}/Library/Caches/heisenberg-geo/embedded_data"
+    else
+        CACHE_DIR="${HOME}/.cache/heisenberg-geo/embedded_data"
+    fi
+
+    if [ -d "$CACHE_DIR" ]; then
+        echo "🔍 Current version: $CURRENT_VERSION"
+        echo "📂 Checking cache at: $CACHE_DIR"
+        echo ""
+
+        # Show what will be kept/removed
+        echo "📊 Cache versions:"
+        for dir in "$CACHE_DIR"/*; do
+            if [ -d "$dir" ]; then
+                VERSION=$(basename "$dir")
+                SIZE=$(du -sh "$dir" | cut -f1)
+                if [ "$VERSION" = "$CURRENT_VERSION" ]; then
+                    echo "  ✅ Keep: $VERSION ($SIZE)"
+                else
+                    echo "  ❌ Remove: $VERSION ($SIZE)"
+                fi
+            fi
+        done
+
+        # Remove old versions
+        echo ""
+        find "$CACHE_DIR" -maxdepth 1 -type d ! -name "$CURRENT_VERSION" ! -path "$CACHE_DIR" -exec rm -rf {} \;
+
+        echo "✅ Old caches cleaned (kept $CURRENT_VERSION)"
+    else
+        echo "ℹ️  No embedded data cache found"
+    fi
+
+# Show cache statistics
+[group('env')]
+cache-stats:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    # Determine cache directory based on OS
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        BASE_CACHE="${HOME}/Library/Caches/heisenberg-geo"
+    else
+        BASE_CACHE="${HOME}/.cache/heisenberg-geo"
+    fi
+
+    echo "📊 Heisenberg Cache Statistics"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+
+    if [ ! -d "$BASE_CACHE" ]; then
+        echo "ℹ️  No cache directory found at $BASE_CACHE"
+        exit 0
+    fi
+
+    # Embedded data cache
+    EMBEDDED_CACHE="$BASE_CACHE/embedded_data"
+    if [ -d "$EMBEDDED_CACHE" ]; then
+        echo "📦 Embedded Data Cache:"
+        for version_dir in "$EMBEDDED_CACHE"/*; do
+            if [ -d "$version_dir" ]; then
+                VERSION=$(basename "$version_dir")
+                for source_dir in "$version_dir"/*; do
+                    if [ -d "$source_dir" ]; then
+                        SOURCE=$(basename "$source_dir")
+                        SIZE=$(du -sh "$source_dir" | cut -f1)
+                        echo "  • $VERSION / $SOURCE: $SIZE"
+                    fi
+                done
+            fi
+        done
+    else
+        echo "📦 Embedded Data Cache: (empty)"
+    fi
+
+    echo ""
+
+    # Index cache
+    INDEX_CACHE="$BASE_CACHE/indexes"
+    if [ -d "$INDEX_CACHE" ]; then
+        echo "🔍 Index Cache:"
+        for hash_dir in "$INDEX_CACHE"/*; do
+            if [ -d "$hash_dir" ]; then
+                HASH=$(basename "$hash_dir")
+                SIZE=$(du -sh "$hash_dir" | cut -f1)
+                echo "  • Hash $HASH: $SIZE"
+            fi
+        done
+    else
+        echo "🔍 Index Cache: (empty)"
+    fi
+
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    TOTAL_SIZE=$(du -sh "$BASE_CACHE" | cut -f1)
+    echo "💾 Total cache size: $TOTAL_SIZE"
